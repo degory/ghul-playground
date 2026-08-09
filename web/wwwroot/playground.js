@@ -6,6 +6,7 @@ import { dotnet } from './_framework/dotnet.js'
 import { GHUL_LANGUAGE, GHUL_CONFIGURATION } from './ghul-language.js'
 import { GhulLanguageClient } from './lsp.js'
 import { getToken, setToken, askForToken } from './token.js'
+import { defineThemes, themeName } from './theme.js'
 
 // Deployed, both services sit behind the same reverse proxy that serves this
 // page, so same-origin paths avoid CORS entirely. The .NET dev server does not
@@ -49,6 +50,8 @@ function loadMonaco() {
             monaco.languages.setMonarchTokensProvider('ghul', GHUL_LANGUAGE);
             monaco.languages.setLanguageConfiguration('ghul', GHUL_CONFIGURATION);
 
+            defineThemes();
+
             resolve();
         });
     });
@@ -87,13 +90,33 @@ export async function createPlayground({
     const editor = monaco.editor.create(container, {
         value: source,
         language: 'ghul',
-        theme,
+        theme: themeName(theme),
         automaticLayout: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
+        // The same face and features ghul.dev sets on a rendered example, so
+        // clicking edit does not change how the code looks.
+        fontFamily: "'Fira Code', var(--vp-font-family-mono, monospace)",
+        fontLigatures: "'calt', 'liga', 'ss07'",
         fontSize: 14,
-        tabSize: 4
+        tabSize: 4,
+        'semanticHighlighting.enabled': true
     });
+
+    // Identifiers coloured by what the compiler resolved them to, rather than
+    // by the grammar's guess. Registered once the legend is known, and it only
+    // becomes known after the first initialize.
+    let semanticProvider = null;
+
+    function registerSemanticTokens() {
+        if (semanticProvider || !client.semanticTokensLegend) return;
+
+        semanticProvider = monaco.languages.registerDocumentSemanticTokensProvider('ghul', {
+            getLegend: () => client.semanticTokensLegend,
+            provideDocumentSemanticTokens: () => client.semanticTokens(),
+            releaseDocumentSemanticTokens: () => { }
+        });
+    }
 
     const client = new GhulLanguageClient(ANALYSE_SERVICE, {
         getToken,
@@ -105,6 +128,8 @@ export async function createPlayground({
             if (state !== 'ready') {
                 monaco.editor.setModelMarkers(editor.getModel(), 'ghul-analyse', []);
             }
+
+            if (state === 'ready') registerSemanticTokens();
 
             onAnalyser(state);
         }
@@ -230,7 +255,7 @@ export async function createPlayground({
         setToken: token => { setToken(token); client.reconnect(); },
         setSource: text => editor.setValue(text),
         getSource: () => editor.getValue(),
-        setTheme: name => monaco.editor.setTheme(name),
+        setTheme: name => monaco.editor.setTheme(themeName(name)),
         contentHeight: () => editor.getContentHeight(),
         dispose: () => { client.dispose(); editor.dispose(); }
     };

@@ -7,6 +7,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="preload" id="webassembly" />
   <script type="importmap"></script>
+  <style>
+    /* The same face and source ghul.dev uses, so an example looks identical
+       whether it is being read or edited. The frame is a separate origin, so
+       the site's own @font-face declaration does not reach it. */
+    @font-face {
+      font-family: 'Fira Code';
+      font-style: normal;
+      font-weight: 300 700;
+      font-display: swap;
+      src: url('https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/woff2/FiraCode-VF.woff2') format('woff2');
+    }
+  </style>
   <link rel="stylesheet" href="vs/editor/editor.main.css">
   <script src="vs/loader.js"></script>
   <script type='module' src="embed.js"></script>
