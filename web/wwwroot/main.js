@@ -14,6 +14,7 @@ const STATUS_TEXT = {
     'starting runtime': () => 'starting the .NET runtime ...',
     running: () => 'running ...',
     failed: () => 'compilation failed',
+    busy: () => 'the service is busy, try again',
     error: () => 'failed',
     done: d => `compiled in ${d.compiled} ms, ran in ${d.ran} ms`
 };

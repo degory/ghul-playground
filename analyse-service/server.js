@@ -20,6 +20,7 @@ const { WebSocketServer } = require('ws');
 
 const { resolveReferencePaths } = require('../shared/toolchain');
 const { Analyser } = require('./analyser');
+const origins = require('../shared/origins');
 const tokens = require('../shared/tokens');
 
 const PORT = Number(process.env.PORT ?? 5091);
@@ -300,6 +301,16 @@ const wss = new WebSocketServer({
     path: '/analyse',
 
     verifyClient: (info, callback) => {
+        // Sessions are a small fixed pool, so a third-party page opening them
+        // from its visitors' browsers would deny editing to everyone at no cost
+        // to itself. Browsers always send Origin on a WebSocket and cannot
+        // forge it; anything that can is answered by the session cap instead.
+        if (!origins.accepts(info.req.headers.origin)) {
+            log(`refusing connection: origin ${info.req.headers.origin} not allowed`);
+            callback(false, 403, 'origin not allowed');
+            return;
+        }
+
         const offered = (info.req.headers['sec-websocket-protocol'] ?? '')
             .split(',')
             .map(protocol => protocol.trim())
@@ -367,6 +378,7 @@ wss.on('connection', async socket => {
         log(`analyse service on ws://${HOST}:${PORT}/analyse ` +
             `(max ${MAX_SESSIONS} sessions, pool ${POOL_SIZE}, idle ${IDLE_TIMEOUT_MS / 1000}s)`);
         log(tokens.describe());
+        log(origins.describe());
 
         replenish();
     });

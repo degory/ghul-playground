@@ -43,6 +43,15 @@ services:
       # A short fixed list of shared access tokens, comma separated. Supplied
       # from the environment, never committed. Both services must agree.
       PLAYGROUND_TOKENS: "${PLAYGROUND_TOKENS:-}"
+      # Which sites may drive the service from a browser. Unset means any, which
+      # is what local development wants. Both services must agree here too.
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
+      # A compile is about a CPU-second and peaks near 200 MB, so this rather
+      # than mem_limit is what keeps the container off its cap. Past the queue
+      # the service answers 503 rather than accepting work it cannot do.
+      MAX_CONCURRENT_COMPILES: "2"
+      MAX_QUEUED_COMPILES: "6"
+      COMPILE_TIMEOUT_MS: "10000"
 
     # Bound to loopback: these sit behind a reverse proxy that terminates TLS,
     # rather than facing the internet themselves.
@@ -74,6 +83,7 @@ services:
 
     environment:
       PLAYGROUND_TOKENS: "${PLAYGROUND_TOKENS:-}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
       # Measured against the trimmed reference set and a single file, an
       # analyser costs around 70 MB rather than the 260 MB a full project
       # needs. The worst case is MAX_SESSIONS + POOL_SIZE of them, since the

@@ -244,6 +244,17 @@ export async function createPlayground({
                 return;
             }
 
+            // The service caps how many compiles run at once and the proxy caps
+            // how often one address may ask, so being turned away is a normal
+            // thing that happens to an innocent reader when somebody else is
+            // hammering it. Say so, rather than reporting it as a failure of
+            // their program.
+            if (response.status === 429 || response.status === 503) {
+                onStatus('busy');
+                onOutput('The compile service is busy. Try running it again in a moment.');
+                return;
+            }
+
             if (!response.ok) {
                 throw new Error(`compile service returned HTTP ${response.status}`);
             }
