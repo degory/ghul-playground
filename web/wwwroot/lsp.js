@@ -45,6 +45,13 @@ export class GhulLanguageClient {
         this.model = null;
         this.reconnectDelay = 1000;
         this.disposed = false;
+
+        // Set when the service closed the session for idleness. Reconnecting
+        // straight away would defeat the reaping entirely: the slot would be
+        // handed back to the same idle editor, and a couple of forgotten tabs
+        // would hold every session there is. The next thing the reader does
+        // wakes it.
+        this.dormant = false;
     }
 
     // Whether queries are worth making. Callers use this to decide between
@@ -105,9 +112,12 @@ export class GhulLanguageClient {
 
         socket.addEventListener('message', event => this.receive(JSON.parse(event.data)));
 
-        socket.addEventListener('close', () => {
+        socket.addEventListener('close', event => {
             this.connected = false;
             this.initialized = false;
+
+            // The service says why. Anything else is a fault and is retried.
+            this.dormant = event.reason === 'idle';
 
             // Any in-flight request will never be answered now.
             for (const resolve of this.pending.values()) resolve(null);
@@ -117,8 +127,9 @@ export class GhulLanguageClient {
             // being ready. Reporting only the ready-then-lost case leaves a
             // service that was never reachable showing "connecting" for ever,
             // which reads as a hung client rather than an absent server.
-            this.onStatus('disconnected');
-            this.scheduleReconnect();
+            this.onStatus(this.dormant ? 'dormant' : 'disconnected');
+
+            if (!this.dormant) this.scheduleReconnect();
         });
 
         socket.addEventListener('error', () => { /* close follows */ });
@@ -196,6 +207,7 @@ export class GhulLanguageClient {
     // Whole-document sync. The bridge mirrors it to disk for the analyser, and
     // one file is small enough that computing deltas would buy nothing.
     changed(text) {
+        if (this.wake()) return;
         if (!this.ready) return;
 
         this.send('textDocument/didChange', {
@@ -230,7 +242,20 @@ export class GhulLanguageClient {
         })));
     }
 
+    // Reconnect on the reader's next move, and report that this attempt found
+    // nothing rather than waiting for the socket.
+    wake() {
+        if (!this.dormant) return false;
+
+        this.dormant = false;
+        this.reconnectDelay = 1000;
+        this.connect();
+
+        return true;
+    }
+
     async hover(position) {
+        if (this.wake()) return null;
         const result = await this.request('textDocument/hover', {
             textDocument: { uri: DOCUMENT_URI },
             position: { line: position.lineNumber - 1, character: position.column - 1 }
@@ -249,6 +274,8 @@ export class GhulLanguageClient {
     }
 
     async completion(position) {
+        if (this.wake()) return [];
+
         const result = await this.request('textDocument/completion', {
             textDocument: { uri: DOCUMENT_URI },
             position: { line: position.lineNumber - 1, character: position.column - 1 },

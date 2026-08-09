@@ -99,7 +99,9 @@ export async function createPlayground({
         getToken,
         onStatus: state => {
             // A dead analyser leaves its last diagnostics on screen, which
-            // would be stale and misleading.
+            // would be stale and misleading. `dormant` is not a failure - the
+            // session was reaped for idleness and the next edit wakes it - but
+            // its diagnostics are just as stale, so they go too.
             if (state !== 'ready') {
                 monaco.editor.setModelMarkers(editor.getModel(), 'ghul-analyse', []);
             }
