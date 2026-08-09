@@ -82,7 +82,6 @@ export class GhulLanguageClient {
         socket.addEventListener('message', event => this.receive(JSON.parse(event.data)));
 
         socket.addEventListener('close', () => {
-            const wasReady = this.ready;
             this.connected = false;
             this.initialized = false;
 
@@ -90,7 +89,11 @@ export class GhulLanguageClient {
             for (const resolve of this.pending.values()) resolve(null);
             this.pending.clear();
 
-            if (wasReady) this.onStatus('disconnected');
+            // Report every failure, including one that never got as far as
+            // being ready. Reporting only the ready-then-lost case leaves a
+            // service that was never reachable showing "connecting" for ever,
+            // which reads as a hung client rather than an absent server.
+            this.onStatus('disconnected');
             this.scheduleReconnect();
         });
 
