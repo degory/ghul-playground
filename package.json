@@ -7,9 +7,11 @@
   "scripts": {
     "postinstall": "node scripts/stage-monaco.js",
     "compile-service": "node compile-service/server.js",
-    "web": "dotnet run --project web"
+    "web": "dotnet run --project web",
+    "analyse-service": "node analyse-service/server.js"
   },
   "dependencies": {
-    "monaco-editor": "0.56.0"
+    "monaco-editor": "0.56.0",
+    "ws": "^8.18.0"
   }
 }

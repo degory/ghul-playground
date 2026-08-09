@@ -1,19 +1,21 @@
 # ghūl playground
 
-Edit [ghūl](https://ghul.dev) in the browser, compile it, and run it in the browser.
+Edit [ghūl](https://ghul.dev) in the browser, with diagnostics, hover and
+completion as you type. Compile it, and run it in the browser.
 
-**This is a prototype.** It works end to end, and the compile service has a
-container that contains it, but there is no egress blocking and no rate
-limiting yet, so it is not something to put on the public internet. See
+**This is a prototype.** The services have containers that contain them, but
+there is no egress blocking and no rate limiting yet, so it is not something to
+put on the public internet. See
 [before this is exposed to anyone](#before-this-is-exposed-to-anyone).
 
 ## how it works
 
-Three parts, separated by how much they are trusted with.
+Four parts, separated by how much they are trusted with.
 
 | | runs where | handles untrusted source | executes untrusted code |
 | --- | --- | --- | --- |
 | editor | browser | yes | no |
+| analyse service | server | yes | no |
 | compile service | server | yes | no |
 | the compiled program | **browser** | yes | yes, in the browser's sandbox |
 
@@ -26,6 +28,11 @@ browser has no host filesystem, no network beyond what the page already has,
 and no process to escape into, so a program that tries `IO.File.read_all_text`
 gets a `DirectoryNotFoundException` rather than reaching anything. A runaway
 loop is a tab that stops responding, not a server to clean up.
+
+The analyse service is separate from the compile service because analysis mode
+never runs code generation, so a warm analyser cannot produce an assembly. That
+suits both: compiling stays stateless and cacheable, and only analysis is
+stateful.
 
 ## running it
 
@@ -40,87 +47,93 @@ npm install
 `npm install` also stages the Monaco editor into the web app, which is not
 committed.
 
-Then, in two terminals:
+The services are best run in their containers, because the limits are what
+contain the compiler:
 
 ```sh
-npm run compile-service     # http://127.0.0.1:5090
+docker compose up --build -d
+```
+
+That brings up the compile service on `127.0.0.1:5090` and the analyse service
+on `127.0.0.1:5091`. Then:
+
+```sh
 npm run web                 # http://127.0.0.1:5080
 ```
 
 Open <http://127.0.0.1:5080>. Edit the program and press **Compile and run**,
 or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.
 
-The compile service binds to `127.0.0.1` and the web app expects it at
-`http://127.0.0.1:5090`. To run them apart, set `HOST` and `PORT` on the
-service and change `COMPILE_SERVICE` at the top of `web/wwwroot/main.js`.
+To run a service outside a container while working on it, `npm run
+compile-service` and `npm run analyse-service` do that. The analyse service
+needs `ghul-language-server` on `PATH`; it is published as an asset on the
+[extension's releases](https://github.com/degory/ghul-vsce/releases), not to
+npm.
 
-### the compile service in a container
+## what works
 
-Preferred for anything but a quick local run, because the limits are what
-contain the compiler:
+Syntax highlighting, compile, run, output, and from the analyse service:
+diagnostics as you type, hover, and completion. Measured in Chromium against
+the containers: a diagnostic appears about 500 ms after a keystroke, of which
+300 ms is the deliberate debounce.
 
-```sh
-docker compose -f compose.yaml up --build
-```
+The analyser is what makes those possible. Warm, it answers an edit in a
+millisecond or two; a cold compile pays process start, reflection and a
+from-scratch symbol table and takes seconds, so per-keystroke compilation would
+be both slower and more expensive.
 
-from `compile-service/`. It listens on the same `127.0.0.1:5090`, so the web
-app needs no change. The container runs as a non-root user with a read-only
-root filesystem, all capabilities dropped, `no-new-privileges`, a tmpfs for
-the compiler's scratch output, and memory, CPU and process limits. Its health
-check compiles a program rather than just probing the socket, so a broken
-toolchain shows as unhealthy instead of as failing user requests.
-
-One control the compose file cannot express is **egress**. Docker gives a
-container either a network or none, and the service needs ingress, so it gets
-both. Block outbound traffic at the host firewall, or put the container on an
-internal network behind the reverse proxy.
-
-## what works, and what does not
-
-Working: syntax highlighting, compile, run, output, and compiler diagnostics
-reported as editor markers on the exact source range.
-
-Not implemented:
-
-- **Hover and completion.** Nothing of either is wired up.
-- **Diagnostics as you type.** They arrive on Compile and run, not while
-  editing.
-
-Both need a language service holding a live analyser per editing session,
-which is the next substantial piece of work. `ghul-language-server` already
-speaks LSP and drives the compiler's analysis mode, so the work is hosting it
-and connecting it, not writing it. Monaco needs no LSP client library for
-this: `setModelMarkers`, `registerHoverProvider` and
-`registerCompletionItemProvider` are plain callbacks.
+Not implemented: go to definition, references, rename, formatting and signature
+help. The language server offers all of them, so they are wiring rather than
+work.
 
 Highlighting comes from a Monarch grammar (`web/wwwroot/ghul-language.js`) and
-is approximate by design. It gives instant colour while typing; anything that
-has to be correct rather than fast should come from the compiler.
+is approximate. It gives instant colour while typing. The language server also
+serves semantic tokens, which would colour identifiers by what the compiler
+resolved them to; that is not wired up yet.
+
+## sessions
+
+One WebSocket, one private workspace, one language server process. Processes
+are never shared between clients: a fresh process is the isolation boundary
+between them, so recycling one is a requirement rather than an optimisation.
+
+A session is closed after five minutes idle, and after an hour regardless. The
+client is expected to tolerate that, and reconnects and resends the document,
+which is cheap because there is only ever one file.
+
+The client addresses a fixed virtual path and never learns where its workspace
+actually is; the bridge maps between the two, so a browser cannot address
+anything outside its own session by naming a different URI.
+
+Concurrency is capped rather than queued, because a warm analyser holds roughly
+260 MB and opening a session is far cheaper for a client than for the service.
+`/health` answers even when every slot is taken: it reports that the service
+exists, which is what a front end needs in order to decide whether to offer
+editing at all.
 
 ## before this is exposed to anyone
 
-The compile service runs the compiler on posted source. Run in a container it
-is contained as described above, which covers the resource limits and the
-blast radius. Still outstanding before it faces anyone:
+Run in their containers the services are contained: non-root, read-only root
+filesystem, all capabilities dropped, `no-new-privileges`, a tmpfs for scratch,
+and memory, CPU and process limits. Still outstanding:
 
-- **Block egress.** See the note above; the container has a network because it
-  needs ingress, and nothing currently stops it making outbound connections.
-- Add per-address rate limiting and a global concurrency cap that queues
-  rather than scales.
-- Terminate TLS in front of it. A page served over HTTPS cannot call an HTTP
-  backend, so this is a functional requirement for embedding as well as a
-  security one.
-- Cache on a hash of the source and the compiler version. Most requests to a
-  playground are the same handful of examples.
-- Serve it from its own origin, and run the browser runtime in a sandboxed
-  iframe, so that a compromise cannot reach another site's session.
+- **Block egress.** Both containers have a network because they need ingress,
+  and nothing currently stops them making outbound connections. Block it at the
+  host firewall or put them on an internal network behind the proxy.
+- Per-address rate limiting, and a concurrency cap on compiling as well as on
+  sessions.
+- Terminate TLS in front of them. A page served over HTTPS cannot call an HTTP
+  backend or open an insecure WebSocket, so this is a functional requirement
+  for embedding as well as a security one.
 
-Restricting the reference set the service compiles against (see `REFERENCES`
-in `compile-service/server.js`) makes some APIs unnameable and so uncallable:
-`System.Net.Http` and `System.Diagnostics.Process` are both unreachable. It
-does **not** deny the filesystem. `System.Runtime` type-forwards the
-`System.IO` surface and cannot be dropped, so `IO.File` compiles regardless.
-That is survivable only because the compiled program runs in the browser.
+Restricting the reference set (`REFERENCES` in `shared/toolchain.js`) makes
+some APIs unnameable and so uncallable: `System.Net.Http` and
+`System.Diagnostics.Process` are both unreachable, and
+`System.Runtime.InteropServices.JavaScript` is excluded so user code cannot
+script the hosting page. It does **not** deny the filesystem.
+`System.Runtime` type-forwards the `System.IO` surface and cannot be dropped,
+so `IO.File` compiles regardless. That is survivable only because the compiled
+program runs in the browser.
 
 ## layout
 
@@ -128,11 +141,26 @@ That is survivable only because the compiled program runs in the browser.
 | --- | --- |
 | `web/` | the browser app: a .NET WebAssembly host plus the Monaco front end |
 | `web/Program.cs` | the only C#; see below |
-| `web/wwwroot/main.js` | all UI logic: editor, compile request, markers, run |
+| `web/wwwroot/main.js` | editor, compile request, run, and wiring the two below |
+| `web/wwwroot/lsp.js` | the LSP client: markers, hover and completion providers |
 | `web/wwwroot/ghul-language.js` | Monarch grammar and language configuration |
+| `analyse-service/` | a WebSocket in front of one language server per editor |
+| `compile-service/` | compiles posted source, returns an assembly |
+| `shared/toolchain.js` | where the toolchain is, and the reference set |
 | `runner/` | the load-and-run logic, in ghūl |
-| `compile-service/server.js` | compiles posted source, returns an assembly |
 | `examples/` | small programs used to check the host by hand |
+
+`shared/toolchain.js` is shared deliberately. If the analyse service and the
+compile service disagreed about the reference set, the editor would report
+errors the build does not, or stay silent about errors the build reports.
+
+### no LSP client library
+
+Monaco's own APIs cover what is needed: `setModelMarkers` for diagnostics,
+`registerHoverProvider` for hover, `registerCompletionItemProvider` for
+completion. Each takes a plain callback, so `web/wwwroot/lsp.js` speaks LSP
+directly in a few hundred lines. That avoids `monaco-languageclient` and its
+`@codingame/monaco-vscode-*` dependency chain.
 
 ### why there is any C# here
 

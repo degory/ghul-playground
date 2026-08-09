@@ -1,9 +1,8 @@
 // Compile service for the ghūl playground.
 //
-// SECURITY: this is a prototype. It runs the ghūl compiler on whatever source
-// it is posted, as whatever user it runs as, with no sandbox, no resource
-// limit and no rate limit. Bind it to localhost and do not expose it. See
-// "Before this is exposed to anyone" in the README.
+// SECURITY: run this in the container. Outside it there is no sandbox and no
+// resource limit beyond a source size cap and a compile timeout, and it runs
+// the ghūl compiler on whatever it is posted.
 //
 //   POST /compile  {"source": "..."}
 //     -> {"ok": bool, "diagnostics": [...], "assembly": "<base64>"|null}
@@ -13,111 +12,33 @@
 
 const http = require('http');
 const { execFile } = require('child_process');
-const { mkdtemp, writeFile, readFile, rm, readdir } = require('fs/promises');
-const { existsSync } = require('fs');
+const { mkdtemp, writeFile, readFile, rm } = require('fs/promises');
 const { tmpdir } = require('os');
 const path = require('path');
+
+const { resolveCompiler, resolveReferencePaths } = require('../shared/toolchain');
 
 const PORT = Number(process.env.PORT ?? 5090);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
-// Source larger than this is rejected before the compiler is started.
 const MAX_SOURCE_BYTES = 256 * 1024;
 const COMPILE_TIMEOUT_MS = 30000;
 
-// The reference set user code is compiled against. Deliberately small: it is
-// the capability surface a program can name.
-//
-// Note this does NOT deny filesystem access. `System.Runtime` type-forwards
-// the `System.IO` surface and cannot be dropped, so `IO.File.read_all_text`
-// compiles whatever is listed here. That is only safe because the compiled
-// assembly runs in the browser, where there is no host filesystem for it to
-// reach.
-const REFERENCES = [
-    'System.Runtime',
-    'System.Console',
-    'System.Collections',
-    'System.Linq',
-    'System.Runtime.Extensions',
-    'netstandard',
-    'System.Text.RegularExpressions',
-    'System.Threading.Tasks',
-    'System.Memory'
-];
-
 // `file: LINE,COL..LINE,COL: severity: message`
 const DIAGNOSTIC = /^(.*?):\s*(\d+),(\d+)\.\.(\d+),(\d+):\s*(error|warn|info|hint):\s*(.*)$/;
-
-function highestVersion(versions) {
-    const key = v => v.split(/[.-]/).map(p => (/^\d+$/.test(p) ? +p : -1));
-
-    return versions.sort((a, b) => {
-        const [x, y] = [key(a), key(b)];
-        for (let i = 0; i < Math.max(x.length, y.length); i++) {
-            if ((x[i] ?? -1) !== (y[i] ?? -1)) return (x[i] ?? -1) - (y[i] ?? -1);
-        }
-        return 0;
-    }).pop();
-}
-
-async function resolveCompiler() {
-    if (process.env.GHUL_COMPILER_DLL) {
-        return process.env.GHUL_COMPILER_DLL;
-    }
-
-    const packages = path.join(process.env.HOME, '.nuget', 'packages', 'ghul.compiler');
-    const version = highestVersion(await readdir(packages));
-
-    return path.join(packages, version, 'tools', 'net10.0', 'any', 'ghul.dll');
-}
-
-async function resolveReferencePack() {
-    if (process.env.GHUL_REFERENCE_PACK) {
-        return process.env.GHUL_REFERENCE_PACK;
-    }
-
-    for (const root of ['/usr/lib/dotnet', '/usr/share/dotnet', process.env.DOTNET_ROOT]) {
-        if (!root) continue;
-
-        const packs = path.join(root, 'packs', 'Microsoft.NETCore.App.Ref');
-        if (!existsSync(packs)) continue;
-
-        const version = highestVersion(await readdir(packs));
-
-        return path.join(packs, version, 'ref', 'net10.0');
-    }
-
-    throw new Error('could not find Microsoft.NETCore.App.Ref; set GHUL_REFERENCE_PACK');
-}
-
-// Must be the runtime the web app ships, not the copy bundled with the
-// compiler: user code is compiled against this and then bound against
-// whatever the browser loaded, so a mismatch fails at load time rather than
-// at compile time.
-async function resolveRuntime() {
-    if (process.env.GHUL_RUNTIME_DLL) {
-        return process.env.GHUL_RUNTIME_DLL;
-    }
-
-    const packages = path.join(process.env.HOME, '.nuget', 'packages', 'ghul.runtime');
-    const version = highestVersion(await readdir(packages));
-
-    return path.join(packages, version, 'lib', 'net10.0', 'ghul-runtime.dll');
-}
 
 let toolchain = null;
 
 async function getToolchain() {
     if (!toolchain) {
-        const [compiler, referencePack, runtime] = await Promise.all([
-            resolveCompiler(), resolveReferencePack(), resolveRuntime()
+        const [compiler, references] = await Promise.all([
+            resolveCompiler(), resolveReferencePaths()
         ]);
 
-        toolchain = { compiler, referencePack, runtime };
+        toolchain = { compiler, references };
 
-        console.log(`compiler:       ${compiler}`);
-        console.log(`runtime:        ${runtime}`);
-        console.log(`reference pack: ${referencePack}`);
+        console.log(`compiler:   ${compiler}`);
+        console.log(`references: ${references.length}`);
     }
 
     return toolchain;
@@ -150,16 +71,16 @@ function runCompiler(args, cwd) {
 }
 
 async function compile(source) {
-    const { compiler, referencePack, runtime } = await getToolchain();
+    const { compiler, references } = await getToolchain();
     const directory = await mkdtemp(path.join(tmpdir(), 'ghul-playground-'));
 
     try {
         await writeFile(path.join(directory, 'main.ghul'), source, 'utf8');
 
-        const args = [compiler, '-a', runtime];
+        const args = [compiler];
 
-        for (const reference of REFERENCES) {
-            args.push('-a', path.join(referencePack, `${reference}.dll`));
+        for (const reference of references) {
+            args.push('-a', reference);
         }
 
         args.push(path.join(directory, 'main.ghul'));

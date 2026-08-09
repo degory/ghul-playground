@@ -38,6 +38,15 @@ jobs:
       - name: Install node dependencies and stage Monaco
         run: npm install
 
+      - name: Check the service and front-end sources parse
+        run: |
+          for f in shared/*.js analyse-service/*.js compile-service/*.js \
+                   scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js \
+                   web/wwwroot/ghul-language.js; do
+            node --check "$f" || exit 1
+          done
+          echo "all sources parse"
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 

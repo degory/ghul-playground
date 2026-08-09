@@ -1,0 +1,75 @@
+# Both services, with the limits that actually contain the compiler.
+#
+# The build context is the repository root for both, because they share the
+# reference-set resolution in shared/.
+#
+# Egress is the one control this file cannot express. Docker gives a container
+# either a network or none, and both services need ingress, so they get both.
+# Block outbound traffic at the host firewall or put them on an internal network
+# behind the reverse proxy.
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  compile:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: compile-service/Dockerfile
+    image: ghul-playground-compile
+
+    # Bound to loopback: these sit behind a reverse proxy that terminates TLS,
+    # rather than facing the internet themselves.
+    ports:
+      - "127.0.0.1:5090:5090"
+
+    # The compiler writes its output next to the source it was given.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+    # A compile of a single file peaks under 200 MB measured; the cap is here so
+    # a runaway allocation fails rather than taking the host down.
+    mem_limit: 512m
+    memswap_limit: 512m
+    # Docker refuses a value above the host's CPU count, so this has to fit the
+    # smallest machine deployed to. Raise it where there is more to give.
+    cpus: 1.0
+    pids_limit: 256
+
+  analyse:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: analyse-service/Dockerfile
+    image: ghul-playground-analyse
+
+    ports:
+      - "127.0.0.1:5091:5091"
+
+    environment:
+      # A warm analyser holds roughly 260 MB, so sessions are the memory
+      # budget. Keep this and mem_limit in step.
+      MAX_SESSIONS: "2"
+      IDLE_TIMEOUT_MS: "300000"
+      MAX_SESSION_MS: "3600000"
+
+    # Each session gets its own workspace directory here, and the analyser
+    # writes the document to it.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    pids_limit: 512
