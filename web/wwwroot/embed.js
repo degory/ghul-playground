@@ -81,6 +81,16 @@ window.addEventListener('message', async event => {
         });
 
         playground.editor.onDidContentSizeChange(reportHeight);
+
+        // The embedding page keeps the reader's edits, so that closing the
+        // editor or opening another one does not throw their work away. It
+        // cannot read across origins, so the source has to be handed to it.
+        let reportTimer = null;
+        playground.editor.onDidChangeModelContent(() => {
+            clearTimeout(reportTimer);
+            reportTimer = setTimeout(
+                () => post('source', { source: playground.getSource() }), 400);
+        });
         playground.editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => playground.run());
 

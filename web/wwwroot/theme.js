@@ -38,8 +38,50 @@ const DARK = {
     parameter: '9CDCFE'
 };
 
-const rules = palette =>
-    Object.entries(palette).map(([token, foreground]) => ({ token, foreground }));
+// What the grammar colours, as against what the compiler colours. Semantic
+// tokens only cover identifiers the analyser resolved; keywords, strings,
+// comments and numbers come from the Monarch grammar, and without these they
+// fall back to Monaco's stock theme and disagree with the rendered example
+// beside them.
+const LIGHT_SYNTAX = {
+    keyword: '0000FF',
+    'keyword.type': '0000FF',
+    constant: '0000FF',
+    'type.identifier': '267F99',
+    identifier: '001080',
+    string: 'A31515',
+    'string.quote': 'A31515',
+    'string.escape': 'EE0000',
+    comment: '008000',
+    number: '098658',
+    'number.float': '098658',
+    'number.hex': '098658',
+    operator: '000000',
+    delimiter: '000000',
+    'delimiter.bracket': '000000'
+};
+
+const DARK_SYNTAX = {
+    keyword: '569CD6',
+    'keyword.type': '569CD6',
+    constant: '569CD6',
+    'type.identifier': '4EC9B0',
+    identifier: '9CDCFE',
+    string: 'CE9178',
+    'string.quote': 'CE9178',
+    'string.escape': 'D7BA7D',
+    comment: '6A9955',
+    number: 'B5CEA8',
+    'number.float': 'B5CEA8',
+    'number.hex': 'B5CEA8',
+    operator: 'D4D4D4',
+    delimiter: 'D4D4D4',
+    'delimiter.bracket': 'D4D4D4'
+};
+
+const rules = (...palettes) =>
+    palettes.flatMap(palette =>
+        Object.entries(palette).map(([token, foreground]) => ({ token, foreground })));
 
 export const LIGHT_THEME = 'ghul-light';
 export const DARK_THEME = 'ghul-dark';
@@ -51,7 +93,7 @@ export function defineThemes() {
         // Without this Monaco ignores the semantic token stream entirely and
         // falls back to the grammar, which is the difference being fixed.
         semanticHighlighting: true,
-        rules: rules(LIGHT),
+        rules: rules(LIGHT_SYNTAX, LIGHT),
         colors: {}
     });
 
@@ -59,7 +101,7 @@ export function defineThemes() {
         base: 'vs-dark',
         inherit: true,
         semanticHighlighting: true,
-        rules: rules(DARK),
+        rules: rules(DARK_SYNTAX, DARK),
         colors: {}
     });
 }
