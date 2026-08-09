@@ -19,6 +19,23 @@ const ANALYSE_SERVICE = LOCAL
     ? 'ws://127.0.0.1:5091/analyse'
     : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/analyse`;
 
+const HEALTH_SERVICE = LOCAL ? 'http://127.0.0.1:5091/health' : '/health';
+
+// Whether the services want a token at all, asked once. A closed service and an
+// unreachable one are different: an unreachable one is reported as not
+// requiring a token, because the token dialog is not the right way to tell
+// somebody the back end is down.
+let tokenRequirement = null;
+
+function tokenRequired() {
+    tokenRequirement ??= fetch(HEALTH_SERVICE)
+        .then(response => response.json())
+        .then(state => state.tokensRequired !== false)
+        .catch(() => false);
+
+    return tokenRequirement;
+}
+
 // Long enough not to send a message per character, short enough that
 // diagnostics feel live.
 const EDIT_DEBOUNCE_MS = 300;
@@ -290,6 +307,7 @@ export async function createPlayground({
         editor,
         run,
         hasToken: () => Boolean(getToken()),
+        tokenRequired,
         askForToken: message =>
             askForToken(container.parentElement ?? container, { message })
                 .then(entered => { if (entered) client.reconnect(); return entered; }),

@@ -51,8 +51,8 @@ status.textContent = 'ready';
 runButton.disabled = false;
 
 // Ask up front rather than letting the analyser fail quietly and the first run
-// come back rejected.
-if (!playground.hasToken()) {
+// come back rejected - but only where the services actually want a token.
+if (await playground.tokenRequired() && !playground.hasToken()) {
     await playground.askForToken();
 }
 

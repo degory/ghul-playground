@@ -281,7 +281,11 @@ const server = http.createServer((request, response) => {
             ok: true,
             sessions: sessions.size,
             maxSessions: MAX_SESSIONS,
-            pool: poolState()
+            pool: poolState(),
+            // So a front end can tell whether to ask for a token at all. Asking
+            // for one the services do not want is worse than not asking: it
+            // reads as a closed door on a service that is open.
+            tokensRequired: tokens.required
         }));
         return;
     }
