@@ -297,6 +297,27 @@ export class GhulLanguageClient {
         return { data: new Uint32Array(data) };
     }
 
+    // Narrowing hints: the ghost text the editor shows where a value is
+    // narrowed or a narrowing is dropped. The site already renders these on a
+    // static example, so an editor without them looks less informative than
+    // the thing it replaced.
+    async inlayHints(range) {
+        if (this.wake()) return [];
+        if (!this.ready) return [];
+
+        const result = await this.request('textDocument/inlayHint', {
+            textDocument: { uri: DOCUMENT_URI },
+            range: {
+                start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+                end: { line: range.endLineNumber - 1, character: range.endColumn - 1 }
+            }
+        });
+
+        const hints = result?.result;
+
+        return Array.isArray(hints) ? hints : [];
+    }
+
     async completion(position) {
         if (this.wake()) return [];
 

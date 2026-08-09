@@ -153,6 +153,32 @@ export async function createPlayground({
         provideHover: (_model, position) => client.ready ? client.hover(position) : null
     });
 
+    monaco.languages.registerInlayHintsProvider('ghul', {
+        provideInlayHints: async (_model, range) => {
+            if (!client.ready) return { hints: [], dispose: () => { } };
+
+            const hints = await client.inlayHints(range);
+
+            return {
+                hints: hints.map(hint => ({
+                    position: {
+                        lineNumber: hint.position.line + 1,
+                        column: hint.position.character + 1
+                    },
+                    label: typeof hint.label === 'string'
+                        ? hint.label
+                        : (hint.label ?? []).map(part => part.value).join(''),
+                    tooltip: typeof hint.tooltip === 'object'
+                        ? hint.tooltip.value
+                        : hint.tooltip,
+                    paddingLeft: hint.paddingLeft,
+                    paddingRight: hint.paddingRight
+                })),
+                dispose: () => { }
+            };
+        }
+    });
+
     monaco.languages.registerCompletionItemProvider('ghul', {
         triggerCharacters: ['.'],
         provideCompletionItems: async (_model, position) => {
