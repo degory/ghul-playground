@@ -42,7 +42,7 @@ jobs:
         run: |
           for f in shared/*.js analyse-service/*.js compile-service/*.js \
                    scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js web/wwwroot/embed.js \
-                   web/wwwroot/playground.js \
+                   web/wwwroot/playground.js web/wwwroot/token.js \
                    web/wwwroot/ghul-language.js; do
             node --check "$f" || exit 1
           done
@@ -90,3 +90,32 @@ jobs:
           echo "reports an invalid one:   $bad"
 
           test "$ok" = yes && test "$bad" = yes
+
+      # Auth failing open is a silent failure, so check both directions rather
+      # than trusting that the check is still wired up.
+      - name: Check the compile service enforces access tokens
+        run: |
+          # A separate port: npm leaves the previous step's node child holding
+          # 5090, because killing the npm wrapper does not kill what it spawned.
+          PORT=5099 PLAYGROUND_TOKENS="ci-token" node compile-service/server.js &
+          service=$!
+
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null -X POST http://127.0.0.1:5099/compile \
+              -H 'content-type: application/json' -H 'authorization: Bearer ci-token' \
+              -d '{"source":""}' && break
+            sleep 1
+          done
+
+          none=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5099/compile \
+            -H 'content-type: application/json' -d '{"source":""}')
+          wrong=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5099/compile \
+            -H 'content-type: application/json' -H 'authorization: Bearer wrong' -d '{"source":""}')
+          right=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5099/compile \
+            -H 'content-type: application/json' -H 'authorization: Bearer ci-token' -d '{"source":""}')
+
+          kill $service
+
+          echo "no token: $none, wrong token: $wrong, valid token: $right"
+
+          test "$none" = 401 && test "$wrong" = 401 && test "$right" = 200

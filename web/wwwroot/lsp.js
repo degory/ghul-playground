@@ -24,10 +24,15 @@ const COMPLETION_KIND = {
     19: 23, 20: 16, 21: 14, 22: 22, 23: 18, 24: 11, 25: 24
 };
 
+// The token travels as a subprotocol, because a browser cannot set headers on
+// a WebSocket and a query parameter would end up in access logs.
+const TOKEN_SUBPROTOCOL_PREFIX = 'ghul-playground-token.';
+
 export class GhulLanguageClient {
-    constructor(url, { onStatus } = {}) {
+    constructor(url, { onStatus, getToken } = {}) {
         this.url = url;
         this.onStatus = onStatus ?? (() => { });
+        this.getToken = getToken ?? (() => null);
 
         this.socket = null;
         this.connected = false;
@@ -58,14 +63,33 @@ export class GhulLanguageClient {
         this.socket?.close();
     }
 
+    // Drop the current connection and try again now. Used after a token is
+    // entered: the previous attempt was refused at the handshake, and the
+    // backoff would otherwise leave the editor waiting for up to a minute.
+    reconnect() {
+        this.reconnectDelay = 1000;
+
+        if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+            // The close handler schedules the retry.
+            this.socket.close();
+            return;
+        }
+
+        this.connect();
+    }
+
     connect() {
         if (this.disposed) return;
 
         this.onStatus('connecting');
 
+        const token = this.getToken();
+
         let socket;
         try {
-            socket = new WebSocket(this.url);
+            socket = new WebSocket(this.url, token
+                ? ['ghul-playground', TOKEN_SUBPROTOCOL_PREFIX + token]
+                : ['ghul-playground']);
         } catch {
             this.scheduleReconnect();
             return;
