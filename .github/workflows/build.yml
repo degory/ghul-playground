@@ -119,3 +119,65 @@ jobs:
           echo "no token: $none, wrong token: $wrong, valid token: $right"
 
           test "$none" = 401 && test "$wrong" = 401 && test "$right" = 200
+
+      # The gate is what keeps the container off its memory ceiling, and a gate
+      # that has quietly stopped gating looks exactly like one that is working
+      # until the day it matters.
+      - name: Check the compile service caps concurrency
+        run: |
+          PORT=5098 MAX_CONCURRENT_COMPILES=1 MAX_QUEUED_COMPILES=1 \
+            node compile-service/server.js &
+          service=$!
+
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null -X POST http://127.0.0.1:5098/compile \
+              -H 'content-type: application/json' -d '{"source":""}' && break
+            sleep 1
+          done
+
+          source='{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(\"hello\");\nsi\n"}'
+
+          for _ in $(seq 1 6); do
+            curl -s -o /dev/null -w '%{http_code}\n' -m 60 -X POST http://127.0.0.1:5098/compile \
+              -H 'content-type: application/json' -d "$source" >> codes.txt &
+          done
+          wait
+
+          served=$(grep -c '^200$' codes.txt)
+          refused=$(grep -c '^503$' codes.txt)
+
+          # One more compile, to show the gate released every slot it took
+          # rather than leaking them and wedging the service.
+          after=$(curl -s -o /dev/null -w '%{http_code}' -m 60 -X POST http://127.0.0.1:5098/compile \
+            -H 'content-type: application/json' -d "$source")
+
+          kill $service
+
+          echo "served: $served, refused: $refused, after the burst: $after"
+
+          test "$refused" -gt 0 && test "$served" -gt 0 && test "$after" = 200
+
+      - name: Check the compile service enforces allowed origins
+        run: |
+          PORT=5097 ALLOWED_ORIGINS="https://ghul.dev" node compile-service/server.js &
+          service=$!
+
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null -X POST http://127.0.0.1:5097/compile \
+              -H 'content-type: application/json' -d '{"source":""}' && break
+            sleep 1
+          done
+
+          good=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5097/compile \
+            -H 'content-type: application/json' -H 'origin: https://ghul.dev' -d '{"source":""}')
+          bad=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5097/compile \
+            -H 'content-type: application/json' -H 'origin: https://elsewhere.test' -d '{"source":""}')
+          # No Origin at all is not a browser, and is left to the other limits.
+          none=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5097/compile \
+            -H 'content-type: application/json' -d '{"source":""}')
+
+          kill $service
+
+          echo "allowed: $good, disallowed: $bad, absent: $none"
+
+          test "$good" = 200 && test "$bad" = 403 && test "$none" = 200
