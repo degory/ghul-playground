@@ -42,7 +42,7 @@ jobs:
         run: |
           for f in shared/*.js analyse-service/*.js compile-service/*.js \
                    scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js web/wwwroot/embed.js \
-                   web/wwwroot/playground.js web/wwwroot/token.js \
+                   web/wwwroot/playground.js web/wwwroot/token.js web/wwwroot/theme.js \
                    web/wwwroot/ghul-language.js; do
             node --check "$f" || exit 1
           done

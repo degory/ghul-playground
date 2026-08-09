@@ -42,6 +42,10 @@ export class GhulLanguageClient {
         this.pending = new Map();
         this.version = 0;
 
+        // The server's semantic-token legend, learned from the initialize
+        // result. Monaco needs it to interpret the token stream.
+        this.semanticTokensLegend = null;
+
         this.model = null;
         this.reconnectDelay = 1000;
         this.disposed = false;
@@ -173,7 +177,7 @@ export class GhulLanguageClient {
     }
 
     async initialize() {
-        await this.request('initialize', {
+        const initialized = await this.request('initialize', {
             processId: null,
             rootUri: ROOT_URI,
             workspaceFolders: [{ uri: ROOT_URI, name: 'playground' }],
@@ -187,6 +191,9 @@ export class GhulLanguageClient {
         });
 
         if (!this.connected) return;
+
+        const provider = initialized?.result?.capabilities?.semanticTokensProvider;
+        if (provider?.legend) this.semanticTokensLegend = provider.legend;
 
         this.send('initialized', {}, true);
 
@@ -271,6 +278,23 @@ export class GhulLanguageClient {
                 : contents.value;
 
         return value ? { contents: [{ value }] } : null;
+    }
+
+    // Whole-document semantic tokens. LSP and Monaco use the same relative
+    // five-integer encoding, so the data passes through untouched; only the
+    // container type differs.
+    async semanticTokens() {
+        if (this.wake()) return null;
+        if (!this.ready || !this.semanticTokensLegend) return null;
+
+        const result = await this.request('textDocument/semanticTokens/full', {
+            textDocument: { uri: DOCUMENT_URI }
+        });
+
+        const data = result?.result?.data;
+        if (!Array.isArray(data)) return null;
+
+        return { data: new Uint32Array(data) };
     }
 
     async completion(position) {
