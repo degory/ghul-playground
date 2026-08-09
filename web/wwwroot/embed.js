@@ -128,6 +128,13 @@ window.addEventListener('message', async event => {
     }
 });
 
+// A key pressed while the editor has focus never reaches the embedding page,
+// so the one shortcut the page needs is forwarded. Without this a reader who
+// has expanded the editor and is typing in it has no way out but the mouse.
+window.addEventListener('keydown', event => {
+    if (event.key === 'Escape') post('escape');
+});
+
 // The parent cannot know when the frame's script is ready, so the frame says
 // so. It has no origin to reply to yet, hence the wildcard on this one
 // message, which carries nothing.
