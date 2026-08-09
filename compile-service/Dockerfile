@@ -55,14 +55,12 @@ ENV TMPDIR=/tmp \
 
 EXPOSE 5090
 
-# A compile is the health check: it exercises the compiler, not just the
-# socket, so a broken toolchain shows as unhealthy rather than as failing
-# user requests.
+# Hits the service's own health endpoint, which compiles a fixed program and
+# caches the result. It must not need a token: the check has none to present,
+# and gating it behind one reports a working service as permanently unhealthy.
 HEALTHCHECK --interval=30s --timeout=20s --start-period=40s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:5090/compile',{method:'POST', \
-      headers:{'content-type':'application/json'}, \
-      body:JSON.stringify({source:'use IO.Std.write_line;\n\nentry() is\n write_line(\"ok\");\nsi\n'})}) \
-      .then(r=>r.json()).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:5090/health') \
+      .then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 WORKDIR /home/playground/service
 ENTRYPOINT ["node", "compile-service/server.js"]
