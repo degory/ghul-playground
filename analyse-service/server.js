@@ -1,91 +1,166 @@
-// Analyse service: a WebSocket in front of one ghūl language server per
-// connected editor.
+// Analyse service: a WebSocket in front of a small pool of warm ghūl language
+// servers.
 //
-// The analyser is stateful and that is the point. A warm one answers an edit in
-// a millisecond or two, where a cold compile pays process start, reflection and
-// a from-scratch symbol table and takes seconds. Per-keystroke cold compilation
-// would be both slower for the user and more CPU overall.
+// The analyser is stateful and that is the point. Warm, it answers an edit in a
+// millisecond or two; cold, the first edit pays process start, reflection and a
+// full analysis pass. The pool keeps that cost off the user's path by paying it
+// in advance.
 //
-// A session is one WebSocket, one private workspace directory, and one language
-// server process. Processes are never shared between clients: a fresh process
-// is the isolation boundary, so recycling one is a requirement rather than an
-// optimisation.
+// An analyser is handed to exactly one client and killed when that client goes
+// away. The pool holds *fresh* processes, never recycled ones, so pooling does
+// not weaken the isolation between sessions: a process a client has touched is
+// destroyed, not returned.
 //
-// The wire protocol is LSP itself. Over a WebSocket the messages are already
-// framed, so the Content-Length headers stdio needs are added and stripped
-// here and the browser deals in plain JSON-RPC objects.
+// The wire protocol is LSP. Over a WebSocket messages are already framed, so
+// the Content-Length headers stdio needs are added and stripped here and the
+// browser deals in plain JSON-RPC objects.
 
 const http = require('http');
-const { spawn } = require('child_process');
-const { mkdtemp, writeFile, mkdir, rm } = require('fs/promises');
-const { tmpdir } = require('os');
-const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const { resolveReferencePaths } = require('../shared/toolchain');
+const { Analyser } = require('./analyser');
 
 const PORT = Number(process.env.PORT ?? 5091);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
-// Session admission. Opening a session is cheap for a client and expensive for
-// us: a warm analyser holds a few hundred megabytes. Queueing is not useful
-// here, so excess connections are refused and told to retry.
-const MAX_SESSIONS = Number(process.env.MAX_SESSIONS ?? 3);
+// Sessions are the memory budget: a warm analyser holds a few hundred
+// megabytes. The pool is kept the same size, so a connecting client normally
+// finds one ready.
+const MAX_SESSIONS = Number(process.env.MAX_SESSIONS ?? 2);
+const POOL_SIZE = Number(process.env.POOL_SIZE ?? MAX_SESSIONS);
 
-// Idle long enough and the analyser is recycled. The client is expected to
-// reconnect and resend the document, which is cheap because there is only ever
-// one file.
 const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MS ?? 5 * 60 * 1000);
-
-// A hard ceiling regardless of activity, so a session cannot pin an analyser
-// indefinitely.
 const MAX_SESSION_MS = Number(process.env.MAX_SESSION_MS ?? 60 * 60 * 1000);
+const WARM_UP_TIMEOUT_MS = Number(process.env.WARM_UP_TIMEOUT_MS ?? 120 * 1000);
+
+// How long a connecting client waits for the pool to produce a warm analyser
+// before it gets a cold one instead. A cold analyser still works, it is just
+// slow to first diagnostic.
+const ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS ?? 5000);
 
 const SERVER_COMMAND = process.env.GHUL_LANGUAGE_SERVER ?? 'ghul-language-server';
+
+// The client addresses one fixed path and never learns where its workspace
+// actually is, so it cannot address anything outside its own session by naming
+// a different URI.
+const VIRTUAL_ROOT = 'file:///playground';
+
+const log = message => console.log(`${new Date().toISOString().slice(11, 19)} ${message}`);
+
+let references = null;
+
+// --- the pool -------------------------------------------------------------
+
+const idle = [];
+const waiting = [];
+let warming = 0;
+
+function poolState() {
+    return { idle: idle.length, warming };
+}
+
+function replenish() {
+    while (idle.length + warming < POOL_SIZE) {
+        warming++;
+
+        const analyser = new Analyser({ command: SERVER_COMMAND, references, log });
+
+        (async () => {
+            try {
+                await analyser.start();
+
+                if (!await analyser.warmUp(WARM_UP_TIMEOUT_MS)) {
+                    analyser.log('did not warm up, discarding');
+                    analyser.kill();
+                    return;
+                }
+
+                analyser.log('warm');
+
+                // Somebody may already be waiting for one.
+                const next = waiting.shift();
+                if (next) {
+                    next(analyser);
+                } else {
+                    idle.push(analyser);
+                }
+            } catch (e) {
+                analyser.log(`warm-up failed: ${e.message}`);
+                analyser.kill();
+            } finally {
+                warming--;
+
+                // Only top back up once this attempt has finished, or a
+                // failing analyser would spin.
+                setTimeout(replenish, 250);
+            }
+        })();
+    }
+}
+
+// A warm one if there is one, otherwise wait briefly for the pool, otherwise
+// start one cold rather than refusing the client.
+function acquire() {
+    const warm = idle.shift();
+
+    if (warm) {
+        replenish();
+        return Promise.resolve(warm);
+    }
+
+    return new Promise(resolve => {
+        let settled = false;
+
+        const hand = analyser => {
+            if (settled) return;
+            settled = true;
+            resolve(analyser);
+        };
+
+        waiting.push(hand);
+        replenish();
+
+        setTimeout(async () => {
+            if (settled) return;
+
+            const index = waiting.indexOf(hand);
+            if (index >= 0) waiting.splice(index, 1);
+
+            log('pool empty, starting a cold analyser');
+
+            const analyser = new Analyser({ command: SERVER_COMMAND, references, log });
+
+            try {
+                await analyser.start();
+                await analyser.warmUp(WARM_UP_TIMEOUT_MS);
+                hand(analyser);
+            } catch (e) {
+                log(`cold start failed: ${e.message}`);
+                analyser.kill();
+                hand(null);
+            }
+        }, ACQUIRE_TIMEOUT_MS);
+    });
+}
+
+// --- sessions -------------------------------------------------------------
 
 const sessions = new Set();
 let nextSessionId = 1;
 
-let referencePaths = null;
-
-// The workspace deliberately has no .ghulproj and no tool manifest. The
-// language server regenerates .assemblies.json from the project's reference
-// closure when a project file is present, which would replace the restricted
-// reference set with the full one; with no project file it skips that step and
-// trusts what is on disk.
-async function createWorkspace() {
-    const directory = await mkdtemp(path.join(tmpdir(), 'ghul-analyse-'));
-
-    await mkdir(path.join(directory, 'src'));
-    await writeFile(path.join(directory, 'src', 'main.ghul'), '', 'utf8');
-    await writeFile(path.join(directory, 'ghul.json'), '{}', 'utf8');
-    await writeFile(
-        path.join(directory, '.assemblies.json'),
-        JSON.stringify({ assemblies: referencePaths }),
-        'utf8');
-
-    return directory;
-}
-
-// The client talks about one fixed path and never learns where the session's
-// workspace actually is. The bridge maps between the two, so a browser cannot
-// address anything outside its own workspace by asking about a different URI.
-const VIRTUAL_ROOT = 'file:///playground';
-const DOCUMENT_URI = `${VIRTUAL_ROOT}/src/main.ghul`;
-
 class Session {
-    constructor(socket) {
+    constructor(socket, analyser) {
         this.id = nextSessionId++;
         this.socket = socket;
-        this.workspace = null;
-        this.realRoot = null;
-        this.server = null;
-        this.buffer = Buffer.alloc(0);
+        this.analyser = analyser;
         this.closed = false;
 
         this.idleTimer = null;
         this.lifetimeTimer = setTimeout(
             () => this.close('session lifetime exceeded'), MAX_SESSION_MS);
+
+        analyser.onMessage = body => this.fromAnalyser(body);
 
         this.touch();
     }
@@ -99,85 +174,23 @@ class Session {
         this.idleTimer = setTimeout(() => this.close('idle'), IDLE_TIMEOUT_MS);
     }
 
-    async start() {
-        this.workspace = await createWorkspace();
-        this.realRoot = 'file://' + this.workspace;
+    fromAnalyser(body) {
+        // null means the process died.
+        if (body === null) {
+            this.close('analyser exited');
+            return;
+        }
 
-        this.server = spawn(SERVER_COMMAND, ['--stdio'], {
-            cwd: this.workspace,
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        this.server.on('error', e => {
-            this.log(`language server failed to start: ${e.message}`);
-            this.close('language server failed to start');
-        });
-
-        this.server.on('exit', code => {
-            if (!this.closed) {
-                this.log(`language server exited (${code})`);
-                this.close('language server exited');
-            }
-        });
-
-        this.server.stdout.on('data', chunk => this.onServerData(chunk));
-
-        // The analyser reports progress and problems on stderr. Useful when a
-        // session misbehaves, noisy otherwise, so it is opt-in.
-        this.server.stderr.on('data', chunk => {
-            if (process.env.LOG_SERVER_STDERR) {
-                process.stderr.write(`[session ${this.id}] ${chunk}`);
-            }
-        });
-
-        this.log(`started in ${this.workspace}`);
-    }
-
-    // stdio framing in: Content-Length header, blank line, exactly that many
-    // bytes of JSON. A chunk can hold part of a message or several.
-    onServerData(chunk) {
-        this.buffer = Buffer.concat([this.buffer, chunk]);
-
-        for (;;) {
-            const split = this.buffer.indexOf('\r\n\r\n');
-            if (split < 0) return;
-
-            const match = /Content-Length: (\d+)/i.exec(this.buffer.subarray(0, split).toString());
-            if (!match) {
-                this.log('malformed header from language server, dropping buffer');
-                this.buffer = Buffer.alloc(0);
-                return;
-            }
-
-            const length = Number(match[1]);
-            const start = split + 4;
-            if (this.buffer.length < start + length) return;
-
-            const body = this.buffer.subarray(start, start + length).toString();
-            this.buffer = this.buffer.subarray(start + length);
-
-            if (this.socket.readyState === this.socket.OPEN) {
-                this.socket.send(body.split(this.realRoot).join(VIRTUAL_ROOT));
-            }
+        if (this.socket.readyState === this.socket.OPEN) {
+            this.socket.send(body.split(this.analyser.realRoot).join(VIRTUAL_ROOT));
         }
     }
 
-    // ... and out. The browser sends bare JSON-RPC; stdio wants the header.
-    sendToServer(text) {
-        if (this.closed || !this.server?.stdin.writable) return;
-
-        this.mirrorToDisk(text);
-
-        const mapped = text.split(VIRTUAL_ROOT).join(this.realRoot);
-
-        this.server.stdin.write(`Content-Length: ${Buffer.byteLength(mapped)}\r\n\r\n${mapped}`);
-    }
-
-    // The analyser reads the file from disk as well as taking it over the
-    // protocol, so an open or a change has to land on disk or it analyses an
-    // empty file and reports nothing. Only whole-document sync is supported,
-    // which is all a single-file playground needs.
-    mirrorToDisk(text) {
+    // The analyser was initialized by the pool, so the opening exchange cannot
+    // simply be forwarded: a second initialize is a protocol error, and the
+    // document is already open. The first three messages of a session are
+    // therefore answered or translated here.
+    fromClient(text) {
         let message;
 
         try {
@@ -186,22 +199,42 @@ class Session {
             return;
         }
 
-        const method = message.method;
-        if (method !== 'textDocument/didOpen' && method !== 'textDocument/didChange') return;
-
-        const content = method === 'textDocument/didOpen'
-            ? message.params?.textDocument?.text
-            : message.params?.contentChanges?.[message.params.contentChanges.length - 1]?.text;
-
-        if (typeof content !== 'string') {
-            if (method === 'textDocument/didChange') {
-                this.log('incremental didChange is not supported; send whole-document changes');
-            }
+        if (message.method === 'initialize') {
+            this.socket.send(JSON.stringify({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: this.analyser.capabilities
+            }));
             return;
         }
 
-        writeFile(path.join(this.workspace, 'src', 'main.ghul'), content, 'utf8')
-            .catch(e => this.log(`could not mirror document to disk: ${e.message}`));
+        // The pool has already sent this one.
+        if (message.method === 'initialized') return;
+
+        // The document is open with the warm-up source, so the client opening
+        // "its" document is really a change to the one already there.
+        if (message.method === 'textDocument/didOpen') {
+            this.analyser.replaceDocument(message.params?.textDocument?.text ?? '');
+            return;
+        }
+
+        if (message.method === 'textDocument/didChange') {
+            const changes = message.params?.contentChanges ?? [];
+            const whole = changes[changes.length - 1]?.text;
+
+            if (typeof whole !== 'string') {
+                this.log('incremental didChange is not supported; send whole-document changes');
+                return;
+            }
+
+            // Versions are the analyser's to allocate: the client's numbering
+            // starts from its own didOpen and would go backwards against a
+            // document the pool already opened.
+            this.analyser.replaceDocument(whole);
+            return;
+        }
+
+        this.analyser.write(text.split(VIRTUAL_ROOT).join(this.analyser.realRoot));
     }
 
     close(reason) {
@@ -213,33 +246,34 @@ class Session {
 
         this.log(`closing: ${reason}`);
 
-        // SIGKILL rather than a polite shutdown: the process is being discarded
-        // and a hung analyser must not be able to keep its slot.
-        this.server?.kill('SIGKILL');
+        // The analyser is destroyed rather than returned: a process a client
+        // has touched is never handed to another one.
+        this.analyser.onMessage = null;
+        this.analyser.kill();
 
         try {
             this.socket.close(1000, reason);
         } catch { /* already gone */ }
 
-        if (this.workspace) {
-            rm(this.workspace, { recursive: true, force: true })
-                .catch(e => this.log(`could not remove workspace: ${e.message}`));
-        }
-
         sessions.delete(this);
+
+        replenish();
     }
 }
 
+// --- wiring ---------------------------------------------------------------
+
 const server = http.createServer((request, response) => {
-    // An always-on health endpoint. The front end uses this to decide whether
-    // to offer editing at all, so it must answer even when every session slot
-    // is taken: it reports that the service exists, not that a slot is free.
+    // Always-on: a front end uses this to decide whether to offer editing at
+    // all, so it must answer even when every slot is taken. It reports that the
+    // service exists, not that a slot is free.
     if (request.url.startsWith('/health')) {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({
             ok: true,
             sessions: sessions.size,
-            maxSessions: MAX_SESSIONS
+            maxSessions: MAX_SESSIONS,
+            pool: poolState()
         }));
         return;
     }
@@ -251,25 +285,38 @@ const wss = new WebSocketServer({ server, path: '/analyse' });
 
 wss.on('connection', async socket => {
     if (sessions.size >= MAX_SESSIONS) {
-        console.log(`refusing connection: ${sessions.size}/${MAX_SESSIONS} sessions in use`);
+        log(`refusing connection: ${sessions.size}/${MAX_SESSIONS} sessions in use`);
         socket.close(1013, 'try again later');
         return;
     }
 
-    const session = new Session(socket);
-    sessions.add(session);
+    // Hold the slot while acquiring, so two connections arriving together
+    // cannot both pass the check above.
+    const placeholder = { closed: false };
+    sessions.add(placeholder);
 
+    let analyser;
     try {
-        await session.start();
-    } catch (e) {
-        session.log(`could not start: ${e.message}`);
-        session.close('could not start');
+        analyser = await acquire();
+    } finally {
+        sessions.delete(placeholder);
+    }
+
+    if (!analyser || socket.readyState !== socket.OPEN) {
+        analyser?.kill();
+        try { socket.close(1011, 'no analyser available'); } catch { }
         return;
     }
 
+    const session = new Session(socket, analyser);
+    sessions.add(session);
+
+    session.log(`took analyser ${analyser.id} (${analyser.warm ? 'warm' : 'cold'}), ` +
+        `pool now ${JSON.stringify(poolState())}`);
+
     socket.on('message', data => {
         session.touch();
-        session.sendToServer(data.toString());
+        session.fromClient(data.toString());
     });
 
     socket.on('close', () => session.close('client disconnected'));
@@ -277,18 +324,22 @@ wss.on('connection', async socket => {
 });
 
 (async () => {
-    referencePaths = await resolveReferencePaths();
+    references = await resolveReferencePaths();
 
-    console.log(`references: ${referencePaths.length}`);
+    log(`references: ${references.length}`);
 
-    server.listen(PORT, HOST, () =>
-        console.log(`analyse service on ws://${HOST}:${PORT}/analyse ` +
-            `(max ${MAX_SESSIONS} sessions, idle ${IDLE_TIMEOUT_MS / 1000}s)`));
+    server.listen(PORT, HOST, () => {
+        log(`analyse service on ws://${HOST}:${PORT}/analyse ` +
+            `(max ${MAX_SESSIONS} sessions, pool ${POOL_SIZE}, idle ${IDLE_TIMEOUT_MS / 1000}s)`);
+
+        replenish();
+    });
 })();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
-        for (const session of [...sessions]) session.close('service shutting down');
+        for (const session of [...sessions]) session.close?.('service shutting down');
+        for (const analyser of idle) analyser.kill();
         process.exit(0);
     });
 }

@@ -43,7 +43,7 @@ ENV PATH="/home/playground/tools:${PATH}" \
     GHUL_RUNTIME_DLL=/home/playground/.nuget/packages/ghul.runtime/${GHUL_RUNTIME_VERSION}/lib/net10.0/ghul-runtime.dll
 
 COPY --chown=playground:playground shared /home/playground/service/shared
-COPY --chown=playground:playground analyse-service/server.js /home/playground/service/analyse-service/server.js
+COPY --chown=playground:playground analyse-service/*.js /home/playground/service/analyse-service/
 COPY --chown=playground:playground package.json /home/playground/service/package.json
 
 # `ws` is the only runtime dependency; monaco is a front-end asset and has no
