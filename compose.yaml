@@ -49,7 +49,7 @@ services:
     memswap_limit: 512m
     # Docker refuses a value above the host's CPU count, so this has to fit the
     # smallest machine deployed to. Raise it where there is more to give.
-    cpus: 1.0
+    cpus: 2.0
     pids_limit: 256
 
   analyse:
@@ -64,9 +64,12 @@ services:
 
     environment:
       PLAYGROUND_TOKENS: "${PLAYGROUND_TOKENS:-}"
-      # A warm analyser holds roughly 260 MB, so sessions are the memory
-      # budget. Keep this and mem_limit in step.
-      MAX_SESSIONS: "2"
+      # Measured against the trimmed reference set and a single file, an
+      # analyser costs around 70 MB rather than the 260 MB a full project
+      # needs. The worst case is MAX_SESSIONS + POOL_SIZE of them, since the
+      # pool tops up alongside the sessions in use rather than instead of them.
+      MAX_SESSIONS: "6"
+      POOL_SIZE: "3"
       IDLE_TIMEOUT_MS: "300000"
       MAX_SESSION_MS: "3600000"
 
@@ -77,5 +80,5 @@ services:
 
     mem_limit: 1g
     memswap_limit: 1g
-    cpus: 1.0
+    cpus: 2.0
     pids_limit: 512

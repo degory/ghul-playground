@@ -111,12 +111,46 @@ async function compile(source) {
     }
 }
 
+// A compile of a fixed program, so a broken toolchain shows as unhealthy
+// rather than as failing user requests. Cached, because the container checks
+// every thirty seconds and a compile costs about a CPU-second.
+const HEALTH_SOURCE = 'use IO.Std.write_line;\n\nentry() is\n    write_line("ok");\nsi\n';
+const HEALTH_CACHE_MS = 60000;
+
+let health = { at: 0, ok: false, error: 'not checked yet' };
+
+async function checkHealth() {
+    if (Date.now() - health.at < HEALTH_CACHE_MS) return health;
+
+    try {
+        const result = await compile(HEALTH_SOURCE);
+
+        health = { at: Date.now(), ok: result.ok, error: result.ok ? null : 'compile failed' };
+    } catch (e) {
+        health = { at: Date.now(), ok: false, error: String(e) };
+    }
+
+    return health;
+}
+
 http.createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
 
     if (request.method === 'OPTIONS') {
         response.writeHead(204).end();
+        return;
+    }
+
+    // Deliberately unauthenticated, and deliberately before the token check:
+    // the container's own health check has no token to present, and gating
+    // this behind one made the service permanently unhealthy while it was in
+    // fact working.
+    if (request.method === 'GET' && request.url.startsWith('/health')) {
+        checkHealth().then(state => {
+            response.writeHead(state.ok ? 200 : 503, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({ ok: state.ok, error: state.error ?? undefined }));
+        });
         return;
     }
 
