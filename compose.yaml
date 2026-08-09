@@ -21,6 +21,16 @@ x-hardening: &hardening
       max-size: "10m"
       max-file: "3"
 
+# Pinned, because the host firewall rule that denies these containers egress
+# matches on this subnet. Left to Docker it is assigned at creation and can
+# change when the network is recreated, silently orphaning the rule and
+# restoring the egress it was there to remove.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+
 services:
   compile:
     <<: *hardening
