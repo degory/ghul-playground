@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>ghūl playground (embedded)</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <link rel="stylesheet" href="vs/editor/editor.main.css">
+  <script src="vs/loader.js"></script>
+  <script type='module' src="embed.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    /* The frame is sized by the parent from the height this page reports, so
+       the editor fills whatever it is given. */
+    #editor {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="editor"></div>
+</body>
+
+</html>

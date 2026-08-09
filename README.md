@@ -91,6 +91,46 @@ is approximate. It gives instant colour while typing. The language server also
 serves semantic tokens, which would colour identifiers by what the compiler
 resolved them to; that is not wired up yet.
 
+## embedding
+
+`embed.html` is the editor with no chrome, meant to be framed by another site.
+The frame owns only the editor: output, diagnostics and status are posted to the
+parent, which renders them in whatever it already has, so an embedding page does
+not end up with two differently-styled output panels.
+
+Messages carry `channel: "ghul-playground"`. Origins are checked both ways: the
+frame ignores messages from anywhere but an allowed parent, and replies only to
+that parent's origin, never to `*`.
+
+Parent to frame:
+
+| type | |
+| --- | --- |
+| `init` | `{ source, theme }` — create the editor. Must not be sent before `loaded`. |
+| `source` | `{ source }` — replace the program |
+| `theme` | `{ theme }` — a Monaco theme name |
+| `run` | compile and run |
+
+Frame to parent:
+
+| type | |
+| --- | --- |
+| `loaded` | the frame's script is running and listening |
+| `ready` | the editor exists |
+| `height` | `{ height }` — what the content needs; the frame cannot size itself |
+| `status` | `{ state, detail }` — `compiling`, `starting runtime`, `running`, `done`, `failed`, `error` |
+| `output` | `{ text }` — what the program wrote |
+| `diagnostics` | `{ diagnostics }` — from the compiler |
+| `analyser` | `{ state }` — `ready`, `connecting` or `disconnected` |
+
+**Wait for `loaded` before sending `init`.** `postMessage` is not queued, so a
+parent that sends `init` while the frame is still loading loses it silently and
+sees an editor that never appears.
+
+The .NET runtime is fetched on the first run rather than at load, because a
+documentation page embedding one of these per example cannot pay several
+megabytes on every navigation.
+
 ## sessions
 
 One WebSocket, one private workspace, one language server process. Processes
