@@ -131,6 +131,23 @@ The .NET runtime is fetched on the first run rather than at load, because a
 documentation page embedding one of these per example cannot pay several
 megabytes on every navigation.
 
+## checking it works
+
+Two harnesses, neither with dependencies of its own:
+
+```sh
+node test/analyser-stress.js        # can broken source stop the analyser answering?
+node test/browser-end-to-end.js     # editor, analyser, compile and run, in a real browser
+```
+
+Both take `ANALYSE_URL` / `BASE` and `TOKEN` to run against a deployment rather
+than a local one. The browser test needs a Chrome or Chromium binary and takes
+`CHROME` if it is not where Playwright puts it.
+
+The stress harness exists because "the analyser has hung" is a recurring
+suspicion and has so far always been something else, usually a deployment
+restarting the container.
+
 ## sessions
 
 One WebSocket, one private workspace, one language server process. Processes
