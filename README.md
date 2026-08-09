@@ -106,9 +106,9 @@ Parent to frame:
 
 | type | |
 | --- | --- |
-| `init` | `{ source, theme }` — create the editor. Must not be sent before `loaded`. |
-| `source` | `{ source }` — replace the program |
-| `theme` | `{ theme }` — a Monaco theme name |
+| `init` | `{ source, theme }` - create the editor. Must not be sent before `loaded`. |
+| `source` | `{ source }` - replace the program |
+| `theme` | `{ theme }` - a Monaco theme name |
 | `run` | compile and run |
 
 Frame to parent:
@@ -117,11 +117,11 @@ Frame to parent:
 | --- | --- |
 | `loaded` | the frame's script is running and listening |
 | `ready` | the editor exists |
-| `height` | `{ height }` — what the content needs; the frame cannot size itself |
-| `status` | `{ state, detail }` — `compiling`, `starting runtime`, `running`, `done`, `failed`, `error` |
-| `output` | `{ text }` — what the program wrote |
-| `diagnostics` | `{ diagnostics }` — from the compiler |
-| `analyser` | `{ state }` — `ready`, `connecting` or `disconnected` |
+| `height` | `{ height }` - what the content needs; the frame cannot size itself |
+| `status` | `{ state, detail }` - `compiling`, `starting runtime`, `running`, `done`, `failed`, `error` |
+| `output` | `{ text }` - what the program wrote |
+| `diagnostics` | `{ diagnostics }` - from the compiler |
+| `analyser` | `{ state }` - `ready`, `connecting` or `disconnected` |
 
 **Wait for `loaded` before sending `init`.** `postMessage` is not queued, so a
 parent that sends `init` while the frame is still loading loses it silently and

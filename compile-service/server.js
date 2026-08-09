@@ -1,8 +1,8 @@
 // Compile service for the ghūl playground.
 //
 // SECURITY: run this in the container. It runs the ghūl compiler on whatever it
-// is posted, and its own limits — a source size cap, a compile timeout and a
-// cap on how many compile at once — bound what one request costs, not what the
+// is posted, and its own limits - a source size cap, a compile timeout and a
+// cap on how many compile at once - bound what one request costs, not what the
 // compiler can reach. The container is what does that.
 //
 //   POST /compile  {"source": "..."}
