@@ -197,6 +197,12 @@ token is a socket that never opens.
 `/health` is deliberately unauthenticated. An embedding page has to be able to
 ask whether a back end exists before it has a token to offer.
 
+It also reports `tokensRequired`, so a front end can tell whether to ask for a
+token at all. Asking for one the services do not want is worse than not asking:
+it reads as a closed door on a service that is open. A front end that cannot
+reach `/health` treats the answer as "no token needed", because the token dialog
+is not the way to tell somebody the back end is down.
+
 The front end keeps the token in `localStorage` for the playground's own origin,
 so a reader entering it once has it for every embedded example on every page.
 

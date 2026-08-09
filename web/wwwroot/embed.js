@@ -98,13 +98,16 @@ window.addEventListener('message', async event => {
         post('ready');
 
         // The frame is only shown once a reader has asked to edit, so asking
-        // for the token here is not an interruption.
-        if (!playground.hasToken()) {
+        // for the token here is not an interruption - where one is wanted at
+        // all. Where it is not, the reader is told nothing and simply edits.
+        if (!await playground.tokenRequired()) {
+            post('token', { held: true });
+        } else if (playground.hasToken()) {
+            post('token', { held: true });
+        } else {
             const entered = await playground.askForToken();
 
             post('token', { held: Boolean(entered) });
-        } else {
-            post('token', { held: true });
         }
 
         return;

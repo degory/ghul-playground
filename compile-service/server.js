@@ -223,7 +223,11 @@ http.createServer((request, response) => {
         response.setHeader('Access-Control-Allow-Origin', '*');
         checkHealth().then(state => {
             response.writeHead(state.ok ? 200 : 503, { 'content-type': 'application/json' });
-            response.end(JSON.stringify({ ok: state.ok, error: state.error ?? undefined }));
+            response.end(JSON.stringify({
+                ok: state.ok,
+                error: state.error ?? undefined,
+                tokensRequired: tokens.required
+            }));
         });
         return;
     }
