@@ -41,7 +41,8 @@ jobs:
       - name: Check the service and front-end sources parse
         run: |
           for f in shared/*.js analyse-service/*.js compile-service/*.js \
-                   scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js \
+                   scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js web/wwwroot/embed.js \
+                   web/wwwroot/playground.js \
                    web/wwwroot/ghul-language.js; do
             node --check "$f" || exit 1
           done
