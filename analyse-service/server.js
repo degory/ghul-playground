@@ -269,7 +269,13 @@ const server = http.createServer((request, response) => {
     // all, so it must answer even when every slot is taken. It reports that the
     // service exists, not that a slot is free.
     if (request.url.startsWith('/health')) {
-        response.writeHead(200, { 'content-type': 'application/json' });
+        // Probed cross-origin by whatever page is deciding whether to offer
+        // editing at all, so it has to say so. Without this the browser blocks
+        // the read and an embedding site concludes there is no back end.
+        response.writeHead(200, {
+            'content-type': 'application/json',
+            'access-control-allow-origin': '*'
+        });
         response.end(JSON.stringify({
             ok: true,
             sessions: sessions.size,
