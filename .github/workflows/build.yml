@@ -137,11 +137,15 @@ jobs:
 
           source='{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(\"hello\");\nsi\n"}'
 
+          # Wait on the curls by pid. A bare `wait` would also wait for the
+          # service started above, which never exits.
+          bursts=""
           for _ in $(seq 1 6); do
             curl -s -o /dev/null -w '%{http_code}\n' -m 60 -X POST http://127.0.0.1:5098/compile \
               -H 'content-type: application/json' -d "$source" >> codes.txt &
+            bursts="$bursts $!"
           done
-          wait
+          wait $bursts
 
           served=$(grep -c '^200$' codes.txt)
           refused=$(grep -c '^503$' codes.txt)
