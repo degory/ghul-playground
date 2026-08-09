@@ -41,6 +41,15 @@
 
     #status { color: #666; font-size: 0.85rem; }
 
+    #analyser-status {
+      margin-left: auto;
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    #analyser-status[data-state="ready"] { color: #1a7f37; }
+    #analyser-status[data-state="disconnected"] { color: #a00; }
+
     main { flex: 1; display: flex; min-height: 0; }
 
     #editor { flex: 1; min-width: 0; border-right: 1px solid #ddd; }
@@ -80,6 +89,7 @@
     <h1>ghūl playground</h1>
     <button id="run" disabled>Compile and run</button>
     <span id="status">loading .NET runtime ...</span>
+    <span id="analyser-status">analyser: connecting</span>
   </header>
 
   <main>

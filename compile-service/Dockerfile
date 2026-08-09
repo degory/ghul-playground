@@ -6,9 +6,11 @@
 # output rather than memory-safety exploits. The controls that matter are
 # therefore resource limits and a small blast radius, not exploit hardening.
 #
-# The limits themselves are applied at run time, not here: see
-# compose.yaml for the memory, CPU, process and capability settings, and the
-# read-only root filesystem.
+# Build context is the repository root, because the service shares the
+# reference-set resolution in shared/ with the analyse service. The two must
+# agree, or the editor would report errors the build does not.
+#
+# Run limits are applied at run time, not here: see compose.yaml.
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS base
 
@@ -22,8 +24,6 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1 \
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
-# Install the compiler and the runtime it compiles against as a normal user's
-# tool, so nothing at run time needs to write to a root-owned location.
 RUN useradd --create-home --shell /usr/sbin/nologin playground
 
 USER playground
@@ -43,7 +43,8 @@ RUN dotnet tool install --tool-path /home/playground/tools \
 ENV GHUL_COMPILER_DLL=/home/playground/tools/.store/ghul.compiler/${GHUL_COMPILER_VERSION}/ghul.compiler/${GHUL_COMPILER_VERSION}/tools/net10.0/any/ghul.dll \
     GHUL_RUNTIME_DLL=/home/playground/.nuget/packages/ghul.runtime/${GHUL_RUNTIME_VERSION}/lib/net10.0/ghul-runtime.dll
 
-COPY --chown=playground:playground server.js /home/playground/service/server.js
+COPY --chown=playground:playground shared /home/playground/service/shared
+COPY --chown=playground:playground compile-service/server.js /home/playground/service/compile-service/server.js
 
 # The compiler writes its output next to the source, so the service needs a
 # writable scratch directory. compose.yaml mounts a tmpfs there, which is why
@@ -63,4 +64,5 @@ HEALTHCHECK --interval=30s --timeout=20s --start-period=40s --retries=3 \
       body:JSON.stringify({source:'use IO.Std.write_line;\n\nentry() is\n write_line(\"ok\");\nsi\n'})}) \
       .then(r=>r.json()).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["node", "/home/playground/service/server.js"]
+WORKDIR /home/playground/service
+ENTRYPOINT ["node", "compile-service/server.js"]
