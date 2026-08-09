@@ -95,21 +95,23 @@ jobs:
       # than trusting that the check is still wired up.
       - name: Check the compile service enforces access tokens
         run: |
-          PLAYGROUND_TOKENS="ci-token" npm run compile-service &
+          # A separate port: npm leaves the previous step's node child holding
+          # 5090, because killing the npm wrapper does not kill what it spawned.
+          PORT=5099 PLAYGROUND_TOKENS="ci-token" node compile-service/server.js &
           service=$!
 
           for _ in $(seq 1 30); do
-            curl -sf -o /dev/null -X POST http://127.0.0.1:5090/compile \
+            curl -sf -o /dev/null -X POST http://127.0.0.1:5099/compile \
               -H 'content-type: application/json' -H 'authorization: Bearer ci-token' \
               -d '{"source":""}' && break
             sleep 1
           done
 
-          none=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5090/compile \
+          none=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5099/compile \
             -H 'content-type: application/json' -d '{"source":""}')
-          wrong=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5090/compile \
+          wrong=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5099/compile \
             -H 'content-type: application/json' -H 'authorization: Bearer wrong' -d '{"source":""}')
-          right=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5090/compile \
+          right=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5099/compile \
             -H 'content-type: application/json' -H 'authorization: Bearer ci-token' -d '{"source":""}')
 
           kill $service
