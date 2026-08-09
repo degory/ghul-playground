@@ -2,9 +2,10 @@
 
 Edit [ghūl](https://ghul.dev) in the browser, compile it, and run it in the browser.
 
-**This is a prototype.** It works end to end, but the compile service has no
-sandbox and no rate limiting, so it is not yet something to put on the public
-internet. See [before this is exposed to anyone](#before-this-is-exposed-to-anyone).
+**This is a prototype.** It works end to end, and the compile service has a
+container that contains it, but there is no egress blocking and no rate
+limiting yet, so it is not something to put on the public internet. See
+[before this is exposed to anyone](#before-this-is-exposed-to-anyone).
 
 ## how it works
 
@@ -53,6 +54,27 @@ The compile service binds to `127.0.0.1` and the web app expects it at
 `http://127.0.0.1:5090`. To run them apart, set `HOST` and `PORT` on the
 service and change `COMPILE_SERVICE` at the top of `web/wwwroot/main.js`.
 
+### the compile service in a container
+
+Preferred for anything but a quick local run, because the limits are what
+contain the compiler:
+
+```sh
+docker compose -f compose.yaml up --build
+```
+
+from `compile-service/`. It listens on the same `127.0.0.1:5090`, so the web
+app needs no change. The container runs as a non-root user with a read-only
+root filesystem, all capabilities dropped, `no-new-privileges`, a tmpfs for
+the compiler's scratch output, and memory, CPU and process limits. Its health
+check compiles a program rather than just probing the socket, so a broken
+toolchain shows as unhealthy instead of as failing user requests.
+
+One control the compose file cannot express is **egress**. Docker gives a
+container either a network or none, and the service needs ingress, so it gets
+both. Block outbound traffic at the host firewall, or put the container on an
+internal network behind the reverse proxy.
+
 ## what works, and what does not
 
 Working: syntax highlighting, compile, run, output, and compiler diagnostics
@@ -77,15 +99,17 @@ has to be correct rather than fast should come from the compiler.
 
 ## before this is exposed to anyone
 
-The compile service runs the compiler on posted source, as whatever user it
-runs as, in a temporary directory. It limits source size and compilation time
-and nothing else. Before it faces anyone:
+The compile service runs the compiler on posted source. Run in a container it
+is contained as described above, which covers the resource limits and the
+blast radius. Still outstanding before it faces anyone:
 
-- Run it in a container with no network, a read-only root filesystem, a memory
-  cap, a CPU quota, a process limit and a hard wall-clock kill. The compiler
-  is the component parsing hostile input, so it is the component to contain.
+- **Block egress.** See the note above; the container has a network because it
+  needs ingress, and nothing currently stops it making outbound connections.
 - Add per-address rate limiting and a global concurrency cap that queues
   rather than scales.
+- Terminate TLS in front of it. A page served over HTTPS cannot call an HTTP
+  backend, so this is a functional requirement for embedding as well as a
+  security one.
 - Cache on a hash of the source and the compiler version. Most requests to a
   playground are the same handful of examples.
 - Serve it from its own origin, and run the browser runtime in a sandboxed
