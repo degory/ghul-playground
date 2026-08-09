@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <GhulCompiler>dotnet ghul-compiler</GhulCompiler>
+    <GhulOptions>--library</GhulOptions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <GhulSources Include="src/**/*.ghul" />
+  </ItemGroup>
+
+  <!-- The ghūl MSBuild targets ship inside the runtime package, so this
+       reference is what makes the project build at all, not just what
+       supplies the runtime assembly. -->
+  <ItemGroup>
+    <PackageReference Include="ghul.runtime" Version="5.8.1" />
+  </ItemGroup>
+</Project>

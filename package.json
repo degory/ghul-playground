@@ -1,0 +1,15 @@
+{
+  "name": "ghul-playground",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser playground for the ghūl language",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/stage-monaco.js",
+    "compile-service": "node compile-service/server.js",
+    "web": "dotnet run --project web"
+  },
+  "dependencies": {
+    "monaco-editor": "0.56.0"
+  }
+}

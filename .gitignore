@@ -1,0 +1,23 @@
+# .NET
+obj/
+bin/
+nupkg/
+**/TestResults
+**/*.runtimeconfig.json
+.assemblies.json
+.vs/*
+
+# compiler output from building an example by hand
+**/*.il
+**/*.exe
+
+# node
+node_modules/
+
+# Monaco is staged into the web app by `npm install`, not committed:
+# it is 24 MB of third-party build output with a version already pinned
+# in package.json.
+web/wwwroot/vs/
+
+# ghūl compiler response file, written next to the project on build
+.build.rsp

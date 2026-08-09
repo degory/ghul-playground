@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+  </ItemGroup>
+
+  <!-- The ghūl runtime is a fixed part of the host: only the user's own
+       assembly is loaded dynamically. The compile service compiles against
+       this same version, so a program that compiles is a program the browser
+       can bind.
+
+       ExcludeAssets matters: the package also carries the ghūl MSBuild
+       targets, and importing those into a C# project makes it try to compile
+       this project with the ghūl compiler. -->
+  <ItemGroup>
+    <PackageReference Include="ghul.runtime" Version="5.8.1" ExcludeAssets="build;buildTransitive" />
+  </ItemGroup>
+
+</Project>

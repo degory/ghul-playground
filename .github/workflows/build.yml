@@ -1,0 +1,82 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # weekly, so a newly published compiler or runtime that breaks the
+    # playground is caught before someone opens it
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: dotnet tool restore
+
+      - name: Update the compiler tool to the latest published version
+        run: dotnet tool update --local ghul.compiler
+
+      - name: Install node dependencies and stage Monaco
+        run: npm install
+
+      - name: Build the ghūl runner
+        run: dotnet build runner --configuration Release
+
+      - name: Build the web app
+        run: dotnet build web --configuration Release
+
+      # End to end in the sense that matters here: the compile service turns
+      # source into an assembly, and rejects source it should reject. Running
+      # the assembly needs a browser, so it is not covered.
+      - name: Smoke-test the compile service
+        run: |
+          npm run compile-service &
+          service=$!
+
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null -X POST http://127.0.0.1:5090/compile \
+              -H 'content-type: application/json' -d '{"source":""}' && break
+            sleep 1
+          done
+
+          ok=$(curl -s -X POST http://127.0.0.1:5090/compile \
+            -H 'content-type: application/json' \
+            -d '{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(\"hello\");\nsi\n"}' \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                const r=JSON.parse(s);
+                console.log(r.ok && r.assembly && r.assembly.length > 0 ? "yes" : "no");
+              })')
+
+          bad=$(curl -s -X POST http://127.0.0.1:5090/compile \
+            -H 'content-type: application/json' \
+            -d '{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(no_such_thing);\nsi\n"}' \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                const r=JSON.parse(s);
+                console.log(!r.ok && r.diagnostics.some(d=>d.severity==="error") ? "yes" : "no");
+              })')
+
+          kill $service
+
+          echo "compiles a valid program: $ok"
+          echo "reports an invalid one:   $bad"
+
+          test "$ok" = yes && test "$bad" = yes

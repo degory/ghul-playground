@@ -1,0 +1,13 @@
+use IO.Std.write_line;
+
+entry() is
+    write_line("attempting to read /etc/passwd ...");
+
+    try
+        let text = IO.File.read_all_text("/etc/passwd");
+        write_line("READ SUCCEEDED, {text.length} chars:");
+        write_line(text);
+    catch e: System.Exception
+        write_line("READ FAILED: {e.get_type().name}: {e.message}");
+    yrt
+si

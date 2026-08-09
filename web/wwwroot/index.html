@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>ghūl playground (spike)</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <link rel="stylesheet" href="vs/editor/editor.main.css">
+  <script src="vs/loader.js"></script>
+  <script type='module' src="main#[.{fingerprint}].js"></script>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #ddd;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    h1 { font-size: 1rem; margin: 0; font-weight: 600; }
+
+    button {
+      font: inherit;
+      padding: 0.35rem 1rem;
+      cursor: pointer;
+    }
+
+    button:disabled { cursor: default; opacity: 0.5; }
+
+    #status { color: #666; font-size: 0.85rem; }
+
+    main { flex: 1; display: flex; min-height: 0; }
+
+    #editor { flex: 1; min-width: 0; border-right: 1px solid #ddd; }
+
+    #panel {
+      width: 40%;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    #panel h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      margin: 0;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid #eee;
+    }
+
+    pre {
+      margin: 0;
+      padding: 1rem;
+      overflow: auto;
+      flex: 1;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+    }
+
+    #diagnostics { border-bottom: 1px solid #ddd; max-height: 35%; color: #a00; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>ghūl playground</h1>
+    <button id="run" disabled>Compile and run</button>
+    <span id="status">loading .NET runtime ...</span>
+  </header>
+
+  <main>
+    <div id="editor"></div>
+
+    <div id="panel">
+      <h2>Diagnostics</h2>
+      <pre id="diagnostics"></pre>
+      <h2>Output</h2>
+      <pre id="output"></pre>
+    </div>
+  </main>
+</body>
+
+</html>

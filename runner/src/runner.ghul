@@ -1,0 +1,60 @@
+namespace Playground is
+    // Loads an assembly the compiler produced, runs it, and hands back
+    // whatever it wrote to standard output. The C# side of the wasm host
+    // exists only to satisfy the JSExport source generator and calls
+    // straight into here.
+    class RUNNER is
+        run(base64: string) -> string static is
+            try
+                return _invoke(System.Reflection.Assembly.load(System.Convert.from_base64_string(base64)));
+            catch e: System.Exception
+                return "host error: {e.get_type().name}: {e.message}";
+            yrt
+        si
+
+        // Standard output is redirected for the duration of the call:
+        // without this the program's output goes to the browser console,
+        // where the page cannot show it.
+        _invoke(assembly: System.Reflection.Assembly) -> string static is
+            let entry = assembly.entry_point;
+
+            if !entry? then
+                return "assembly has no entry point";
+            fi
+
+            let writer = IO.StringWriter();
+            let previous = IO.Std.out;
+
+            IO.Std.set_out(writer);
+
+            try
+                // A ghūl `entry()` takes no arguments, but the emitted entry
+                // point is free to declare the string[] form, so match what
+                // is there.
+                let arguments: object[]? mut = null;
+
+                if entry.get_parameters().count > 0 then
+                    arguments = [cast object(System.Array.empty[string]())];
+                fi
+
+                let result = entry.invoke(null, arguments);
+
+                if result? then
+                    writer.write_line("[exit status {result}]");
+                fi
+            catch e: System.Reflection.TargetInvocationException
+                let inner = e.inner_exception;
+
+                if inner? then
+                    writer.write_line("[unhandled: {inner.get_type().name}: {inner.message}]");
+                else
+                    writer.write_line("[unhandled: {e.message}]");
+                fi
+            finally
+                IO.Std.set_out(previous);
+            yrt
+
+            return writer.to_string();
+        si
+    si
+si
