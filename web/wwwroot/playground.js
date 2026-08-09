@@ -94,6 +94,10 @@ export async function createPlayground({
         automaticLayout: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
+        // The frame is sized to its content and so never scrolls internally.
+        // Consuming the wheel would therefore only trap it: a reader scrolling
+        // the page over an editor would find the page stuck.
+        scrollbar: { alwaysConsumeMouseWheel: false },
         // The same face and features ghul.dev sets on a rendered example, so
         // clicking edit does not change how the code looks.
         fontFamily: "'Fira Code', var(--vp-font-family-mono, monospace)",
