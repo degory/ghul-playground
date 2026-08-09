@@ -38,7 +38,10 @@ services:
     # here to make a runaway allocation fail rather than take the host down.
     mem_limit: 1g
     memswap_limit: 1g
-    cpus: 2.0
+    # Docker refuses a value above the host's CPU count, so this has to fit the
+    # smallest machine the service is deployed to. Raise it where there is more
+    # to give.
+    cpus: 1.0
     pids_limit: 256
 
     restart: unless-stopped

@@ -4,11 +4,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+
+    <!-- The user's assembly is loaded at run time, so the trimmer cannot see
+         what it needs and would remove types it depends on. Until the trimmer
+         roots are pinned to the reference set the compile service advertises,
+         publishing untrimmed is the only correct option. -->
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
-  <ItemGroup>
-    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
-  </ItemGroup>
+  <!-- The template fingerprints every *.js. Monaco ships an AMD loader that
+       fetches its own files by exact name, so fingerprinting them makes the
+       published site 404 on every Monaco module while the dev server, which
+       serves original names, keeps working. -->
 
   <!-- The ghūl runtime is a fixed part of the host: only the user's own
        assembly is loaded dynamically. The compile service compiles against

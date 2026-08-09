@@ -1,7 +1,11 @@
 import { dotnet } from './_framework/dotnet.js'
 import { GHUL_LANGUAGE, GHUL_CONFIGURATION } from './ghul-language.js'
 
-const COMPILE_SERVICE = 'http://127.0.0.1:5090/compile';
+// Deployed, the compile service sits behind the same reverse proxy that serves
+// this page, so a same-origin path avoids CORS entirely. The .NET dev server
+// does not proxy, so a page served from it talks to the service directly.
+const COMPILE_SERVICE =
+    location.port === '5080' ? 'http://127.0.0.1:5090/compile' : '/compile';
 
 const SAMPLE = `use IO.Std.write_line;
 
