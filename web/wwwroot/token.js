@@ -42,6 +42,7 @@ export function askForToken(container, { message } = {}) {
         overlay.className = 'ghul-token-overlay';
         overlay.innerHTML = `
             <form class="ghul-token-form">
+                <p class="ghul-token-title">Editing and running is in preview</p>
                 <p class="ghul-token-message"></p>
                 <input type="password" class="ghul-token-input"
                        placeholder="access token" autocomplete="off" spellcheck="false">
@@ -49,10 +50,18 @@ export function askForToken(container, { message } = {}) {
                     <button type="submit">use it</button>
                     <button type="button" class="ghul-token-cancel">not now</button>
                 </div>
+                <p class="ghul-token-ask">
+                    Don't have one?
+                    <a href="https://github.com/degory/ghul-playground/issues"
+                       target="_blank" rel="noopener">Ask on GitHub</a>.
+                </p>
             </form>`;
 
+        // Says what this is and how to get in. Without that a reader meets a
+        // password box with no way of knowing whether they are supposed to have
+        // one, which reads as something being broken.
         overlay.querySelector('.ghul-token-message').textContent =
-            message ?? 'This playground needs an access token.';
+            message ?? 'If you have an access token, enter it to edit and run this example.';
 
         const input = overlay.querySelector('.ghul-token-input');
 
@@ -109,7 +118,10 @@ const STYLE = `
     background: #fff;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
 }
+.ghul-token-title { margin: 0; font-size: 0.95rem; font-weight: 600; color: #111; }
 .ghul-token-message { margin: 0; font-size: 0.9rem; color: #333; }
+.ghul-token-ask { margin: 0; font-size: 0.8rem; color: #666; }
+.ghul-token-ask a { color: #0b6bcb; }
 .ghul-token-input { font: inherit; padding: 0.4rem 0.5rem; }
 .ghul-token-buttons { display: flex; gap: 0.5rem; justify-content: flex-end; }
 .ghul-token-buttons button { font: inherit; padding: 0.3rem 0.9rem; cursor: pointer; }

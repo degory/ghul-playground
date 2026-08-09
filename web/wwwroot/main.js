@@ -52,7 +52,7 @@ runButton.disabled = false;
 // Ask up front rather than letting the analyser fail quietly and the first run
 // come back rejected.
 if (!playground.hasToken()) {
-    await playground.askForToken('This playground needs an access token.');
+    await playground.askForToken();
 }
 
 runButton.addEventListener('click', () => playground.run());
