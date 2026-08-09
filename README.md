@@ -162,8 +162,8 @@ The client addresses a fixed virtual path and never learns where its workspace
 actually is; the bridge maps between the two, so a browser cannot address
 anything outside its own session by naming a different URI.
 
-Concurrency is capped rather than queued, because a warm analyser holds roughly
-260 MB and opening a session is far cheaper for a client than for the service.
+Sessions are capped rather than queued, because a warm analyser holds tens of
+megabytes and opening one is far cheaper for a client than for the service.
 `/health` answers even when every slot is taken: it reports that the service
 exists, which is what a front end needs in order to decide whether to offer
 editing at all.
@@ -203,20 +203,32 @@ so a reader entering it once has it for every embedded example on every page.
 An address allow list was used first and has been removed. It cannot work once
 the audience is the readers of a documentation site.
 
-## before this is exposed to anyone
+## limits
 
-Run in their containers the services are contained: non-root, read-only root
-filesystem, all capabilities dropped, `no-new-privileges`, a tmpfs for scratch,
-and memory, CPU and process limits. Still outstanding:
+The services run the compiler on whatever they are sent, so what bounds the cost
+matters more than who is sending it.
 
-- **Block egress.** Both containers have a network because they need ingress,
-  and nothing currently stops them making outbound connections. Block it at the
-  host firewall or put them on an internal network behind the proxy.
-- Rate limiting, and a concurrency cap on compiling as well as on sessions. A
-  valid token currently buys unlimited compiles.
-- Terminate TLS in front of them. A page served over HTTPS cannot call an HTTP
-  backend or open an insecure WebSocket, so this is a functional requirement
-  for embedding as well as a security one.
+Compiling is capped at two at once with a short queue behind it, and answers 503
+past the end of that queue. The cap rather than `mem_limit` is what keeps the
+container off its ceiling: a compile costs about a CPU-second and peaks near
+200 MB, and enough simultaneous requests without one drove the container into
+its memory cap, where the kernel killed compilers and every request in flight
+failed. Thirty at once was enough to do it. Each compile is also given ten
+seconds and 256 KB of source.
+
+Analysing is capped at six sessions, which bounds memory directly, with an idle
+timeout of five minutes and a lifetime of an hour.
+
+`deploy/nginx/playground-limits.conf` adds the per-address half: a compile rate
+limit and at most two concurrent sessions from one address. It bounds one
+address, which is all a proxy can see; the caps above are what hold whatever the
+traffic is spread across.
+
+`ALLOWED_ORIGINS` names the sites that may drive the services from a browser.
+It is not access control - anything that is not a browser can claim any origin,
+or none - but it stops a third-party page spending our CPU through its own
+visitors' browsers. Unset, any origin is accepted, which is what local
+development wants.
 
 Restricting the reference set (`REFERENCES` in `shared/toolchain.js`) makes
 some APIs unnameable and so uncallable: `System.Net.Http` and
@@ -226,6 +238,12 @@ script the hosting page. It does **not** deny the filesystem.
 `System.Runtime` type-forwards the `System.IO` surface and cannot be dropped,
 so `IO.File` compiles regardless. That is survivable only because the compiled
 program runs in the browser.
+
+Run in their containers the services are contained: non-root, read-only root
+filesystem, all capabilities dropped, `no-new-privileges`, a tmpfs for scratch,
+and memory, CPU and process limits. Outbound traffic is blocked at the host
+firewall rather than here, because a container needs a network for ingress and
+Docker will not give it one without the other.
 
 ## layout
 
