@@ -29,6 +29,11 @@ services:
       dockerfile: compile-service/Dockerfile
     image: ghul-playground-compile
 
+    environment:
+      # A short fixed list of shared access tokens, comma separated. Supplied
+      # from the environment, never committed. Both services must agree.
+      PLAYGROUND_TOKENS: "${PLAYGROUND_TOKENS:-}"
+
     # Bound to loopback: these sit behind a reverse proxy that terminates TLS,
     # rather than facing the internet themselves.
     ports:
@@ -58,6 +63,7 @@ services:
       - "127.0.0.1:5091:5091"
 
     environment:
+      PLAYGROUND_TOKENS: "${PLAYGROUND_TOKENS:-}"
       # A warm analyser holds roughly 260 MB, so sessions are the memory
       # budget. Keep this and mem_limit in step.
       MAX_SESSIONS: "2"

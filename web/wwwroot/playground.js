@@ -5,6 +5,7 @@
 import { dotnet } from './_framework/dotnet.js'
 import { GHUL_LANGUAGE, GHUL_CONFIGURATION } from './ghul-language.js'
 import { GhulLanguageClient } from './lsp.js'
+import { getToken, setToken, askForToken } from './token.js'
 
 // Deployed, both services sit behind the same reverse proxy that serves this
 // page, so same-origin paths avoid CORS entirely. The .NET dev server does not
@@ -95,6 +96,7 @@ export async function createPlayground({
     });
 
     const client = new GhulLanguageClient(ANALYSE_SERVICE, {
+        getToken,
         onStatus: state => {
             // A dead analyser leaves its last diagnostics on screen, which
             // would be stale and misleading.
@@ -155,11 +157,35 @@ export async function createPlayground({
         const started = performance.now();
 
         try {
+            const token = getToken();
+
             const response = await fetch(COMPILE_SERVICE, {
                 method: 'POST',
-                headers: { 'content-type': 'application/json' },
+                headers: {
+                    'content-type': 'application/json',
+                    ...(token ? { authorization: `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({ source: editor.getValue() })
             });
+
+            // A rejected token is worth saying plainly and worth asking about,
+            // rather than reporting as an opaque failure.
+            if (response.status === 401) {
+                onStatus('unauthorized');
+
+                const entered = await askForToken(container.parentElement ?? container, {
+                    message: token
+                        ? 'That access token was not accepted. Try another?'
+                        : 'Running a program needs an access token.'
+                });
+
+                if (entered) {
+                    client.reconnect();
+                    return run();
+                }
+
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error(`compile service returned HTTP ${response.status}`);
@@ -195,6 +221,11 @@ export async function createPlayground({
     return {
         editor,
         run,
+        hasToken: () => Boolean(getToken()),
+        askForToken: message =>
+            askForToken(container.parentElement ?? container, { message })
+                .then(entered => { if (entered) client.reconnect(); return entered; }),
+        setToken: token => { setToken(token); client.reconnect(); },
         setSource: text => editor.setValue(text),
         getSource: () => editor.getValue(),
         setTheme: name => monaco.editor.setTheme(name),

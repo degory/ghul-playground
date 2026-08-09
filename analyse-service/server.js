@@ -20,6 +20,7 @@ const { WebSocketServer } = require('ws');
 
 const { resolveReferencePaths } = require('../shared/toolchain');
 const { Analyser } = require('./analyser');
+const tokens = require('../shared/tokens');
 
 const PORT = Number(process.env.PORT ?? 5091);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -281,7 +282,35 @@ const server = http.createServer((request, response) => {
     response.writeHead(404).end('not found');
 });
 
-const wss = new WebSocketServer({ server, path: '/analyse' });
+// A browser cannot set headers on a WebSocket, so the token arrives as a
+// subprotocol rather than a query parameter, which keeps it out of access logs.
+//
+// The check has to be in verifyClient, not handleProtocols: declining a
+// subprotocol does not refuse the connection, it just leaves the connection
+// without one. Rejecting at the upgrade gives the client an HTTP 401 and a
+// socket that never opens.
+const wss = new WebSocketServer({
+    server,
+    path: '/analyse',
+
+    verifyClient: (info, callback) => {
+        const offered = (info.req.headers['sec-websocket-protocol'] ?? '')
+            .split(',')
+            .map(protocol => protocol.trim())
+            .filter(Boolean);
+
+        if (tokens.accepts(tokens.fromSubprotocols(offered))) {
+            callback(true);
+            return;
+        }
+
+        log('refusing connection: invalid or missing access token');
+        callback(false, 401, 'invalid or missing access token');
+    },
+
+    // Echo the plain marker, never the token-bearing one.
+    handleProtocols: protocols => protocols.has('ghul-playground') ? 'ghul-playground' : false
+});
 
 wss.on('connection', async socket => {
     if (sessions.size >= MAX_SESSIONS) {
@@ -331,6 +360,7 @@ wss.on('connection', async socket => {
     server.listen(PORT, HOST, () => {
         log(`analyse service on ws://${HOST}:${PORT}/analyse ` +
             `(max ${MAX_SESSIONS} sessions, pool ${POOL_SIZE}, idle ${IDLE_TIMEOUT_MS / 1000}s)`);
+        log(tokens.describe());
 
         replenish();
     });

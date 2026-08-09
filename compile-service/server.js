@@ -17,6 +17,7 @@ const { tmpdir } = require('os');
 const path = require('path');
 
 const { resolveCompiler, resolveReferencePaths } = require('../shared/toolchain');
+const tokens = require('../shared/tokens');
 
 const PORT = Number(process.env.PORT ?? 5090);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -112,7 +113,7 @@ async function compile(source) {
 
 http.createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Headers', 'content-type');
+    response.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
 
     if (request.method === 'OPTIONS') {
         response.writeHead(204).end();
@@ -121,6 +122,14 @@ http.createServer((request, response) => {
 
     if (request.method !== 'POST' || !request.url.startsWith('/compile')) {
         response.writeHead(404).end('not found');
+        return;
+    }
+
+    // 401 rather than 403, and a distinguishable body, so the front end can
+    // say the token is wrong instead of showing a bare failure.
+    if (!tokens.accepts(tokens.fromAuthorizationHeader(request.headers.authorization))) {
+        response.writeHead(401, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, error: 'invalid or missing access token' }));
         return;
     }
 
@@ -155,4 +164,7 @@ http.createServer((request, response) => {
             }));
         }
     });
-}).listen(PORT, HOST, () => console.log(`compile service on http://${HOST}:${PORT}`));
+}).listen(PORT, HOST, () => {
+    console.log(`compile service on http://${HOST}:${PORT}`);
+    console.log(tokens.describe());
+});

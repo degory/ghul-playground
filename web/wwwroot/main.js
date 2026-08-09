@@ -49,6 +49,12 @@ const playground = await createPlayground({
 status.textContent = 'ready';
 runButton.disabled = false;
 
+// Ask up front rather than letting the analyser fail quietly and the first run
+// come back rejected.
+if (!playground.hasToken()) {
+    await playground.askForToken('This playground needs an access token.');
+}
+
 runButton.addEventListener('click', () => playground.run());
 
 playground.editor.addCommand(

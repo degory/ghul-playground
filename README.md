@@ -151,6 +151,41 @@ Concurrency is capped rather than queued, because a warm analyser holds roughly
 exists, which is what a front end needs in order to decide whether to offer
 editing at all.
 
+## access tokens
+
+The services take a short fixed list of shared tokens, comma separated, in
+`PLAYGROUND_TOKENS`. Anyone holding one may use them; there is no per-user
+identity, no expiry, and no revocation beyond editing the list and restarting.
+That is the intended scope: it keeps a passer-by out of services that run the
+compiler on whatever they are sent.
+
+```sh
+PLAYGROUND_TOKENS="one-token,another-token" docker compose up -d
+```
+
+Tokens never go in the repository. In a deployment, put them in a `.env`
+alongside the compose file, which docker reads automatically.
+
+**With none configured the services are open.** That is convenient locally,
+where they are bound to loopback anyway, and wrong anywhere else, so both
+services say so loudly at startup.
+
+The compile service takes `Authorization: Bearer <token>` and answers 401 when
+it is missing or wrong, so a front end can say the token was refused rather than
+report an opaque failure. The analyse service takes it as a WebSocket
+subprotocol, because a browser cannot set headers on a WebSocket and a query
+parameter would land in access logs; it is checked at the upgrade, so a bad
+token is a socket that never opens.
+
+`/health` is deliberately unauthenticated. An embedding page has to be able to
+ask whether a back end exists before it has a token to offer.
+
+The front end keeps the token in `localStorage` for the playground's own origin,
+so a reader entering it once has it for every embedded example on every page.
+
+An address allow list was used first and has been removed. It cannot work once
+the audience is the readers of a documentation site.
+
 ## before this is exposed to anyone
 
 Run in their containers the services are contained: non-root, read-only root
@@ -160,8 +195,8 @@ and memory, CPU and process limits. Still outstanding:
 - **Block egress.** Both containers have a network because they need ingress,
   and nothing currently stops them making outbound connections. Block it at the
   host firewall or put them on an internal network behind the proxy.
-- Per-address rate limiting, and a concurrency cap on compiling as well as on
-  sessions.
+- Rate limiting, and a concurrency cap on compiling as well as on sessions. A
+  valid token currently buys unlimited compiles.
 - Terminate TLS in front of them. A page served over HTTPS cannot call an HTTP
   backend or open an insecure WebSocket, so this is a functional requirement
   for embedding as well as a security one.
