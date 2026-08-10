@@ -104,6 +104,26 @@ so the saved file ages. It restores harmlessly, because docker rebuilds its own
 chains at start, but do not read `/etc/iptables/rules.v4` as the statement of
 what we intended. `host-setup.sh` is that statement.
 
+## traffic that is not a reader
+
+`reject-unknown-hosts.conf` makes nginx refuse any request whose `Host` is not a
+name we serve, which in practice means requests addressed to the bare IP. It
+closes the connection with 444, and refuses the TLS handshake outright rather
+than presenting a certificate for a name the client did not ask for.
+
+Without it nginx answers on the address as well as the name, and scanners find
+it that way. The content is public either way, so this is not concealment: it is
+that address-scan traffic is never a reader, and there is no reason to serve it,
+log it, or let it spend from the per-address limits real readers share.
+
+Expect a steady background of this regardless: probes for `/.env` and its
+variants, `/wp-login.php`, and raw TLS or RDP handshakes sent to port 80. The
+`.env` probes are the ones worth understanding rather than dismissing, because
+that file does hold the access tokens - it lives at `/opt/ghul-playground/.env`,
+outside the web root, so it is not reachable. Worth re-checking with
+`curl -s -o /dev/null -w '%{http_code}' https://playground.ghul.dev/.env` after
+any change to the nginx roots.
+
 ## deploying
 
 The front end is published locally and copied up; the services are rebuilt in
