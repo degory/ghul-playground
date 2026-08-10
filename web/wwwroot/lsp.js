@@ -16,6 +16,9 @@ const DOCUMENT_URI = `${ROOT_URI}/src/main.ghul`;
 // LSP DiagnosticSeverity -> monaco.MarkerSeverity
 const SEVERITY = { 1: 8, 2: 4, 3: 2, 4: 1 };
 
+// The same four, spelled the way the compile service spells them.
+const LSP_SEVERITY = { 1: 'error', 2: 'warn', 3: 'info', 4: 'hint' };
+
 // LSP CompletionItemKind -> monaco.languages.CompletionItemKind. The two
 // enumerations do not share numbering, so this cannot be a cast.
 const COMPLETION_KIND = {
@@ -29,9 +32,10 @@ const COMPLETION_KIND = {
 const TOKEN_SUBPROTOCOL_PREFIX = 'ghul-playground-token.';
 
 export class GhulLanguageClient {
-    constructor(url, { onStatus, getToken } = {}) {
+    constructor(url, { onStatus, onDiagnostics, getToken } = {}) {
         this.url = url;
         this.onStatus = onStatus ?? (() => { });
+        this.onDiagnostics = onDiagnostics ?? (() => { });
         this.getToken = getToken ?? (() => null);
 
         this.socket = null;
@@ -237,6 +241,17 @@ export class GhulLanguageClient {
 
     publishDiagnostics(diagnostics) {
         if (!this.model) return;
+
+        // Reported in the same shape the compile service produces, so a
+        // consumer can show either without knowing which it has.
+        this.onDiagnostics(diagnostics.map(d => ({
+            startLine: d.range.start.line + 1,
+            startColumn: d.range.start.character + 1,
+            endLine: d.range.end.line + 1,
+            endColumn: d.range.end.character + 1,
+            severity: LSP_SEVERITY[d.severity] ?? 'error',
+            message: d.message
+        })));
 
         monaco.editor.setModelMarkers(this.model, 'ghul-analyse', diagnostics.map(d => ({
             // LSP counts lines and characters from zero; Monaco counts from one.

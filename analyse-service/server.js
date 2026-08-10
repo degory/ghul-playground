@@ -20,6 +20,7 @@ const { WebSocketServer } = require('ws');
 
 const { resolveReferencePaths } = require('../shared/toolchain');
 const { Analyser } = require('./analyser');
+const { MAX_SOURCE_BYTES } = require('../shared/limits');
 const origins = require('../shared/origins');
 const tokens = require('../shared/tokens');
 
@@ -216,7 +217,7 @@ class Session {
         // The document is open with the warm-up source, so the client opening
         // "its" document is really a change to the one already there.
         if (message.method === 'textDocument/didOpen') {
-            this.analyser.replaceDocument(message.params?.textDocument?.text ?? '');
+            this.replaceDocument(message.params?.textDocument?.text ?? '');
             return;
         }
 
@@ -232,11 +233,24 @@ class Session {
             // Versions are the analyser's to allocate: the client's numbering
             // starts from its own didOpen and would go backwards against a
             // document the pool already opened.
-            this.analyser.replaceDocument(whole);
+            this.replaceDocument(whole);
             return;
         }
 
         this.analyser.write(text.split(VIRTUAL_ROOT).join(this.analyser.realRoot));
+    }
+
+    // Analysing a document costs a full pass, so an oversized one is declined
+    // here for the same reason the compile service declines one. The editor
+    // enforces the same limit, so reaching this means something other than the
+    // editor is sending it.
+    replaceDocument(text) {
+        if (text.length > MAX_SOURCE_BYTES) {
+            this.log(`declining a ${text.length} byte document; the limit is ${MAX_SOURCE_BYTES}`);
+            return;
+        }
+
+        this.analyser.replaceDocument(text);
     }
 
     close(reason) {
@@ -282,6 +296,10 @@ const server = http.createServer((request, response) => {
             sessions: sessions.size,
             maxSessions: MAX_SESSIONS,
             pool: poolState(),
+            // Read by the front end so the editor can enforce the same limit
+            // the services do, rather than a reader discovering it by having a
+            // paste silently do nothing.
+            maxSourceBytes: MAX_SOURCE_BYTES,
             // So a front end can tell whether to ask for a token at all. Asking
             // for one the services do not want is worse than not asking: it
             // reads as a closed door on a service that is open.
@@ -303,6 +321,10 @@ const server = http.createServer((request, response) => {
 const wss = new WebSocketServer({
     server,
     path: '/analyse',
+
+    // A frame can only ever be an LSP message about a document that is itself
+    // capped, so anything materially larger is not a client of ours.
+    maxPayload: 4 * MAX_SOURCE_BYTES,
 
     verifyClient: (info, callback) => {
         // Sessions are a small fixed pool, so a third-party page opening them

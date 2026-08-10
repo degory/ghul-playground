@@ -5,19 +5,27 @@
 export const GHUL_LANGUAGE = {
     defaultToken: '',
 
+    // Split exactly as the VS Code extension's TextMate grammar splits it, so
+    // the same word is the same colour whether it is being read on ghul.dev,
+    // edited here, or opened in an editor: control flow is one colour and
+    // everything else another. Colouring every keyword alike is the difference
+    // a reader notices first.
+    controlKeywords: [
+        'assert', 'if', 'then', 'elif', 'else', 'fi',
+        'for', 'in', 'while', 'do', 'od', 'continue', 'break',
+        'case', 'when', 'default', 'esac',
+        'throw', 'try', 'catch', 'finally', 'yrt',
+        'return', 'yield', 'await'
+    ],
+
     keywords: [
         'namespace', 'use', 'class', 'struct', 'trait', 'union', 'enum',
-        'partial', 'impl', 'for', 'is', 'si',
-        'if', 'then', 'elif', 'else', 'fi',
-        'while', 'do', 'od', 'in',
-        'case', 'when', 'esac',
-        'try', 'catch', 'finally', 'yrt',
+        'partial', 'impl', 'is', 'si',
         'val', 'lav', 'let', 'mut',
-        'return', 'break', 'continue', 'throw', 'assert',
-        'cast', 'isa', 'super', 'self', 'rec',
+        'cast', 'isa', 'typeof', 'super', 'self', 'rec',
         'static', 'public', 'private', 'protected', 'field', 'init',
-        'abstract', 'open', 'pure', 'impure', 'default',
-        'await', 'yield', 'new', 'entry', 'deconstruct'
+        'abstract', 'open', 'pure', 'impure', 'optional', 'innate',
+        'new', 'entry', 'deconstruct'
     ],
 
     types: [
@@ -38,6 +46,7 @@ export const GHUL_LANGUAGE = {
 
             [/[a-zA-Z_$][\w$]*/, {
                 cases: {
+                    '@controlKeywords': 'keyword.control',
                     '@keywords': 'keyword',
                     '@types': 'keyword.type',
                     '@constants': 'constant',

@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>ghūl playground (spike)</title>
+  <title>ghūl playground</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="preload" id="webassembly" />
@@ -23,97 +23,385 @@
   <script src="vs/loader.js"></script>
   <script type='module' src="main#[.{fingerprint}].js"></script>
   <style>
+    /* Light is the default and dark follows the reader's system setting, the
+       same way ghul.dev does. The editor theme is switched to match in main.js:
+       chrome and editor have to move together or the page looks broken. */
+    :root {
+      color-scheme: light dark;
+
+      --bg: #ffffff;
+      --bg-raised: #f6f7f9;
+      --fg: #1f2328;
+      --fg-muted: #656d76;
+      --border: #d8dde3;
+      --accent: #0969da;
+      --ok: #1a7f37;
+      --warn: #9a6700;
+      --bad: #cf222e;
+      --shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+      --mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1e1e1e;
+        --bg-raised: #252526;
+        --fg: #e6edf3;
+        --fg-muted: #9198a1;
+        --border: #3c3c3c;
+        --accent: #4daafc;
+        --ok: #3fb950;
+        --warn: #d29922;
+        --bad: #f85149;
+        --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+      }
+    }
+
     * { box-sizing: border-box; }
 
     body {
-      font-family: system-ui, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
       margin: 0;
       height: 100vh;
       display: flex;
       flex-direction: column;
+      background: var(--bg);
+      color: var(--fg);
     }
+
+    /* --- the top bar --- */
 
     header {
-      padding: 0.6rem 1rem;
-      border-bottom: 1px solid #ddd;
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-raised);
+      flex: none;
     }
 
-    h1 { font-size: 1rem; margin: 0; font-weight: 600; }
+    .wordmark {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin: 0 0.25rem 0 0.25rem;
+      white-space: nowrap;
+    }
+
+    .wordmark span { color: var(--fg-muted); font-weight: 400; }
 
     button {
       font: inherit;
-      padding: 0.35rem 1rem;
+      color: inherit;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
     }
 
-    button:disabled { cursor: default; opacity: 0.5; }
+    button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+    button:disabled { cursor: default; opacity: 0.45; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-    #status { color: #666; font-size: 0.85rem; }
-
-    #analyser-status {
-      margin-left: auto;
-      font-size: 0.8rem;
-      color: #666;
+    #run {
+      padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+      border-color: var(--border);
+      background: var(--bg);
+      font-weight: 500;
     }
 
-    #analyser-status[data-state="ready"] { color: #1a7f37; }
-    #analyser-status[data-state="disconnected"] { color: #a00; }
+    #run svg { width: 14px; height: 14px; fill: var(--ok); }
+    #run:disabled svg { fill: var(--fg-muted); }
 
-    main { flex: 1; display: flex; min-height: 0; }
+    /* Shown in place of the play triangle while a run is in flight, so the
+       button itself carries the progress rather than only the status text. */
+    #run .spinner { display: none; width: 14px; height: 14px; }
+    #run[data-busy] .spinner { display: block; animation: spin 0.9s linear infinite; }
+    #run[data-busy] .play { display: none; }
 
-    #editor { flex: 1; min-width: 0; border-right: 1px solid #ddd; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    #panel {
-      width: 40%;
+    #status { color: var(--fg-muted); white-space: nowrap; }
+
+    .spacer { margin-left: auto; }
+
+    /* The analyser indicator. A dot carries the state at a glance and the
+       tooltip explains it, which is the part a first-time reader needs. */
+    #analyser {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.5rem;
+      color: var(--fg-muted);
+      white-space: nowrap;
+    }
+
+    #analyser .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--fg-muted);
+      flex: none;
+    }
+
+    #analyser[data-state="ready"] .dot { background: var(--ok); }
+    #analyser[data-state="connecting"] .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+    #analyser[data-state="dormant"] .dot { background: var(--fg-muted); }
+    #analyser[data-state="disconnected"] .dot { background: var(--bad); }
+
+    @keyframes pulse { 50% { opacity: 0.25; } }
+
+    #help-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
+    #help-toggle svg { width: 16px; height: 16px; fill: currentColor; }
+
+    /* --- editor and the pane below it --- */
+
+    main {
+      flex: 1;
       display: flex;
       flex-direction: column;
-      min-width: 0;
+      min-height: 0;
     }
 
-    #panel h2 {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #666;
-      margin: 0;
-      padding: 0.5rem 1rem;
-      border-bottom: 1px solid #eee;
+    #editor { flex: 1; min-height: 0; }
+
+    /* Dragged to resize the pane below. Deliberately larger than it looks:
+       a 1px border is impossible to grab. */
+    #splitter {
+      height: 7px;
+      margin-top: -3px;
+      cursor: row-resize;
+      background: transparent;
+      border-bottom: 1px solid var(--border);
+      flex: none;
     }
+
+    #splitter:hover, #splitter[data-dragging] { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+    #pane {
+      height: 30%;
+      min-height: 2.2rem;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-raised);
+      flex: none;
+    }
+
+    #tabs {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0 0.5rem;
+      border-bottom: 1px solid var(--border);
+      flex: none;
+    }
+
+    .tab {
+      padding: 0.4rem 0.6rem;
+      border-radius: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--fg-muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+
+    .count {
+      font-size: 0.7rem;
+      padding: 0.05rem 0.35rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--fg) 12%, transparent);
+      letter-spacing: 0;
+    }
+
+    .count[data-severity="error"] { background: var(--bad); color: #fff; }
 
     pre {
       margin: 0;
-      padding: 1rem;
+      padding: 0.75rem 1rem;
       overflow: auto;
       flex: 1;
-      font-size: 0.85rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.5;
       white-space: pre-wrap;
+      tab-size: 4;
     }
 
-    #diagnostics { border-bottom: 1px solid #ddd; max-height: 35%; color: #a00; }
+    pre[hidden] { display: none; }
+
+    .empty { color: var(--fg-muted); font-style: italic; }
+
+    #diagnostics .error { color: var(--bad); }
+    #diagnostics .warn { color: var(--warn); }
+
+    /* --- the about panel --- */
+
+    #help {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      z-index: 10;
+    }
+
+    #help[hidden] { display: none; }
+
+    #help article {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      max-width: 34rem;
+      max-height: 100%;
+      overflow: auto;
+      padding: 1.25rem 1.5rem 1.5rem;
+    }
+
+    #help h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+    #help h3 { margin: 1.25rem 0 0.4rem; font-size: 0.9rem; }
+    #help p, #help li { line-height: 1.55; color: var(--fg); margin: 0.5rem 0; }
+    #help ul { margin: 0.5rem 0; padding-left: 1.2rem; }
+    #help a { color: var(--accent); }
+    #help code, kbd {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: color-mix(in srgb, var(--fg) 8%, transparent);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+
+    #help footer { margin-top: 1.25rem; display: flex; justify-content: flex-end; }
+    #help footer button { border-color: var(--border); padding: 0.35rem 0.9rem; }
   </style>
 </head>
 
 <body>
   <header>
-    <h1>ghūl playground</h1>
-    <button id="run" disabled>Compile and run</button>
-    <span id="status">loading .NET runtime ...</span>
-    <span id="analyser-status">analyser: connecting</span>
+    <h1 class="wordmark">ghūl <span>playground</span></h1>
+
+    <button id="run" disabled title="Compile and run (Ctrl+Enter)">
+      <svg class="play" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13l11-6.5z" /></svg>
+      <svg class="spinner" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-dasharray="26" stroke-dashoffset="8" opacity="0.7" />
+      </svg>
+      Run
+    </button>
+
+    <span id="status">loading the .NET runtime ...</span>
+
+    <span class="spacer"></span>
+
+    <button id="analyser" data-state="connecting" title="Connecting to the analyser">
+      <span class="dot"></span>
+      <span id="analyser-text">analyser</span>
+    </button>
+
+    <button id="help-toggle" title="What is this?" aria-label="What is this?">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm.9 12.2H7.1v-1.8h1.8v1.8zm1.2-4.6c-.5.4-.8.8-.9 1.2l-.1.5H7.4l.1-.7c.1-.6.4-1.2 1.1-1.7.6-.5.9-.8.9-1.3 0-.6-.4-1-1.2-1-.6 0-1.2.2-1.6.5l-.5-1.4A4.2 4.2 0 018.5 3c1.8 0 2.7 1 2.7 2.2 0 1-.6 1.7-1.1 2.1z" />
+      </svg>
+    </button>
   </header>
 
   <main>
     <div id="editor"></div>
 
-    <div id="panel">
-      <h2>Diagnostics</h2>
-      <pre id="diagnostics"></pre>
-      <h2>Output</h2>
-      <pre id="output"></pre>
+    <div id="splitter" role="separator" aria-orientation="horizontal"
+         title="Drag to resize"></div>
+
+    <div id="pane">
+      <div id="tabs" role="tablist">
+        <button class="tab" id="tab-problems" role="tab" aria-selected="true" aria-controls="diagnostics">
+          Problems <span class="count" id="problem-count" hidden></span>
+        </button>
+        <button class="tab" id="tab-output" role="tab" aria-selected="false" aria-controls="output">
+          Output
+        </button>
+      </div>
+
+      <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
+      <pre id="output" role="tabpanel" hidden><span class="empty">Run the program to see its output here.</span></pre>
     </div>
   </main>
+
+  <div id="help" hidden>
+    <article role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <h2 id="help-title">What is this?</h2>
+
+      <p>
+        An editor for <a href="https://ghul.dev" target="_blank" rel="noopener">ghūl</a>,
+        a statically typed language that targets .NET. Edit the program, then
+        press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> or the run button to compile and
+        run it. Problems and output appear in the pane below.
+      </p>
+
+      <h3>While you type</h3>
+      <p>
+        The ghūl compiler is analysing what you write, so the errors, hovers,
+        completions and inlay hints are the same ones you would get in an IDE
+        rather than an approximation of them. The dot in the top right says
+        whether that analyser is connected.
+      </p>
+
+      <h3>When you run</h3>
+      <p>
+        Your code is compiled on the server, and the assembly it produces is
+        sent back and executed <em>in this page</em>, on the .NET WebAssembly
+        runtime. Nothing you write is ever run on the server - which is also why
+        a program here cannot open a file or a socket, having neither a
+        filesystem nor a network underneath it.
+      </p>
+
+      <h3>What you can call</h3>
+      <p>
+        A small fixed set of .NET reference assemblies, not the whole
+        framework: the console, collections, LINQ, regular expressions, tasks
+        and spans, plus the ghūl runtime. Anything outside that set will not
+        compile, so this is a narrower .NET than a real project has.
+      </p>
+
+      <p>
+        The service is small and shared, so it can ask you to wait a moment.
+      </p>
+
+      <h3>Keeping what you write</h3>
+      <p>
+        There is no way to save anything here, and reloading the page starts
+        again from the example - so copy out anything you want to keep.
+      </p>
+      <p>
+        <a href="https://github.com/degory/ghul-scratchpad" target="_blank" rel="noopener">ghul-scratchpad</a>
+        is somewhere to put it: a project that opens in a GitHub Codespace with
+        the compiler already set up, so you can paste something in and carry on
+        with nothing to install.
+      </p>
+      <p>
+        For a real project, start from
+        <a href="https://github.com/degory/ghul-repository-template" target="_blank" rel="noopener">ghul-repository-template</a>,
+        which has the build, tests and CI wired up already - and the whole
+        framework rather than the subset above.
+      </p>
+
+      <p>
+        Source and issues for this page:
+        <a href="https://github.com/degory/ghul-playground" target="_blank" rel="noopener">degory/ghul-playground</a>.
+      </p>
+
+      <footer><button id="help-close">Close</button></footer>
+    </article>
+  </div>
 </body>
 
 </html>

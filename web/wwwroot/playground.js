@@ -25,16 +25,29 @@ const HEALTH_SERVICE = LOCAL ? 'http://127.0.0.1:5091/health' : '/health';
 // unreachable one are different: an unreachable one is reported as not
 // requiring a token, because the token dialog is not the right way to tell
 // somebody the back end is down.
-let tokenRequirement = null;
+let health = null;
 
-function tokenRequired() {
-    tokenRequirement ??= fetch(HEALTH_SERVICE)
+// Asked once and remembered. An unreachable service answers as though it wants
+// no token: the token dialog is not the way to say the back end is down.
+function serviceState() {
+    health ??= fetch(HEALTH_SERVICE)
         .then(response => response.json())
-        .then(state => state.tokensRequired !== false)
-        .catch(() => false);
+        .catch(() => ({ tokensRequired: false }));
 
-    return tokenRequirement;
+    return health;
 }
+
+const tokenRequired = () => serviceState().then(state => state.tokensRequired !== false);
+
+// The services cap how large a program they will take. The editor enforces the
+// same number so a reader is told before they run rather than after, and reads
+// it from the service so the two cannot drift apart. The fallback matters only
+// when /health is unreachable, in which case nothing will compile anyway.
+let maxSourceBytes = 32 * 1024;
+
+serviceState().then(state => {
+    if (Number.isFinite(state.maxSourceBytes)) maxSourceBytes = state.maxSourceBytes;
+});
 
 // Long enough not to send a message per character, short enough that
 // diagnostics feel live.
@@ -42,13 +55,15 @@ const EDIT_DEBOUNCE_MS = 300;
 
 export const DEFAULT_SOURCE = `use IO.Std.write_line;
 
+square(n: int) -> int => n * n;
+
+describe(n: int, label: string) -> string => "{label}: {n}";
+
 entry() is
     write_line("hello from ghūl, compiled on the server");
 
-    let squares = [1, 2, 3, 4, 5] | .map(n => n * n) | .collect_list();
-
-    for s in squares do
-        write_line("square: {s}");
+    for n in [1, 2, 3, 4, 5] do
+        write_line(n |> square() |> describe("square"));
     od
 si
 `;
@@ -121,7 +136,13 @@ export async function createPlayground({
         fontLigatures: "'calt', 'liga', 'ss07'",
         fontSize: 14,
         tabSize: 4,
-        'semanticHighlighting.enabled': true
+        'semanticHighlighting.enabled': true,
+        // Off, because ghul.dev renders brackets in the operator colour and the
+        // whole point is that a rendered example and an editable one look the
+        // same. Monaco's default rainbow is also the loudest thing on screen in
+        // a language whose blocks are keyword-delimited, so it is colouring the
+        // punctuation that matters least.
+        bracketPairColorization: { enabled: false }
     });
 
     // Identifiers coloured by what the compiler resolved them to, rather than
@@ -139,8 +160,25 @@ export async function createPlayground({
         });
     }
 
+    // Which problems the page is shown. The analyser and the compile service
+    // are the same compiler, so when the analyser is connected its list is the
+    // live one and the compiler's would only duplicate it; without an analyser
+    // the compiler's is all there is.
+    let analyserReady = false;
+    let analyseDiagnostics = [];
+    let compileDiagnostics = [];
+
+    const reportDiagnostics = () =>
+        onDiagnostics(analyserReady ? analyseDiagnostics : compileDiagnostics);
+
     const client = new GhulLanguageClient(ANALYSE_SERVICE, {
         getToken,
+
+        onDiagnostics: list => {
+            analyseDiagnostics = list;
+            reportDiagnostics();
+        },
+
         onStatus: state => {
             // A dead analyser leaves its last diagnostics on screen, which
             // would be stale and misleading. `dormant` is not a failure - the
@@ -149,6 +187,11 @@ export async function createPlayground({
             if (state !== 'ready') {
                 monaco.editor.setModelMarkers(editor.getModel(), 'ghul-analyse', []);
             }
+
+            if (state !== 'ready') analyseDiagnostics = [];
+
+            analyserReady = state === 'ready';
+            reportDiagnostics();
 
             if (state === 'ready') registerSemanticTokens();
 
@@ -221,11 +264,30 @@ export async function createPlayground({
             })));
         }
 
-        onDiagnostics(list);
+        compileDiagnostics = list;
+        reportDiagnostics();
     }
 
     async function run() {
         onOutput('');
+
+        // Refused here rather than by the service, so a reader is told what the
+        // limit is instead of watching a request fail.
+        const size = new TextEncoder().encode(editor.getValue()).length;
+
+        if (size > maxSourceBytes) {
+            compileDiagnostics = [{
+                startLine: 1, startColumn: 1, endLine: 1, endColumn: 1,
+                severity: 'error',
+                message: `this program is ${Math.ceil(size / 1024)} KB; ` +
+                    `the playground compiles up to ${Math.floor(maxSourceBytes / 1024)} KB`
+            }];
+
+            reportDiagnostics();
+            onStatus('failed', { compiled: 0 });
+            return;
+        }
+
         onStatus('compiling');
 
         const started = performance.now();
@@ -312,6 +374,9 @@ export async function createPlayground({
             askForToken(container.parentElement ?? container, { message })
                 .then(entered => { if (entered) client.reconnect(); return entered; }),
         setToken: token => { setToken(token); client.reconnect(); },
+        // The client retries on its own, backing off to a minute between
+        // attempts. This is for a reader who would rather not wait that out.
+        reconnectAnalyser: () => client.reconnect(),
         setSource: text => editor.setValue(text),
         getSource: () => editor.getValue(),
         setTheme: name => monaco.editor.setTheme(themeName(name)),
