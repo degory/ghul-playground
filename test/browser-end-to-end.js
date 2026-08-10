@@ -102,12 +102,12 @@ chrome.on('error', e => {
         await ev(`document.getElementById('status')?.innerText === 'ready'`));
 
     for (let i = 0; i < 90; i++) {
-        if (await ev(`document.getElementById('analyser-status')?.dataset.state === 'ready'`)) break;
+        if (await ev(`document.getElementById('analyser')?.dataset.state === 'ready'`)) break;
         await sleep(500);
     }
     check('the analyser connects',
-        await ev(`document.getElementById('analyser-status')?.dataset.state === 'ready'`),
-        await ev(`document.getElementById('analyser-status')?.innerText`));
+        await ev(`document.getElementById('analyser')?.dataset.state === 'ready'`),
+        await ev(`document.getElementById('analyser')?.innerText`));
 
     // Diagnostics as you type: break the program and wait for a marker.
     const broken = [
@@ -163,10 +163,13 @@ chrome.on('error', e => {
     await sleep(1000);
     await ev(`document.getElementById('run').click(); true`);
 
+    // Waits for what the program actually prints rather than for the pane to
+    // become non-empty: the pane carries a placeholder when there is no output,
+    // which would satisfy "non-empty" the moment the tab is shown.
     let output = '';
     for (let i = 0; i < 180; i++) {
         output = await ev(`document.getElementById('output').innerText`);
-        if (output && output.trim()) break;
+        if (output.includes('it ran')) break;
         await sleep(500);
     }
     check('the program compiles and runs', output.includes('it ran'), JSON.stringify(output.trim()));

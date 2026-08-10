@@ -18,13 +18,13 @@ const { tmpdir } = require('os');
 const path = require('path');
 
 const { resolveCompiler, resolveReferencePaths } = require('../shared/toolchain');
+const { MAX_SOURCE_BYTES } = require('../shared/limits');
 const origins = require('../shared/origins');
 const tokens = require('../shared/tokens');
 
 const PORT = Number(process.env.PORT ?? 5090);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
-const MAX_SOURCE_BYTES = 256 * 1024;
 const COMPILE_TIMEOUT_MS = Number(process.env.COMPILE_TIMEOUT_MS ?? 10000);
 
 // A compile costs about a CPU-second and peaks near 200 MB, so the number that
@@ -226,7 +226,8 @@ http.createServer((request, response) => {
             response.end(JSON.stringify({
                 ok: state.ok,
                 error: state.error ?? undefined,
-                tokensRequired: tokens.required
+                tokensRequired: tokens.required,
+                maxSourceBytes: MAX_SOURCE_BYTES
             }));
         });
         return;
@@ -268,7 +269,10 @@ http.createServer((request, response) => {
         if (body.length > MAX_SOURCE_BYTES) {
             aborted = true;
             response.writeHead(413, { 'content-type': 'application/json' });
-            response.end(JSON.stringify({ ok: false, diagnostics: [], assembly: null }));
+            response.end(JSON.stringify({
+                ok: false, diagnostics: [], assembly: null,
+                error: `a program here is limited to ${Math.floor(MAX_SOURCE_BYTES / 1024)} KB`
+            }));
             request.destroy();
         }
     });
@@ -315,7 +319,7 @@ http.createServer((request, response) => {
 }).listen(PORT, HOST, () => {
     console.log(`compile service on http://${HOST}:${PORT}`);
     console.log(`at most ${MAX_CONCURRENT} compile(s) at once, ${MAX_QUEUED} queued, ` +
-        `${COMPILE_TIMEOUT_MS} ms each`);
+        `${COMPILE_TIMEOUT_MS} ms each, ${MAX_SOURCE_BYTES} bytes of source`);
     console.log(tokens.describe());
     console.log(origins.describe());
 });
