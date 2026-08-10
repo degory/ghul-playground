@@ -21,6 +21,13 @@ const path = require('path');
 // `System.Runtime.InteropServices.JavaScript` is excluded on purpose: with
 // execution client-side, JS interop would let user code script the hosting
 // page.
+// Two of these are here for completeness rather than for use, and are
+// deliberately not advertised to readers: `System.Linq` is reachable only as
+// explicit `System.Linq.Enumerable.foo(xs)` static calls, since ghūl has no
+// extension-method sugar, and the pipe combinators cover the same ground
+// idiomatically; `System.Memory` names `Span` and friends, which a console
+// program in a browser has no use for. Measured: nothing in the runtime or in
+// a representative program needs either to compile.
 const REFERENCES = [
     'System.Runtime',
     'System.Console',
