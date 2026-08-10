@@ -121,7 +121,13 @@ export async function createPlayground({
         fontLigatures: "'calt', 'liga', 'ss07'",
         fontSize: 14,
         tabSize: 4,
-        'semanticHighlighting.enabled': true
+        'semanticHighlighting.enabled': true,
+        // Off, because ghul.dev renders brackets in the operator colour and the
+        // whole point is that a rendered example and an editable one look the
+        // same. Monaco's default rainbow is also the loudest thing on screen in
+        // a language whose blocks are keyword-delimited, so it is colouring the
+        // punctuation that matters least.
+        bracketPairColorization: { enabled: false }
     });
 
     // Identifiers coloured by what the compiler resolved them to, rather than
@@ -312,6 +318,9 @@ export async function createPlayground({
             askForToken(container.parentElement ?? container, { message })
                 .then(entered => { if (entered) client.reconnect(); return entered; }),
         setToken: token => { setToken(token); client.reconnect(); },
+        // The client retries on its own, backing off to a minute between
+        // attempts. This is for a reader who would rather not wait that out.
+        reconnectAnalyser: () => client.reconnect(),
         setSource: text => editor.setValue(text),
         getSource: () => editor.getValue(),
         setTheme: name => monaco.editor.setTheme(themeName(name)),

@@ -45,6 +45,9 @@ const DARK = {
 // beside them.
 const LIGHT_SYNTAX = {
     keyword: '0000FF',
+    // Control flow is a different colour from every other keyword, which is
+    // how ghul.dev and the VS Code extension both render it.
+    'keyword.control': 'AF00DB',
     'keyword.type': '0000FF',
     constant: '0000FF',
     'type.identifier': '267F99',
@@ -63,6 +66,7 @@ const LIGHT_SYNTAX = {
 
 const DARK_SYNTAX = {
     keyword: '569CD6',
+    'keyword.control': 'C586C0',
     'keyword.type': '569CD6',
     constant: '569CD6',
     'type.identifier': '4EC9B0',
