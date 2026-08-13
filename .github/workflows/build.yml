@@ -341,17 +341,31 @@ jobs:
               echo "runtime=$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
           } >> "$GITHUB_OUTPUT"
 
+      # Named by path rather than left to PATH: the service spawns the language
+      # server as a bare command, and npm's global bin directory is not
+      # necessarily on the PATH a step inherits. When it is not, analysers fail
+      # to spawn and the service reports an empty pool rather than an error, so
+      # the editor checks fail with nothing saying why.
       - name: Install the language server
+        id: language-server
         run: |
           version=$(grep -oP '^ARG GHUL_LANGUAGE_SERVER_VERSION=\K.+' analyse-service/Dockerfile)
 
           npm install -g --no-audit --no-fund \
             "https://github.com/degory/ghul-vsce/releases/download/v${version}/ghul-language-server-${version}.tgz"
 
+          server="$(npm prefix -g)/bin/ghul-language-server"
+
+          test -x "$server" || { echo "not executable: $server" >&2; exit 1; }
+
+          echo "command=$server" >> "$GITHUB_OUTPUT"
+          echo "$version at $server"
+
       - name: Start the services and the web app
         env:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
           GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_LANGUAGE_SERVER: ${{ steps.language-server.outputs.command }}
         run: |
           node compile-service/server.js > /tmp/compile.log 2>&1 &
           node analyse-service/server.js > /tmp/analyse.log 2>&1 &
@@ -363,7 +377,19 @@ jobs:
           done
 
           curl -sf http://127.0.0.1:5090/health && echo
+
+          # An analyser has to actually start. The service reports a healthy
+          # pool of zero when none can, which the editor checks would then fail
+          # against with nothing to say why.
+          for _ in $(seq 1 30); do
+            idle=$(curl -sf http://127.0.0.1:5091/health | node -pe 'JSON.parse(require("fs").readFileSync(0)).pool.idle')
+            test "$idle" -gt 0 && break
+            sleep 2
+          done
+
           curl -sf http://127.0.0.1:5091/health && echo
+
+          test "$idle" -gt 0 || { echo "no analyser started"; tail -20 /tmp/analyse.log; exit 1; }
 
       # The test waits on fixed intervals rather than on events the page
       # reports, so a slow runner fails it without anything being wrong. One
