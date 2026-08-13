@@ -143,6 +143,36 @@ ssh HOST 'cd /opt/ghul-playground && sudo git pull && sudo docker compose up -d 
 needs naming explicitly:
 `sudo git fetch origin BRANCH && sudo git checkout FETCH_HEAD`.
 
+Deploying is what puts a merged compiler or runtime update in front of readers.
+Until the services are rebuilt they keep running the versions their images were
+built with, whatever main says.
+
+## moving to a new compiler or runtime
+
+Renovate proposes these, so the usual answer is to let it. It knows all five
+places the versions are written, and CI checks that they agree, that the
+examples still compile, and that a program still runs in a browser. A green
+pull request is the whole review.
+
+To do it by hand, the five are:
+
+| where | what |
+| --- | --- |
+| `.config/dotnet-tools.json` | the compiler, for local development |
+| `web/web.csproj` | the runtime the browser loads |
+| `runner/runner.ghulproj` | the runtime the runner builds against |
+| `compile-service/Dockerfile` | both, as build arguments |
+| `analyse-service/Dockerfile` | both, and the language server |
+
+They have to move together. `node scripts/check-versions.js` says so if they
+have not, which is the same check CI runs.
+
+The runtime is the one to be careful with: the services compile a reader's
+program against one runtime and the browser loads another, so a version left
+behind in `web/web.csproj` is a program that compiles, downloads, and then
+fails to load - with nothing in the compiler output to explain it. Nothing
+short of running a program in a browser catches that, which is why CI does.
+
 ## getting back in
 
 ssh is key-only and root's password is locked, so the routes back are, in order:

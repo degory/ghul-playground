@@ -32,8 +32,46 @@ jobs:
 
       - run: dotnet tool restore
 
-      - name: Update the compiler tool to the latest published version
-        run: dotnet tool update --local ghul.compiler
+      # The versions are written in five places and all have to agree: the
+      # services compile against one runtime and the browser loads another, so
+      # a disagreement is a program that compiles and then fails to load.
+      - name: Check the pinned versions agree
+        run: node scripts/check-versions.js
+
+      # Everything below runs against the versions this repository pins, not
+      # against whatever is newest. Both are usually present in the NuGet cache
+      # on a runner, and the services resolve the highest they find, so the
+      # pinned versions are named explicitly rather than left to that.
+      #
+      # This is what makes a dependency update meaningful: the checks that run
+      # on the pull request are the ones that test the version it proposes.
+      - name: Resolve the pinned toolchain
+        id: toolchain
+        run: |
+          compiler=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
+          runtime=$(node -p "
+              require('fs').readFileSync('web/web.csproj', 'utf8')
+                  .match(/Include=\"ghul\.runtime\"\s+Version=\"([^\"]+)\"/)[1]")
+
+          # The runtime arrives through the web app's PackageReference; the
+          # compiler is a tool, and `dotnet tool restore` has already put it in
+          # the cache at the pinned version.
+          dotnet restore web
+
+          compiler_dll="$HOME/.nuget/packages/ghul.compiler/$compiler/tools/net10.0/any/ghul.dll"
+          runtime_dll="$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
+
+          for dll in "$compiler_dll" "$runtime_dll"; do
+              test -f "$dll" || { echo "missing: $dll" >&2; exit 1; }
+          done
+
+          {
+              echo "compiler=$compiler_dll"
+              echo "runtime=$runtime_dll"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "compiler $compiler"
+          echo "runtime  $runtime"
 
       - name: Install node dependencies and stage Monaco
         run: npm install
@@ -58,6 +96,9 @@ jobs:
       # source into an assembly, and rejects source it should reject. Running
       # the assembly needs a browser, so it is not covered.
       - name: Smoke-test the compile service
+        env:
+          GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
+          GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
         run: |
           npm run compile-service &
           service=$!
@@ -185,3 +226,219 @@ jobs:
           echo "allowed: $good, disallowed: $bad, absent: $none"
 
           test "$good" = 200 && test "$bad" = 403 && test "$none" = 200
+
+  # The examples on ghul.dev are what a reader pastes in first, and the service
+  # compiles against a deliberately short reference list rather than the
+  # compiler's usual set - so an example can build everywhere else and fail
+  # here. Nothing else covers that, because nothing else compiles the site's
+  # examples against this service.
+  corpus:
+    name: Compile the ghul.dev examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The corpus is ghul.dev's examples, and what each one is expected to do
+      # is read from the test suite beside them rather than restated here.
+      - uses: actions/checkout@v7
+        with:
+          repository: degory/ghul-dev
+          path: ghul-dev
+
+      - name: Check the corpus carries its expectations
+        run: |
+          test -d ghul-dev/example-tests || {
+              echo "ghul-dev has no example-tests directory." >&2
+              echo "The corpus check reads each example's expected outcome from it." >&2
+              exit 1
+          }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: dotnet tool restore
+
+      - name: Resolve the pinned toolchain
+        id: toolchain
+        run: |
+          compiler=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
+          runtime=$(node -p "
+              require('fs').readFileSync('web/web.csproj', 'utf8')
+                  .match(/Include=\"ghul\.runtime\"\s+Version=\"([^\"]+)\"/)[1]")
+
+          dotnet restore web
+
+          {
+              echo "compiler=$HOME/.nuget/packages/ghul.compiler/$compiler/tools/net10.0/any/ghul.dll"
+              echo "runtime=$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compile every example
+        env:
+          GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
+          GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+        run: |
+          node compile-service/server.js &
+          service=$!
+
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null -X POST http://127.0.0.1:5090/compile \
+              -H 'content-type: application/json' -d '{"source":""}' && break
+            sleep 1
+          done
+
+          CORPUS=ghul-dev/examples CORPUS_TESTS=ghul-dev/example-tests \
+            node test/corpus.js
+          status=$?
+
+          kill $service
+          exit $status
+
+  # The one check that runs what the service produced. A runtime update can
+  # leave the services compiling against one version while the web app ships
+  # another, which compiles clean and fails when the browser loads it - so it
+  # is invisible to every check that stops at "an assembly came back".
+  end-to-end:
+    name: Run a program in the browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: dotnet tool restore
+
+      - name: Install node dependencies and stage Monaco
+        run: npm install
+
+      - name: Resolve the pinned toolchain
+        id: toolchain
+        run: |
+          compiler=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
+          runtime=$(node -p "
+              require('fs').readFileSync('web/web.csproj', 'utf8')
+                  .match(/Include=\"ghul\.runtime\"\s+Version=\"([^\"]+)\"/)[1]")
+
+          dotnet restore web
+
+          {
+              echo "compiler=$HOME/.nuget/packages/ghul.compiler/$compiler/tools/net10.0/any/ghul.dll"
+              echo "runtime=$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
+          } >> "$GITHUB_OUTPUT"
+
+      # Named by path rather than left to PATH: the service spawns the language
+      # server as a bare command, and npm's global bin directory is not
+      # necessarily on the PATH a step inherits. When it is not, analysers fail
+      # to spawn and the service reports an empty pool rather than an error, so
+      # the editor checks fail with nothing saying why.
+      - name: Install the language server
+        id: language-server
+        run: |
+          version=$(grep -oP '^ARG GHUL_LANGUAGE_SERVER_VERSION=\K.+' analyse-service/Dockerfile)
+
+          npm install -g --no-audit --no-fund \
+            "https://github.com/degory/ghul-vsce/releases/download/v${version}/ghul-language-server-${version}.tgz"
+
+          server="$(npm prefix -g)/bin/ghul-language-server"
+
+          test -x "$server" || { echo "not executable: $server" >&2; exit 1; }
+
+          echo "command=$server" >> "$GITHUB_OUTPUT"
+          echo "$version at $server"
+
+      - name: Start the services and the web app
+        env:
+          GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
+          GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_LANGUAGE_SERVER: ${{ steps.language-server.outputs.command }}
+          # The language server's stderr carries the reason when an analyser
+          # will not start, which the service's own log does not.
+          LOG_SERVER_STDERR: 1
+        run: |
+          # The language server resolves a compiler by trying `dotnet
+          # ghul-compiler` and then a bare `ghul-compiler` on PATH, and the
+          # analyser service starts it in a scratch workspace that has no tool
+          # manifest above it. Neither form works out of the box on a runner,
+          # so the pinned compiler is installed to a tool path and put on PATH,
+          # as the service image does.
+          version=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
+
+          dotnet tool install --tool-path "$HOME/playground-tools" \
+              ghul.compiler --version "$version"
+
+          PATH="$HOME/playground-tools:$PATH"
+
+          node compile-service/server.js > /tmp/compile.log 2>&1 &
+          node analyse-service/server.js > /tmp/analyse.log 2>&1 &
+
+          curl -sf http://127.0.0.1:5090/health && echo
+
+          # An analyser has to actually be ready, not merely starting. The
+          # service answers as healthy with an empty pool either way, so
+          # without this the editor checks are what report a cold analyser -
+          # as three failures that say nothing about the cause. The wait ends
+          # as soon as one is warm, which takes single-digit seconds when the
+          # compiler is where the language server looks for it.
+          for _ in $(seq 1 90); do
+            idle=$(curl -sf http://127.0.0.1:5091/health \
+                | node -pe 'JSON.parse(require("fs").readFileSync(0)).pool.idle' 2>/dev/null || echo 0)
+            test "$idle" -gt 0 && break
+            sleep 2
+          done
+
+          curl -sf http://127.0.0.1:5091/health && echo
+
+          test "$idle" -gt 0 || {
+              echo "no analyser became ready"
+              tail -20 /tmp/analyse.log
+              exit 1
+          }
+
+          dotnet run --project web --configuration Release > /tmp/web.log 2>&1 &
+
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:5080/ && break
+            sleep 2
+          done
+
+          curl -sf -o /dev/null http://127.0.0.1:5080/ || {
+              echo "the web app did not start"
+              tail -20 /tmp/web.log
+              exit 1
+          }
+
+      # The test waits on fixed intervals rather than on events the page
+      # reports, so a slow runner fails it without anything being wrong. One
+      # retry distinguishes that from a real break; a second failure is
+      # reported as one.
+      - name: Compile and run a program in the browser
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: |
+          node test/browser-end-to-end.js || {
+            echo "retrying"
+            node test/browser-end-to-end.js
+          }
+
+      - name: Service logs
+        if: failure()
+        run: |
+          for log in compile analyse web; do
+            echo "=== $log ==="
+            tail -50 "/tmp/$log.log" || true
+          done
