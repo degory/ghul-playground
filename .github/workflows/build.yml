@@ -366,27 +366,24 @@ jobs:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
           GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
           GHUL_LANGUAGE_SERVER: ${{ steps.language-server.outputs.command }}
+          # Warming an analyser is a full startup of the compiler, which is
+          # measured in seconds here and can pass a minute on a cold two-core
+          # runner. Past the default the service discards the analyser and
+          # reports an empty pool, so the budget is widened rather than waited
+          # out.
+          WARM_UP_TIMEOUT_MS: 300000
         run: |
           node compile-service/server.js > /tmp/compile.log 2>&1 &
           node analyse-service/server.js > /tmp/analyse.log 2>&1 &
-          dotnet run --project web --configuration Release > /tmp/web.log 2>&1 &
-
-          for _ in $(seq 1 60); do
-            curl -sf -o /dev/null http://127.0.0.1:5080/ && break
-            sleep 2
-          done
 
           curl -sf http://127.0.0.1:5090/health && echo
 
           # An analyser has to actually be ready, not merely starting. The
           # service answers as healthy with an empty pool either way, so
           # without this the editor checks are what report a cold analyser -
-          # as three failures that say nothing about the cause.
-          #
-          # An analyser reads the reference set on startup, which takes a few
-          # seconds on this machine and a good deal longer on a cold runner, so
-          # the wait is generous. It ends as soon as one is warm.
-          for _ in $(seq 1 90); do
+          # as three failures that say nothing about the cause. The wait ends
+          # as soon as one is warm.
+          for _ in $(seq 1 150); do
             idle=$(curl -sf http://127.0.0.1:5091/health \
                 | node -pe 'JSON.parse(require("fs").readFileSync(0)).pool.idle' 2>/dev/null || echo 0)
             test "$idle" -gt 0 && break
@@ -398,6 +395,23 @@ jobs:
           test "$idle" -gt 0 || {
               echo "no analyser became ready"
               tail -20 /tmp/analyse.log
+              exit 1
+          }
+
+          # The web app starts last: it is a dotnet build and run of its own,
+          # and on a two-core runner that competes with the analyser warming
+          # for the same two cores, which is what pushed the warm past the
+          # service's budget.
+          dotnet run --project web --configuration Release > /tmp/web.log 2>&1 &
+
+          for _ in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:5080/ && break
+            sleep 2
+          done
+
+          curl -sf -o /dev/null http://127.0.0.1:5080/ || {
+              echo "the web app did not start"
+              tail -20 /tmp/web.log
               exit 1
           }
 
