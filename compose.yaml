@@ -41,7 +41,9 @@ services:
 
     environment:
       # A short fixed list of shared access tokens, comma separated. Supplied
-      # from the environment, never committed. Both services must agree.
+      # from the environment, never committed. Empty leaves the services open,
+      # which is the current posture; the load is bounded by the caps below and
+      # the nginx per-address limits instead. Both services must agree.
       PLAYGROUND_TOKENS: "${PLAYGROUND_TOKENS:-}"
       # Which sites may drive the service from a browser. Unset means any, which
       # is what local development wants. Both services must agree here too.

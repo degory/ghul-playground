@@ -9,9 +9,9 @@ from Ubuntu's own archive: nginx, certbot, docker.io, docker-compose-v2,
 iptables-persistent, chrony, unattended-upgrades. There are no third-party apt
 sources, and adding one would be a new thing to trust.
 
-Treat the host as disposable. It holds no credentials beyond the access tokens
-and its own certificate, and rebuilding it is `host-setup.sh` plus the three
-steps below.
+Treat the host as disposable. It holds no credentials beyond its own certificate
+- the services run open by default and carry no access tokens - and rebuilding
+it is `host-setup.sh` plus the steps below.
 
 ## what runs where
 
@@ -20,7 +20,7 @@ nginx terminates TLS and serves `/var/www/playground`, proxying `/compile`,
 never face the internet themselves. The containers come from `compose.yaml` in
 the repository root.
 
-## the three things host-setup.sh does not do
+## the things host-setup.sh does not do
 
 **Certificates.** Let's Encrypt rate-limits issuance, so a provisioning script
 that re-issues every time it runs will eventually lock the host out of renewal.
@@ -36,17 +36,25 @@ directly from the port 80 server block rather than redirected, so renewal does
 not depend on anything in the HTTPS block. Renewal is certbot's own systemd
 timer and needs no cron entry.
 
-**Access tokens.** `/opt/ghul-playground/.env`, mode 600, never in the
-repository:
+**The `.env` file.** `/opt/ghul-playground/.env`, mode 600, never in the
+repository. It holds two settings, read by `compose.yaml`:
 
 ```
-PLAYGROUND_TOKENS=one-token,another-token
+PLAYGROUND_TOKENS=
 ALLOWED_ORIGINS=https://ghul.dev,https://www.ghul.dev,https://playground.ghul.dev
 ```
 
-An empty `PLAYGROUND_TOKENS` opens the services to anyone; both say so loudly at
-startup. `ALLOWED_ORIGINS` has to include the playground's own origin, because a
-POST carries `Origin` even same-origin.
+The playground runs open: `PLAYGROUND_TOKENS` is empty, so anyone may compile
+and run. That is deliberate - what bounds the load is the concurrency caps and
+the per-address limits in nginx, not authentication - and the services note at
+startup that no tokens are configured. Setting `PLAYGROUND_TOKENS` to a
+comma-separated list re-enables the gate, and both services then require one.
+
+`ALLOWED_ORIGINS` is a separate axis and is not access control: a request with
+no browser `Origin`, such as a `curl`, is still accepted. It stops a
+third-party page from driving the service through its own visitors' browsers,
+and it has to include the playground's own origin because a POST carries
+`Origin` even same-origin.
 
 **The Linode outbound firewall**, which is dashboard-side. Default outbound
 policy DROP, allowing:
@@ -69,6 +77,11 @@ time sync fails in a way that looks nothing like a firewall rule.
 The firewall is stateful, so this governs only connections the host starts.
 Replies to inbound SSH and HTTPS need no outbound rule, and an outbound policy
 cannot lock anyone out of SSH.
+
+**The deploy key.** `host-setup.sh` creates the `deploy` account and its
+`~/.ssh` directory, but not the key that goes in `authorized_keys`: it is
+created per deployment and held as a CI secret. See "deploy key" under
+deploying.
 
 ## the firewall rules on the host, and why there are two
 
@@ -118,9 +131,11 @@ log it, or let it spend from the per-address limits real readers share.
 
 Expect a steady background of this regardless: probes for `/.env` and its
 variants, `/wp-login.php`, and raw TLS or RDP handshakes sent to port 80. The
-`.env` probes are the ones worth understanding rather than dismissing, because
-that file does hold the access tokens - it lives at `/opt/ghul-playground/.env`,
-outside the web root, so it is not reachable. Worth re-checking with
+`.env` probes are the ones worth understanding rather than dismissing: the file
+lives at `/opt/ghul-playground/.env`, outside the web root, so it is not
+reachable. Today it holds only the origin list, but it is also where the access
+tokens would live if the gate were re-enabled, so keep it there. Worth
+re-checking with
 `curl -s -o /dev/null -w '%{http_code}' https://playground.ghul.dev/.env` after
 any change to the nginx roots.
 

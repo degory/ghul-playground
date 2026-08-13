@@ -12,7 +12,8 @@
 #   - issue the certificate. Let's Encrypt rate-limits issuance, so a script
 #     that re-issues on every run will eventually lock the host out of renewal.
 #     See "certificates" in deploy/README.md for the one-time command.
-#   - write .env. The access tokens live only on the host, at mode 600.
+#   - write .env. It holds the origin list and, if the access gate is ever
+#     re-enabled, the tokens; it lives only on the host, at mode 600.
 #   - set the Linode firewall, which is dashboard-side. deploy/README.md lists
 #     the rules.
 #   - install the deploy user's SSH key. It is created per deployment and held
@@ -193,6 +194,6 @@ say "done"
 
 echo "still to do by hand, if this is a fresh host:"
 echo "  - issue the certificate            (see deploy/README.md)"
-echo "  - write /opt/ghul-playground/.env  (access tokens, mode 600)"
+echo "  - write /opt/ghul-playground/.env  (origins; tokens optional, mode 600)"
 echo "  - set the Linode outbound rules    (see deploy/README.md)"
 echo "  - install the deploy SSH key       (see deploy/README.md)"
