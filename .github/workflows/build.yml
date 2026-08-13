@@ -366,13 +366,23 @@ jobs:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
           GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
           GHUL_LANGUAGE_SERVER: ${{ steps.language-server.outputs.command }}
-          # Warming an analyser is a full startup of the compiler, which is
-          # measured in seconds here and can pass a minute on a cold two-core
-          # runner. Past the default the service discards the analyser and
-          # reports an empty pool, so the budget is widened rather than waited
-          # out.
-          WARM_UP_TIMEOUT_MS: 300000
+          # The language server's stderr carries the reason when an analyser
+          # will not start, which the service's own log does not.
+          LOG_SERVER_STDERR: 1
         run: |
+          # The language server resolves a compiler by trying `dotnet
+          # ghul-compiler` and then a bare `ghul-compiler` on PATH, and the
+          # analyser service starts it in a scratch workspace that has no tool
+          # manifest above it. Neither form works out of the box on a runner,
+          # so the pinned compiler is installed to a tool path and put on PATH,
+          # as the service image does.
+          version=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
+
+          dotnet tool install --tool-path "$HOME/playground-tools" \
+              ghul.compiler --version "$version"
+
+          PATH="$HOME/playground-tools:$PATH"
+
           node compile-service/server.js > /tmp/compile.log 2>&1 &
           node analyse-service/server.js > /tmp/analyse.log 2>&1 &
 
@@ -382,8 +392,9 @@ jobs:
           # service answers as healthy with an empty pool either way, so
           # without this the editor checks are what report a cold analyser -
           # as three failures that say nothing about the cause. The wait ends
-          # as soon as one is warm.
-          for _ in $(seq 1 150); do
+          # as soon as one is warm, which takes single-digit seconds when the
+          # compiler is where the language server looks for it.
+          for _ in $(seq 1 90); do
             idle=$(curl -sf http://127.0.0.1:5091/health \
                 | node -pe 'JSON.parse(require("fs").readFileSync(0)).pool.idle' 2>/dev/null || echo 0)
             test "$idle" -gt 0 && break
@@ -398,10 +409,6 @@ jobs:
               exit 1
           }
 
-          # The web app starts last: it is a dotnet build and run of its own,
-          # and on a two-core runner that competes with the analyser warming
-          # for the same two cores, which is what pushed the warm past the
-          # service's budget.
           dotnet run --project web --configuration Release > /tmp/web.log 2>&1 &
 
           for _ in $(seq 1 60); do
