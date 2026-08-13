@@ -46,9 +46,10 @@ si
 let nextId = 1;
 
 class Analyser {
-    constructor({ command, references, log }) {
+    constructor({ command, compiler, references, log }) {
         this.id = nextId++;
         this.command = command;
+        this.compiler = compiler;
         this.references = references;
         this.log = message => log(`[analyser ${this.id}] ${message}`);
 
@@ -74,13 +75,24 @@ class Analyser {
     // project file present the language server regenerates .assemblies.json
     // from the project's reference closure, which would replace the restricted
     // reference set with the full one.
+    //
+    // The compiler is named explicitly in ghul.json instead of left for the
+    // server to find. Its discovery order ends on PATH, and this workspace is a
+    // scratch directory with no tool manifest above it, so none of the earlier
+    // steps could resolve here and a compiler that was not on PATH left every
+    // analyser warming until the service gave up on it. Naming it removes the
+    // search, and keeps the analyser on exactly the compiler the compile
+    // service uses.
     async createWorkspace() {
         this.workspace = await mkdtemp(path.join(tmpdir(), 'ghul-analyse-'));
         this.realRoot = 'file://' + this.workspace;
 
         await mkdir(path.join(this.workspace, 'src'));
         await this.writeDocument(WARM_UP_SOURCE);
-        await writeFile(path.join(this.workspace, 'ghul.json'), '{}', 'utf8');
+        await writeFile(
+            path.join(this.workspace, 'ghul.json'),
+            JSON.stringify({ compiler: this.compiler }),
+            'utf8');
         await writeFile(
             path.join(this.workspace, '.assemblies.json'),
             JSON.stringify({ assemblies: this.references }),

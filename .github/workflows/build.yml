@@ -370,19 +370,6 @@ jobs:
           # will not start, which the service's own log does not.
           LOG_SERVER_STDERR: 1
         run: |
-          # The language server resolves a compiler by trying `dotnet
-          # ghul-compiler` and then a bare `ghul-compiler` on PATH, and the
-          # analyser service starts it in a scratch workspace that has no tool
-          # manifest above it. Neither form works out of the box on a runner,
-          # so the pinned compiler is installed to a tool path and put on PATH,
-          # as the service image does.
-          version=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
-
-          dotnet tool install --tool-path "$HOME/playground-tools" \
-              ghul.compiler --version "$version"
-
-          PATH="$HOME/playground-tools:$PATH"
-
           node compile-service/server.js > /tmp/compile.log 2>&1 &
           node analyse-service/server.js > /tmp/analyse.log 2>&1 &
 

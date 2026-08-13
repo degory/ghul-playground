@@ -18,7 +18,7 @@
 const http = require('http');
 const { WebSocketServer } = require('ws');
 
-const { resolveReferencePaths } = require('../shared/toolchain');
+const { resolveCompiler, resolveReferencePaths } = require('../shared/toolchain');
 const { Analyser } = require('./analyser');
 const { MAX_SOURCE_BYTES } = require('../shared/limits');
 const origins = require('../shared/origins');
@@ -52,6 +52,10 @@ const VIRTUAL_ROOT = 'file:///playground';
 const log = message => console.log(`${new Date().toISOString().slice(11, 19)} ${message}`);
 
 let references = null;
+// The command the language server is told to run the compiler as. It is the
+// pinned compiler resolved once, at startup, rather than something the server
+// is left to hunt for - see createWorkspace.
+let compiler = null;
 
 // --- the pool -------------------------------------------------------------
 
@@ -67,7 +71,7 @@ function replenish() {
     while (idle.length + warming < POOL_SIZE) {
         warming++;
 
-        const analyser = new Analyser({ command: SERVER_COMMAND, references, log });
+        const analyser = new Analyser({ command: SERVER_COMMAND, compiler, references, log });
 
         (async () => {
             try {
@@ -132,7 +136,7 @@ function acquire() {
 
             log('pool empty, starting a cold analyser');
 
-            const analyser = new Analyser({ command: SERVER_COMMAND, references, log });
+            const analyser = new Analyser({ command: SERVER_COMMAND, compiler, references, log });
 
             try {
                 await analyser.start();
@@ -397,8 +401,10 @@ wss.on('connection', async socket => {
 
 (async () => {
     references = await resolveReferencePaths();
+    compiler = `dotnet ${await resolveCompiler()}`;
 
     log(`references: ${references.length}`);
+    log(`compiler: ${compiler}`);
 
     server.listen(PORT, HOST, () => {
         log(`analyse service on ws://${HOST}:${PORT}/analyse ` +
