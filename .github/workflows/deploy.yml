@@ -1,0 +1,103 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  HOST: playground.ghul.dev
+  DEPLOY_USER: deploy
+
+# One deploy at a time. A push that lands while one is running waits its turn
+# rather than cancelling it, so the box is never left half-way between two
+# versions by a cancelled run.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Monaco is staged by `npm install`, and the publish fails without it.
+      - name: Install node dependencies and stage Monaco
+        run: npm install
+
+      - name: Publish the web app
+        run: dotnet publish web -c Release -o /tmp/playground-publish
+
+      # The deploy key is the only secret here. The host and its key are
+      # public facts, so they are committed rather than held as secrets.
+      - name: Prepare SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.PLAYGROUND_DEPLOY_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          install -m 644 deploy/known_hosts ~/.ssh/known_hosts
+
+      # The front end lands first, then the services are rebuilt and swapped.
+      # The runtime version lives in both, so they are deployed in the same run
+      # to keep the browser-loaded runtime and the one the services compile
+      # against in step.
+      - name: Deploy the front end
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            /tmp/playground-publish/wwwroot/ \
+            "$DEPLOY_USER@$HOST:/var/www/playground/"
+
+      # --ff-only so a box that has drifted from main fails loudly instead of
+      # being silently reconciled. The build is done before the swap so the
+      # running containers are not torn down until the new images exist.
+      - name: Rebuild and swap the services
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$HOST" \
+            'cd /opt/ghul-playground \
+             && git pull --ff-only \
+             && docker compose build \
+             && docker compose up -d'
+
+      - name: Check the box came back
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://$HOST/")
+          echo "front end -> $code"
+          test "$code" = 200
+
+          # A successful compile is what proves the toolchain the box just
+          # built actually runs, not merely that a container answers. Poll it:
+          # the services take a moment to come up after the swap.
+          source='{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(\"ok\");\nsi\n"}'
+
+          for _ in $(seq 1 30); do
+            if curl -sf -X POST "https://$HOST/compile" \
+                -H 'content-type: application/json' \
+                -d "$source" \
+                | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                    const r=JSON.parse(s);
+                    process.exit(r.ok && r.assembly ? 0 : 1);
+                  })'; then
+              echo "compile service: ok"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "compile service never produced an assembly" >&2
+          exit 1
