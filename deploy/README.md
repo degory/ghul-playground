@@ -124,28 +124,63 @@ outside the web root, so it is not reachable. Worth re-checking with
 `curl -s -o /dev/null -w '%{http_code}' https://playground.ghul.dev/.env` after
 any change to the nginx roots.
 
+## who does the deploying
+
+A dedicated `deploy` account, not the interactive one. The services run in
+containers that drop to an unprivileged user, and nginx runs as `www-data`, so
+nothing is hosted as `deploy` either - it exists only to deploy. It has exactly
+what a deploy needs and no sudo: it owns `/opt/ghul-playground` and
+`/var/www/playground`, and it is in the `docker` group so it can rebuild the
+services. The clone is an anonymous HTTPS checkout of a public repository, so it
+pulls without a GitHub credential. `host-setup.sh` creates the account and the
+ownership; CI logs in as it.
+
+The interactive account is kept out of the deployment path on purpose, so its
+key and the deploy key can be rotated or revoked independently and the two leave
+separate trails.
+
 ## deploying
 
-The front end is published locally and copied up; the services are rebuilt in
-place:
+Merging to `main` deploys. The `deploy` workflow publishes the web app, copies
+`wwwroot` to `/var/www/playground`, then pulls the new `main` on the box and
+rebuilds and swaps both services, and finally checks the site answers and that
+the freshly built toolchain compiles. It runs as `deploy` over SSH, with no
+sudo anywhere. It also has a manual trigger for re-running a deploy without a
+new merge.
 
-```sh
-npm install                       # stages monaco, and the publish fails without it
-dotnet publish web -c Release -o /tmp/playground-publish
-rsync -az --delete /tmp/playground-publish/wwwroot/ HOST:/tmp/playground-deploy/
-ssh HOST 'sudo rsync -a --delete /tmp/playground-deploy/ /var/www/playground/ \
-    && sudo chown -R www-data:www-data /var/www/playground'
-
-ssh HOST 'cd /opt/ghul-playground && sudo git pull && sudo docker compose up -d --build'
-```
-
-`/opt/ghul-playground` is a single-branch clone, so a branch other than main
-needs naming explicitly:
-`sudo git fetch origin BRANCH && sudo git checkout FETCH_HEAD`.
+Because the runtime version lives in both the published front end and the
+service images, the two are deployed in the same run; deploying only one is how
+the browser ends up loading a runtime the services did not compile against.
 
 Deploying is what puts a merged compiler or runtime update in front of readers.
 Until the services are rebuilt they keep running the versions their images were
 built with, whatever main says.
+
+### deploy key
+
+The workflow authenticates with a dedicated SSH key, held as the
+`PLAYGROUND_DEPLOY_KEY` secret, whose public half is the only entry in
+`/home/deploy/.ssh/authorized_keys`. Generate one per deployment
+(`ssh-keygen -t ed25519`), add the public half to that file, and keep the
+private half only in the secret. `host-setup.sh` creates the account and its
+`.ssh` directory but not the key, for the same reason it does not write `.env`.
+
+### doing it by hand
+
+If CI is not available, the same steps from a machine holding the deploy key:
+
+```sh
+npm install                       # stages monaco, and the publish fails without it
+dotnet publish web -c Release -o /tmp/playground-publish
+rsync -az --delete -e "ssh -i <deploy-key>" \
+    /tmp/playground-publish/wwwroot/ deploy@HOST:/var/www/playground/
+ssh -i <deploy-key> deploy@HOST \
+    'cd /opt/ghul-playground && git pull --ff-only \
+     && docker compose build && docker compose up -d'
+```
+
+`/opt/ghul-playground` is a single-branch clone, so a branch other than main
+needs naming explicitly: `git fetch origin BRANCH && git checkout FETCH_HEAD`.
 
 ## moving to a new compiler or runtime
 

@@ -6,7 +6,7 @@
 # host to put a piece back after it has drifted. It changes only what it is
 # named for and leaves the rest alone.
 #
-# It deliberately does NOT do three things, each because it cannot be done
+# It deliberately does NOT do these things, each because they cannot be done
 # safely from a script that might be re-run:
 #
 #   - issue the certificate. Let's Encrypt rate-limits issuance, so a script
@@ -15,6 +15,9 @@
 #   - write .env. The access tokens live only on the host, at mode 600.
 #   - set the Linode firewall, which is dashboard-side. deploy/README.md lists
 #     the rules.
+#   - install the deploy user's SSH key. It is created per deployment and held
+#     as a CI secret, so it is copied into /home/deploy/.ssh/authorized_keys
+#     once by hand; see "deploying" in deploy/README.md.
 #
 # Usage:  sudo ./deploy/host-setup.sh [--user NAME] [--domain NAME]
 
@@ -115,6 +118,33 @@ else
     echo "see 'certificates' in deploy/README.md"
 fi
 
+say "deploy user"
+
+# The account CI deploys as. It is kept separate from the interactive login so
+# the deployment path and its key can be revoked without touching either, and
+# so the two leave separate audit trails.
+#
+# It gets exactly what a deploy needs and nothing more: ownership of the two
+# directories it writes, and docker access to rebuild the services. The clone
+# is an anonymous HTTPS checkout of a public repository, so it needs no GitHub
+# credential. No sudo is involved in the deploy at all.
+if ! id deploy >/dev/null 2>&1; then
+    useradd --create-home --shell /usr/bin/bash deploy
+fi
+usermod -aG docker deploy
+# The interactive user stays able to log in and, in an emergency, to sudo, but
+# is not one of the accounts that touches docker day to day.
+gpasswd -d "$USER_NAME" docker >/dev/null 2>&1 || true
+
+install -d -o deploy -g deploy -m 700 /home/deploy/.ssh
+
+chown -R deploy:deploy /var/www/playground
+# Present only once the application has been cloned; a fresh host gets it
+# after this script, so do not fail when it is not there yet.
+if [ -d /opt/ghul-playground ]; then
+    chown -R deploy:deploy /opt/ghul-playground
+fi
+
 say "firewall"
 
 # Two separate jobs, and the second is easy to believe the first has covered.
@@ -165,3 +195,4 @@ echo "still to do by hand, if this is a fresh host:"
 echo "  - issue the certificate            (see deploy/README.md)"
 echo "  - write /opt/ghul-playground/.env  (access tokens, mode 600)"
 echo "  - set the Linode outbound rules    (see deploy/README.md)"
+echo "  - install the deploy SSH key       (see deploy/README.md)"
