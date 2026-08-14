@@ -150,11 +150,21 @@ export async function createPlayground({
     // becomes known after the first initialize.
     let semanticProvider = null;
 
+    // The editor asks for tokens and hints when the model changes, but the
+    // analyser is only told about the change after a debounce and only answers
+    // after analysing it - so those requests are answered against the text as
+    // it was a keystroke or two ago, and nothing asks again once the typing
+    // stops. Both providers therefore announce when their answers have moved
+    // on, and the editor comes back for them. Fired when an analysis lands,
+    // which is what changes the answers.
+    const analysed = new monaco.Emitter();
+
     function registerSemanticTokens() {
         if (semanticProvider || !client.semanticTokensLegend) return;
 
         semanticProvider = monaco.languages.registerDocumentSemanticTokensProvider('ghul', {
             getLegend: () => client.semanticTokensLegend,
+            onDidChange: analysed.event,
             provideDocumentSemanticTokens: () => client.semanticTokens(),
             releaseDocumentSemanticTokens: () => { }
         });
@@ -177,6 +187,10 @@ export async function createPlayground({
         onDiagnostics: list => {
             analyseDiagnostics = list;
             reportDiagnostics();
+
+            // An analysis has landed, so whatever the editor is showing from
+            // the last one is now behind the analyser.
+            analysed.fire();
         },
 
         onStatus: state => {
@@ -214,6 +228,7 @@ export async function createPlayground({
     });
 
     monaco.languages.registerInlayHintsProvider('ghul', {
+        onDidChangeInlayHints: analysed.event,
         provideInlayHints: async (_model, range) => {
             if (!client.ready) return { hints: [], dispose: () => { } };
 
