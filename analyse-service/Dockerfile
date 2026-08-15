@@ -27,7 +27,7 @@ RUN useradd --create-home --shell /usr/sbin/nologin playground
 USER playground
 WORKDIR /home/playground
 
-ARG GHUL_COMPILER_VERSION=30.2.3
+ARG GHUL_COMPILER_VERSION=30.2.7
 ARG GHUL_RUNTIME_VERSION=10.3.0
 
 # Installing as a tool seeds the package cache, which is where the service
