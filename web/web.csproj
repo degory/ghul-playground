@@ -26,7 +26,7 @@
        targets, and importing those into a C# project makes it try to compile
        this project with the ghūl compiler. -->
   <ItemGroup>
-    <PackageReference Include="ghul.runtime" Version="10.2.0" ExcludeAssets="build;buildTransitive" />
+    <PackageReference Include="ghul.runtime" Version="10.3.0" ExcludeAssets="build;buildTransitive" />
   </ItemGroup>
 
   <!-- Monaco is staged by `npm install`, not committed, so a publish from a
