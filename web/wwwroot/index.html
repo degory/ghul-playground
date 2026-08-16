@@ -284,6 +284,19 @@
     #help footer { margin-top: 1.25rem; display: flex; justify-content: flex-end; }
     #help footer button { border-color: var(--border); padding: 0.35rem 0.9rem; }
   </style>
+
+  <!-- Analytics, self-hosted on this same origin under /stats.
+       Deliberately only on this page and NOT on embed.html: the embed loads
+       every time a reader opens an example on ghul.dev, so counting it here
+       would bury the one thing this page is worth measuring - whether anyone
+       arrives at the playground directly. The site records that act as an
+       example-edit event instead, which says the same thing and says which
+       example.
+       Readers who do not want to be counted, the maintainer included, can
+       visit /#toggle-goatcounter once per browser; the flag is per-origin, so
+       doing it on ghul.dev does not cover this page. -->
+  <script data-goatcounter="https://playground.ghul.dev/stats/count"
+          async src="/stats/count.js"></script>
 </head>
 
 <body>

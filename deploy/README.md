@@ -4,21 +4,33 @@ What a playground host is, beyond the application itself. `host-setup.sh` puts
 all of it in place and is safe to re-run; this file is the part a script cannot
 carry, which is the reasoning and the three things it deliberately leaves alone.
 
-The box is a Linode VM, 2 vCPU / 4 GB, Ubuntu. Everything installed on it comes
-from Ubuntu's own archive: nginx, certbot, docker.io, docker-compose-v2,
+The box is a Linode VM, 2 vCPU / 4 GB, Ubuntu. Everything installed *by apt*
+comes from Ubuntu's own archive: nginx, certbot, docker.io, docker-compose-v2,
 iptables-persistent, chrony, unattended-upgrades. There are no third-party apt
 sources, and adding one would be a new thing to trust.
 
-Treat the host as disposable. It holds no credentials beyond its own certificate
-- the services run open by default and carry no access tokens - and rebuilding
-it is `host-setup.sh` plus the steps below.
+There is one piece of software on this host that Ubuntu does not package, and
+pretending otherwise would be worse than saying so: **GoatCounter**, the
+analytics. It is not apt-installed - it is built from source at a pinned tag by
+`goatcounter/Dockerfile` and runs in a container like the other two services. So
+the rule above is intact as a statement about apt, and the honest version of the
+broader claim is: one upstream Go program, built here from a revision we name,
+rather than a binary or an image someone else assembled. See "analytics" below.
+
+Treat the host as disposable **with one exception**. It holds no credentials
+beyond its own certificate - the services run open by default and carry no
+access tokens - and rebuilding it is `host-setup.sh` plus the steps below. The
+exception is the analytics volume, which is the only state here that is not
+reproducible from this repository: rebuild the box without copying it and the
+history is gone for good. Everything else can be thrown away freely.
 
 ## what runs where
 
 nginx terminates TLS and serves `/var/www/playground`, proxying `/compile`,
-`/analyse` and `/health` to the two containers, which are bound to loopback and
-never face the internet themselves. The containers come from `compose.yaml` in
-the repository root.
+`/analyse` and `/health` to the compile and analyse containers, and `/stats/` to
+the GoatCounter container. All three are bound to loopback and never face the
+internet themselves. The containers come from `compose.yaml` in the repository
+root.
 
 ## the things host-setup.sh does not do
 
@@ -35,6 +47,14 @@ Webroot rather than the nginx authenticator, and the challenge path is served
 directly from the port 80 server block rather than redirected, so renewal does
 not depend on anything in the HTTPS block. Renewal is certbot's own systemd
 timer and needs no cron entry.
+
+**The analytics exclusion list and the GoatCounter site.**
+`/etc/nginx/analytics-exclude.conf` names the networks whose visits are not
+recorded, and it is not in the repository because it says who someone is rather
+than what the service does. The site inside GoatCounter is created once, by
+hand, for the same reason the certificate is - it takes a password. Both are
+under "analytics" below, and the exclusion wants to be working before ghul.dev
+is pointed at the instance.
 
 **The `.env` file.** `/opt/ghul-playground/.env`, mode 600, never in the
 repository. It holds two settings, read by `compose.yaml`:
@@ -116,6 +136,155 @@ names current at that moment. Those names change when the network is recreated,
 so the saved file ages. It restores harmlessly, because docker rebuilds its own
 chains at start, but do not read `/etc/iptables/rules.v4` as the statement of
 what we intended. `host-setup.sh` is that statement.
+
+## analytics
+
+GoatCounter, self-hosted, serving `playground.ghul.dev/stats`. Both ghul.dev and
+this playground report to it. It runs under a path rather than a subdomain of
+its own, which upstream supports through `-base-path` and which saves a DNS
+record, a second certificate and a second server block. The flag in
+`goatcounter/Dockerfile` and the `location` prefix in
+`nginx/playground.ghul.dev.conf` have to agree; neither works alone.
+
+Because they share one hostname they are one GoatCounter *site* - sites are
+keyed on vhost - so site pageviews, playground pageviews and per-example events
+land in one dashboard. That is what we want here, but it is why separating them
+later would mean a second hostname after all.
+
+### first-time setup
+
+The database starts empty and holds no site, so the dashboard answers nothing
+until one is created. Once, by hand, like the certificate and `.env`:
+
+```sh
+cd /opt/ghul-playground
+docker compose exec goatcounter goatcounter db create site \
+    -vhost=playground.ghul.dev -user.email=YOU@EXAMPLE.COM
+```
+
+It prompts for a password. The dashboard is then at
+`https://playground.ghul.dev/stats`.
+
+Then turn on **Individual pageviews**, in Settings, "Data collection". It is off
+by default, and off means each pageview is folded into the hourly aggregates and
+the row itself discarded - the totals are identical either way, but nothing can
+reconstruct the detail afterwards.
+
+Worth doing deliberately rather than by reflex, because it is the one setting
+here that is asymmetric in time: turning it off later keeps everything already
+collected, while any period it was off is permanently aggregate-only. It is what
+makes CSV export possible at all, and it is what makes the exclusion checkable
+by eye on the dashboard. The cost is storage - one row per pageview, on the
+order of 100 bytes - and a retained per-visit trail: the row carries the session
+id, so a visitor's path through the site is linkable for the eight hours a
+session lasts. Still no IP address; that is never stored under any setting. On a
+site of this size the storage is nothing and the trail is the whole reason to
+turn it on.
+
+`Data retention` in the same settings page will purge rows past a chosen age if
+that trail is worth keeping bounded.
+
+Do all of this **before** pointing ghul.dev at it, and get the exclusion below
+working first - see the warning under "clearing data".
+
+### not counting yourself
+
+On a site this size the maintainer's own visits will otherwise swamp the
+numbers. Two mechanisms, and both are needed because each covers what the other
+cannot:
+
+**By network, in nginx.** `geo $count_excluded` in `nginx/playground-limits.conf`
+answers `/stats/count` with a 202 for an excluded address instead of proxying
+it. The ranges live in `/etc/nginx/analytics-exclude.conf` on the host - written
+by hand, not in this repository, because they identify a person rather than the
+service and this repository is public. `nginx/analytics-exclude.conf.example` is
+the template and explains the format.
+
+This is deliberately not done with GoatCounter's own "ignore IPs" setting, which
+matches a single literal address with no CIDR support - useless against a
+consumer address that moves around its pool.
+
+Note what a range costs: an ISP allocation covers every subscriber on it, so
+excluding one also discards genuine visitors who share it. Usually the right
+trade, but know that you are making it.
+
+**By browser, in GoatCounter.** Visiting `#toggle-goatcounter` on a page sets a
+`localStorage` flag that `count.js` honours. It covers what nginx cannot see - a
+VPN exit, a phone on a foreign network - and it is per-origin, so it must be
+done on each:
+
+- `https://ghul.dev/#toggle-goatcounter`
+- `https://playground.ghul.dev/#toggle-goatcounter`
+
+Per browser and per profile, and clearing site data clears it.
+
+Never put a shared VPN exit range in the nginx list. Those addresses are shared
+with strangers, so excluding one discards other people's visits and buys nothing
+the browser flag does not already cover from that same browser.
+
+### clearing data
+
+**GoatCounter cannot delete one visitor's history, and this is not a gap that
+can be worked around.** It never stores the IP address - it derives a session
+from it and drops it - and the session it does store is a random identifier
+rather than anything computed from the address. There is no query that finds
+"everything from that address" because the information is not in the database.
+
+What exists is:
+
+- **By path**, from the dashboard: Settings, "Manage pageviews", with `%`
+  wildcards. Useful when the pollution is one page.
+- **Everything**, with `deploy/reset-analytics.sh`. Stops the service, drops the
+  volume, brings it back on an empty database, and reminds you to recreate the
+  site.
+
+There is nothing in between. Which is why the exclusion has to be verified
+*before* ghul.dev points at the instance: get it wrong and the only remedy is a
+total reset.
+
+Verify it at the count endpoint rather than on the dashboard, because the status
+code says directly what happened and needs nothing to have been aggregated yet:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' \
+    'https://playground.ghul.dev/stats/count?p=/exclusion-test'
+```
+
+**202** means excluded and not recorded; **200** means it was counted. Run it
+from the network you expect to be excluded, then from a phone on mobile data,
+and check you get one of each.
+
+With "Individual pageviews" on, the dashboard's own pageview list is the second
+opinion, and worth taking - the status code says nginx made the right decision,
+the list says the decision had the effect it was supposed to. Without that
+setting the list stays empty whatever happens, and the status code is all there
+is to go on.
+
+### backups
+
+The volume is `ghul-playground_goatcounter-data` - compose prefixes it with the
+project name, which is the directory `compose.yaml` sits in, so it is that on
+this host and something else in a test checkout. It is the only thing here worth
+backing up, and nothing does so automatically yet.
+
+```sh
+docker run --rm \
+    -v ghul-playground_goatcounter-data:/data:ro \
+    -v "$PWD":/backup \
+    debian:bookworm-slim \
+    tar czf /backup/goatcounter-$(date +%F).tar.gz -C /data .
+```
+
+Take one before any upgrade that migrates the schema. `-automigrate` runs
+pending migrations on start, so the first run of a new image is the moment the
+old database stops being readable by the old binary.
+
+### upgrading
+
+`GOATCOUNTER_VERSION` in `goatcounter/Dockerfile` is the pin, and moving it is
+the whole upgrade - the next deploy rebuilds and `-automigrate` handles the
+schema. Back up first, and read upstream's release notes for that version:
+migrations here are one-way.
 
 ## traffic that is not a reader
 

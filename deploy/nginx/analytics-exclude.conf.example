@@ -1,0 +1,31 @@
+# Addresses whose pageviews are not recorded.
+#
+# Copy to /etc/nginx/analytics-exclude.conf on the host and fill in. Not to
+# conf.d/ - nginx.conf includes that directory into the http context, where
+# these lines are a syntax error. Not into this repository either: these ranges
+# say who someone is rather than what the service does, and this repository is
+# public.
+#
+# The file is optional. Absent, nothing is excluded and every visit is recorded.
+#
+# One CIDR (or bare address) per line, value 1 to exclude:
+#
+#     198.51.100.0/24 1;
+#     2001:db8::/32 1;
+#
+# Pick the range the ISP actually announces rather than the address you happen
+# to have today - a consumer address moves around its pool, and an exclusion
+# pinned to one address silently stops working the next time it changes. RDAP
+# gives the allocation: curl -sL https://rdap.org/ip/<address>
+#
+# Be aware of what a large range costs. A consumer ISP allocation covers every
+# subscriber on it, not just you, so excluding one also discards genuine
+# visitors who happen to share it. That is usually the right trade for a small
+# site - your own visits would otherwise drown the numbers - but it is a trade,
+# and it is worth knowing which readers you have made yourself blind to.
+#
+# Do NOT add a shared VPN exit range here. Those addresses are shared with
+# strangers, so excluding one discards other people's visits to buy you nothing
+# that #toggle-goatcounter does not already cover from the same browser.
+#
+# After editing: sudo nginx -t && sudo systemctl reload nginx
