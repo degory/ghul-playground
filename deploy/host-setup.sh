@@ -97,7 +97,8 @@ install -m 440 "$tmpdir/sudoers" "/etc/sudoers.d/90-${USER_NAME}-nopasswd"
 
 say "web root and the acme challenge directory"
 
-install -d -o www-data -g www-data /var/www/playground
+# Only the challenge directory here. The web root is created further down,
+# alongside the account that owns it - see "deploy user".
 install -d -o www-data -g www-data /var/www/certbot
 
 say "nginx"
@@ -148,6 +149,16 @@ gpasswd -d "$USER_NAME" docker >/dev/null 2>&1 || true
 
 install -d -o deploy -g deploy -m 700 /home/deploy/.ssh
 
+# The web root, created here rather than with the other directories above so
+# that it is never owned by anyone but the account that writes it. nginx only
+# reads it, as www-data, through directory permissions.
+#
+# It used to be created as www-data earlier and handed over here, which made the
+# script safe to re-run but not safe to re-run and *fail*: an abort in between -
+# a bad nginx config, say - left the web root owned by www-data, and the next
+# deploy died on "mkstemp ... Permission denied" with nothing pointing back to
+# this script as the cause.
+install -d -o deploy -g deploy /var/www/playground
 chown -R deploy:deploy /var/www/playground
 # Present only once the application has been cloned; a fresh host gets it
 # after this script, so do not fail when it is not there yet.
