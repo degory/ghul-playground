@@ -286,15 +286,17 @@
   </style>
 
   <!-- Analytics, self-hosted on this same origin under /stats.
-       Deliberately only on this page and NOT on embed.html: the embed loads
-       every time a reader opens an example on ghul.dev, so counting it here
-       would bury the one thing this page is worth measuring - whether anyone
-       arrives at the playground directly. The site records that act as an
-       example-edit event instead, which says the same thing and says which
-       example.
-       Readers who do not want to be counted, the maintainer included, can
-       visit /#toggle-goatcounter once per browser; the flag is per-origin, so
-       doing it on ghul.dev does not cover this page. -->
+       This page only, not embed.html - which is about where an edit is
+       counted, not whether it is. The embed loads inside a documentation page
+       whenever a reader opens an example, and that page already records the
+       edit as an event carrying the example's name. A pageview here as well
+       would count the same act twice, and the second copy would say only that
+       some example somewhere was opened - while burying the one thing this
+       page is worth measuring, which is whether anyone arrives at the
+       playground directly.
+       Readers who do not want to be counted can visit /#toggle-goatcounter
+       once per browser; the flag is per-origin, so setting it on the
+       documentation site does not cover this page. -->
   <script data-goatcounter="https://playground.ghul.dev/stats/count"
           async src="/stats/count.js"></script>
 </head>
