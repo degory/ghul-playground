@@ -229,6 +229,14 @@ Deploying is what puts a merged compiler or runtime update in front of readers.
 Until the services are rebuilt they keep running the versions their images were
 built with, whatever main says.
 
+**A deploy does not install nginx configuration.** It runs as `deploy`, which
+has no sudo by design, so anything under `/etc/nginx` is out of its reach. A
+merged change to `nginx/*.conf` therefore has no effect until someone re-runs
+`sudo ./deploy/host-setup.sh` on the host, and the symptom in the meantime is a
+plain 404 on whatever the new configuration was meant to serve - the site is up,
+the container is running, and nothing anywhere reports a problem. Re-running the
+script is idempotent and is the intended way to apply such a change.
+
 ### deploy key
 
 The workflow authenticates with a dedicated SSH key, held as the

@@ -297,7 +297,14 @@
        Readers who do not want to be counted can visit /#toggle-goatcounter
        once per browser; the flag is per-origin, so setting it on the
        documentation site does not cover this page. -->
+  <!-- The path is set explicitly because this page and the documentation site
+       report to the same GoatCounter site - sites are keyed on the hostname
+       serving the endpoint, which is this one for both. Left to itself count.js
+       sends location.pathname, and this page is served at "/", which is also
+       the documentation site's home page: the two would be added together
+       under one entry, with no way to separate them afterwards. -->
   <script data-goatcounter="https://playground.ghul.dev/stats/count"
+          data-goatcounter-settings='{"path":"/playground"}'
           async src="/stats/count.js"></script>
 </head>
 

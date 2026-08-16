@@ -57,6 +57,19 @@ RUN apt-get update \
 
 RUN useradd --create-home --shell /usr/sbin/nologin goatcounter
 
+# The data directory has to exist in the image, owned by the user that will run.
+# compose mounts a named volume over this path, and docker seeds a *new* volume
+# from whatever is at the mount point in the image - ownership included. With no
+# directory here, docker creates the mount point itself as root, the container
+# drops to an unprivileged user, and every start dies with
+#
+#   DB dir not writeable: open .../zdb-write-test-NNN: permission denied
+#
+# in a restart loop. Testing the image with `docker run` and no volume does not
+# reach this: the directory is then created by the running user, who can of
+# course write to it. It only appears once a volume is actually mounted.
+RUN install -d -o goatcounter -g goatcounter /home/goatcounter/goatcounter-data
+
 COPY --from=build /goatcounter /usr/local/bin/goatcounter
 COPY --from=build /revision /etc/goatcounter-revision
 

@@ -102,6 +102,15 @@ install -d -o www-data -g www-data /var/www/certbot
 
 say "nginx"
 
+# The analytics exclusion list, which playground-limits.conf includes by a
+# literal path - geo's include does not glob, so there is no "optional file"
+# form and a missing one stops nginx from starting at all. Seeded from the
+# example, which is entirely comments and so excludes nobody. Never overwritten:
+# on a host that has a real list, this is a no-op.
+if [ ! -f /etc/nginx/analytics-exclude.conf ]; then
+    install -m 644 "$here/nginx/analytics-exclude.conf.example" /etc/nginx/analytics-exclude.conf
+fi
+
 install -m 644 "$here/nginx/playground-limits.conf" /etc/nginx/conf.d/playground-limits.conf
 install -m 644 "$here/nginx/reject-unknown-hosts.conf" /etc/nginx/conf.d/reject-unknown-hosts.conf
 install -m 644 "$here/nginx/$DOMAIN.conf" "/etc/nginx/sites-available/$DOMAIN"
