@@ -1,31 +1,37 @@
 # Addresses whose pageviews are not recorded.
 #
-# Copy to /etc/nginx/analytics-exclude.conf on the host and fill in. Not to
-# conf.d/ - nginx.conf includes that directory into the http context, where
-# these lines are a syntax error. Not into this repository either: these ranges
-# say who someone is rather than what the service does, and this repository is
-# public.
+# Optional. Copy to /etc/nginx/analytics-exclude.conf on the host and fill in;
+# with no such file, nothing is excluded and every visit is recorded.
 #
-# The file is optional. Absent, nothing is excluded and every visit is recorded.
+# Not to conf.d/ - nginx.conf includes that directory into the http context,
+# where these lines are a syntax error. Not into this repository either: an
+# exclusion list describes whoever is running the site rather than the site.
 #
 # One CIDR (or bare address) per line, value 1 to exclude:
 #
 #     198.51.100.0/24 1;
 #     2001:db8::/32 1;
 #
-# Pick the range the ISP actually announces rather than the address you happen
-# to have today - a consumer address moves around its pool, and an exclusion
-# pinned to one address silently stops working the next time it changes. RDAP
-# gives the allocation: curl -sL https://rdap.org/ip/<address>
+# Use the range the ISP announces rather than the address currently held: a
+# consumer address moves around its pool, and an exclusion pinned to one address
+# stops working the next time it changes. RDAP gives the allocation:
 #
-# Be aware of what a large range costs. A consumer ISP allocation covers every
-# subscriber on it, not just you, so excluding one also discards genuine
-# visitors who happen to share it. That is usually the right trade for a small
-# site - your own visits would otherwise drown the numbers - but it is a trade,
-# and it is worth knowing which readers you have made yourself blind to.
+#     curl -sL https://rdap.org/ip/<address>
 #
-# Do NOT add a shared VPN exit range here. Those addresses are shared with
-# strangers, so excluding one discards other people's visits to buy you nothing
-# that #toggle-goatcounter does not already cover from the same browser.
+# Two things worth weighing before adding a range:
+#
+#   - An ISP allocation covers every subscriber on it. Excluding one also
+#     discards genuine visitors who share it, so the site goes blind to them.
+#     Often the right trade for a small site, but it is a trade.
+#   - A shared VPN exit range is the wrong thing to put here. Those addresses
+#     have strangers behind them, and #toggle-goatcounter already covers the
+#     same browser wherever it connects from.
 #
 # After editing: sudo nginx -t && sudo systemctl reload nginx
+#
+# To check a decision took effect, from the network in question:
+#
+#     curl -s -o /dev/null -w '%{http_code}\n' \
+#         'https://playground.ghul.dev/stats/count?p=/exclusion-test'
+#
+# 202 means excluded and not recorded; 200 means it was counted.

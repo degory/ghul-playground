@@ -49,12 +49,12 @@ not depend on anything in the HTTPS block. Renewal is certbot's own systemd
 timer and needs no cron entry.
 
 **The analytics exclusion list and the GoatCounter site.**
-`/etc/nginx/analytics-exclude.conf` names the networks whose visits are not
-recorded, and it is not in the repository because it says who someone is rather
-than what the service does. The site inside GoatCounter is created once, by
-hand, for the same reason the certificate is - it takes a password. Both are
-under "analytics" below, and the exclusion wants to be working before ghul.dev
-is pointed at the instance.
+`/etc/nginx/analytics-exclude.conf` is an optional list of networks whose visits
+are not recorded; it is not in the repository, and
+`nginx/analytics-exclude.conf.example` documents the format. The site inside
+GoatCounter is created once, by hand, for the same reason the certificate is: it
+takes a password. Get the exclusion working before any site points at the
+instance - there is no way to remove a visitor's data afterwards.
 
 **The `.env` file.** `/opt/ghul-playground/.env`, mode 600, never in the
 repository. It holds two settings, read by `compose.yaml`:
@@ -139,152 +139,40 @@ what we intended. `host-setup.sh` is that statement.
 
 ## analytics
 
-GoatCounter, self-hosted, serving `playground.ghul.dev/stats`. Both ghul.dev and
+GoatCounter, self-hosted, serving `playground.ghul.dev/stats`; both ghul.dev and
 this playground report to it. It runs under a path rather than a subdomain of
-its own, which upstream supports through `-base-path` and which saves a DNS
-record, a second certificate and a second server block. The flag in
+its own, which upstream supports through `-base-path`. The flag in
 `goatcounter/Dockerfile` and the `location` prefix in
 `nginx/playground.ghul.dev.conf` have to agree; neither works alone.
 
-Because they share one hostname they are one GoatCounter *site* - sites are
-keyed on vhost - so site pageviews, playground pageviews and per-example events
-land in one dashboard. That is what we want here, but it is why separating them
-later would mean a second hostname after all.
+Two things about it are worth knowing before touching the host.
 
-### first-time setup
+**Its volume is the exception to everything else here being disposable.**
+`goatcounter-data` holds the entire history, nothing else on the box is
+stateful, and nothing backs it up automatically. Rebuild the host without
+copying it and the history is gone. Take a copy before any upgrade that migrates
+the schema - `-automigrate` runs pending migrations on first start, which is the
+point the old database stops being readable by the old binary.
+`GOATCOUNTER_VERSION` in `goatcounter/Dockerfile` is the pin, and moving it is
+the whole upgrade.
 
-The database starts empty and holds no site, so the dashboard answers nothing
-until one is created. Once, by hand, like the certificate and `.env`:
+**The database starts empty and holds no site**, so a fresh instance serves
+nothing until one is created:
 
 ```sh
-cd /opt/ghul-playground
 docker compose exec goatcounter goatcounter db create site \
     -vhost=playground.ghul.dev -user.email=YOU@EXAMPLE.COM
 ```
 
-It prompts for a password. The dashboard is then at
-`https://playground.ghul.dev/stats`.
+`deploy/reset-analytics.sh` wipes the history and starts again from empty. It is
+the only complete undo there is: GoatCounter never stores a visitor's IP, and
+the session it does store is a random identifier rather than anything derived
+from one, so there is no way to remove a single visitor's data afterwards.
+Deleting by path, from the dashboard, is the only narrower option.
 
-Then turn on **Individual pageviews**, in Settings, "Data collection". It is off
-by default, and off means each pageview is folded into the hourly aggregates and
-the row itself discarded - the totals are identical either way, but nothing can
-reconstruct the detail afterwards.
-
-Worth doing deliberately rather than by reflex, because it is the one setting
-here that is asymmetric in time: turning it off later keeps everything already
-collected, while any period it was off is permanently aggregate-only. It is what
-makes CSV export possible at all, and it is what makes the exclusion checkable
-by eye on the dashboard. The cost is storage - one row per pageview, on the
-order of 100 bytes - and a retained per-visit trail: the row carries the session
-id, so a visitor's path through the site is linkable for the eight hours a
-session lasts. Still no IP address; that is never stored under any setting. On a
-site of this size the storage is nothing and the trail is the whole reason to
-turn it on.
-
-`Data retention` in the same settings page will purge rows past a chosen age if
-that trail is worth keeping bounded.
-
-Do all of this **before** pointing ghul.dev at it, and get the exclusion below
-working first - see the warning under "clearing data".
-
-### not counting yourself
-
-On a site this size the maintainer's own visits will otherwise swamp the
-numbers. Two mechanisms, and both are needed because each covers what the other
-cannot:
-
-**By network, in nginx.** `geo $count_excluded` in `nginx/playground-limits.conf`
-answers `/stats/count` with a 202 for an excluded address instead of proxying
-it. The ranges live in `/etc/nginx/analytics-exclude.conf` on the host - written
-by hand, not in this repository, because they identify a person rather than the
-service and this repository is public. `nginx/analytics-exclude.conf.example` is
-the template and explains the format.
-
-This is deliberately not done with GoatCounter's own "ignore IPs" setting, which
-matches a single literal address with no CIDR support - useless against a
-consumer address that moves around its pool.
-
-Note what a range costs: an ISP allocation covers every subscriber on it, so
-excluding one also discards genuine visitors who share it. Usually the right
-trade, but know that you are making it.
-
-**By browser, in GoatCounter.** Visiting `#toggle-goatcounter` on a page sets a
-`localStorage` flag that `count.js` honours. It covers what nginx cannot see - a
-VPN exit, a phone on a foreign network - and it is per-origin, so it must be
-done on each:
-
-- `https://ghul.dev/#toggle-goatcounter`
-- `https://playground.ghul.dev/#toggle-goatcounter`
-
-Per browser and per profile, and clearing site data clears it.
-
-Never put a shared VPN exit range in the nginx list. Those addresses are shared
-with strangers, so excluding one discards other people's visits and buys nothing
-the browser flag does not already cover from that same browser.
-
-### clearing data
-
-**GoatCounter cannot delete one visitor's history, and this is not a gap that
-can be worked around.** It never stores the IP address - it derives a session
-from it and drops it - and the session it does store is a random identifier
-rather than anything computed from the address. There is no query that finds
-"everything from that address" because the information is not in the database.
-
-What exists is:
-
-- **By path**, from the dashboard: Settings, "Manage pageviews", with `%`
-  wildcards. Useful when the pollution is one page.
-- **Everything**, with `deploy/reset-analytics.sh`. Stops the service, drops the
-  volume, brings it back on an empty database, and reminds you to recreate the
-  site.
-
-There is nothing in between. Which is why the exclusion has to be verified
-*before* ghul.dev points at the instance: get it wrong and the only remedy is a
-total reset.
-
-Verify it at the count endpoint rather than on the dashboard, because the status
-code says directly what happened and needs nothing to have been aggregated yet:
-
-```sh
-curl -s -o /dev/null -w '%{http_code}\n' \
-    'https://playground.ghul.dev/stats/count?p=/exclusion-test'
-```
-
-**202** means excluded and not recorded; **200** means it was counted. Run it
-from the network you expect to be excluded, then from a phone on mobile data,
-and check you get one of each.
-
-With "Individual pageviews" on, the dashboard's own pageview list is the second
-opinion, and worth taking - the status code says nginx made the right decision,
-the list says the decision had the effect it was supposed to. Without that
-setting the list stays empty whatever happens, and the status code is all there
-is to go on.
-
-### backups
-
-The volume is `ghul-playground_goatcounter-data` - compose prefixes it with the
-project name, which is the directory `compose.yaml` sits in, so it is that on
-this host and something else in a test checkout. It is the only thing here worth
-backing up, and nothing does so automatically yet.
-
-```sh
-docker run --rm \
-    -v ghul-playground_goatcounter-data:/data:ro \
-    -v "$PWD":/backup \
-    debian:bookworm-slim \
-    tar czf /backup/goatcounter-$(date +%F).tar.gz -C /data .
-```
-
-Take one before any upgrade that migrates the schema. `-automigrate` runs
-pending migrations on start, so the first run of a new image is the moment the
-old database stops being readable by the old binary.
-
-### upgrading
-
-`GOATCOUNTER_VERSION` in `goatcounter/Dockerfile` is the pin, and moving it is
-the whole upgrade - the next deploy rebuilds and `-automigrate` handles the
-schema. Back up first, and read upstream's release notes for that version:
-migrations here are one-way.
+`nginx/analytics-exclude.conf.example` documents an optional list of networks
+whose visits are not recorded. The list itself is written by hand on the host
+and is not in this repository.
 
 ## traffic that is not a reader
 

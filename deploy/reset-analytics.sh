@@ -2,18 +2,17 @@
 #
 # Throw away all analytics history and start again from an empty database.
 #
-# This exists because GoatCounter cannot delete a *person's* visits, and it is
-# worth understanding why before reaching for it. GoatCounter never stores the
-# visitor's IP address: it is used to derive a session and then dropped, and the
-# session that does get stored is a random identifier rather than anything
-# computed from the address. So there is no query that finds "everything from
-# that address" - the information is not in the database to be found. Deleting
-# by path is possible from the dashboard (Settings, "Manage pageviews"), and
-# deleting everything is this script. There is nothing in between.
+# This is the only complete undo there is, and it is worth knowing why there is
+# no narrower one. GoatCounter never stores a visitor's IP address: it derives a
+# session from it and drops it, and the session it does store is a random
+# identifier rather than anything computed from the address. So no query can
+# find "everything from that address" - the information is not in the database.
+# Deleting by path is possible from the dashboard (Settings, "Manage
+# pageviews"); deleting everything is this script; there is nothing in between.
 #
-# In practice this is for one situation: the exclusion was wrong or missing, the
-# numbers are polluted with your own visits, and the history is not yet worth
-# enough to keep. Fix the exclusion first, verify it, then run this.
+# The situation this is for: the exclusion list was wrong or missing, the
+# numbers are polluted, and the history is not yet worth enough to keep. Fix and
+# verify the exclusion first, then run this.
 #
 # Usage:  ./deploy/reset-analytics.sh [--yes]
 
