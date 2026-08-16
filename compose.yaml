@@ -1,12 +1,17 @@
-# Both services, with the limits that actually contain the compiler.
+# The three services, with the limits that actually contain the compiler.
 #
-# The build context is the repository root for both, because they share the
-# reference-set resolution in shared/.
+# The build context is the repository root for compile and analyse, because they
+# share the reference-set resolution in shared/. goatcounter shares nothing with
+# either and builds from its own directory.
 #
 # Egress is the one control this file cannot express. Docker gives a container
-# either a network or none, and both services need ingress, so they get both.
+# either a network or none, and every service needs ingress, so they get both.
 # Block outbound traffic at the host firewall or put them on an internal network
 # behind the reverse proxy.
+#
+# compile and analyse are stateless and can be thrown away at any point.
+# goatcounter is not: its volume is the only thing on this host that cannot be
+# rebuilt from this repository. See "analytics" in deploy/README.md.
 
 x-hardening: &hardening
   read_only: true
@@ -104,3 +109,39 @@ services:
     memswap_limit: 1g
     cpus: 2.0
     pids_limit: 512
+
+  goatcounter:
+    <<: *hardening
+    build:
+      context: goatcounter
+      dockerfile: Dockerfile
+    image: ghul-playground-goatcounter
+
+    ports:
+      - "127.0.0.1:5092:5092"
+
+    # The named volume, not a tmpfs: this is the one service whose data has to
+    # survive the container. read_only above still holds for the rest of the
+    # filesystem - the volume is the only writable path, which is what we want.
+    volumes:
+      - goatcounter-data:/home/goatcounter/goatcounter-data
+
+    # CSV exports are written to TMPDIR. Small, and nothing else needs scratch
+    # space, so this is well clear of what it will ever hold.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+
+    # An order of magnitude below the other two. It serves a dashboard and
+    # appends rows; the work is neither CPU- nor memory-shaped, and on SQLite
+    # at this site's volume it sits near idle. The cap is here so that a runaway
+    # cannot take the compile service down with it.
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+
+# Analytics history. Nothing else on this host is stateful, and this is
+# deliberately a named volume rather than a bind mount so that a stray
+# `docker compose down -v` is the only way to lose it by accident.
+volumes:
+  goatcounter-data:
