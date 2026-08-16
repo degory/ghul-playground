@@ -53,8 +53,9 @@ timer and needs no cron entry.
 are not recorded; it is not in the repository, and
 `nginx/analytics-exclude.conf.example` documents the format. The site inside
 GoatCounter is created once, by hand, for the same reason the certificate is: it
-takes a password. Get the exclusion working before any site points at the
-instance - there is no way to remove a visitor's data afterwards.
+takes a password, which is the dashboard login. Note that a visitor's data
+cannot be removed once recorded, so an exclusion list is worth having in place
+before the numbers are worth keeping.
 
 **The `.env` file.** `/opt/ghul-playground/.env`, mode 600, never in the
 repository. It holds two settings, read by `compose.yaml`:

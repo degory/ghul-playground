@@ -94,7 +94,12 @@ done
 
 echo
 echo "Done. The database is empty and has no site in it, so the dashboard will"
-echo "not answer until one is created. See 'analytics' in deploy/README.md:"
+echo "not answer until one is created - and nothing is counted until then"
+echo "either, which is the safe half of this. See 'analytics' in the README:"
 echo
 echo "  docker compose exec goatcounter goatcounter db create site \\"
 echo "      -vhost=playground.ghul.dev -user.email=YOU@EXAMPLE.COM"
+echo
+echo "It prompts for a password; that is the dashboard login. Site settings"
+echo "went with the old database, so anything changed from the defaults -"
+echo "Individual pageviews in particular - has to be set again."
