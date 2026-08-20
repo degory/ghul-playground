@@ -29,8 +29,8 @@ RUN useradd --create-home --shell /usr/sbin/nologin playground
 USER playground
 WORKDIR /home/playground
 
-ARG GHUL_COMPILER_VERSION=30.2.7
-ARG GHUL_RUNTIME_VERSION=10.3.0
+ARG GHUL_COMPILER_VERSION=35.8.6
+ARG GHUL_RUNTIME_VERSION=14.1.0
 
 RUN dotnet tool install --tool-path /home/playground/tools \
         ghul.compiler --version "${GHUL_COMPILER_VERSION}" \
