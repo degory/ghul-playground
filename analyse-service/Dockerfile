@@ -27,8 +27,8 @@ RUN useradd --create-home --shell /usr/sbin/nologin playground
 USER playground
 WORKDIR /home/playground
 
-ARG GHUL_COMPILER_VERSION=30.2.7
-ARG GHUL_RUNTIME_VERSION=10.3.0
+ARG GHUL_COMPILER_VERSION=35.8.6
+ARG GHUL_RUNTIME_VERSION=14.1.0
 
 # Installing as a tool seeds the package cache, which is where the service
 # finds the compiler dll; it does not need to be on PATH, because each
