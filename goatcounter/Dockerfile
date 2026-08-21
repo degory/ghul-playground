@@ -19,7 +19,7 @@ ARG GOATCOUNTER_VERSION=v2.7.0
 
 # v2.7.0's go.mod requires 1.25.5, so this cannot go backwards without the build
 # failing outright. It can go forwards.
-FROM golang:1.26-bookworm AS build
+FROM golang:1.27-bookworm AS build
 
 ARG GOATCOUNTER_VERSION
 
