@@ -74,9 +74,11 @@ jobs:
              && docker compose build \
              && docker compose up -d'
 
+      # The user agent marks these as the deploy smoke test, so nginx can route
+      # them to ci-access.log rather than the main access log.
       - name: Check the box came back
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' "https://$HOST/")
+          code=$(curl -s -A ghul-playground-deploy-check -o /dev/null -w '%{http_code}' "https://$HOST/")
           echo "front end -> $code"
           test "$code" = 200
 
@@ -86,7 +88,7 @@ jobs:
           source='{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(\"ok\");\nsi\n"}'
 
           for _ in $(seq 1 30); do
-            if curl -sf -X POST "https://$HOST/compile" \
+            if curl -sf -A ghul-playground-deploy-check -X POST "https://$HOST/compile" \
                 -H 'content-type: application/json' \
                 -d "$source" \
                 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
