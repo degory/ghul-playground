@@ -14,6 +14,6 @@
        reference is what makes the project build at all, not just what
        supplies the runtime assembly. -->
   <ItemGroup>
-    <PackageReference Include="ghul.runtime" Version="14.4.0" />
+    <PackageReference Include="ghul.runtime" Version="14.4.1" />
   </ItemGroup>
 </Project>
