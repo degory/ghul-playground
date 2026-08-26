@@ -292,3 +292,7 @@ is currently blocked: a C# project referencing the ghūl library fails with
 `CS0012`, because the ghūl-emitted assembly records a reference to
 `System.Runtime 8.0.0.0` while recording `System.Memory 10.0.0.0` alongside
 it.
+
+## issues
+
+[View open issues](https://github.com/degory/ghul/issues?q=is%3Aopen+is%3Aissue+label%3Aghul-playground) or [raise a new one](https://github.com/degory/ghul/issues/new?labels=ghul-playground).
