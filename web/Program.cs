@@ -63,7 +63,7 @@ partial class GhulRunner
         }
         catch (TargetInvocationException e)
         {
-            writer.WriteLine($"[unhandled: {e.InnerException?.GetType().Name}: {e.InnerException?.Message}]");
+            writer.WriteLine(DescribeFailure(e.InnerException));
         }
         finally
         {
@@ -71,5 +71,20 @@ partial class GhulRunner
         }
 
         return writer.ToString();
+    }
+
+    // The browser host has no stdin: reading it throws PlatformNotSupportedException
+    // with a generic "not supported on this platform" message that gives no hint why.
+    // A program that never called Console.ReadLine can still hit this exception type
+    // for an unrelated reason, so the stack trace - not just the exception type - is
+    // what tells the two apart.
+    private static string DescribeFailure(Exception e)
+    {
+        if (e is PlatformNotSupportedException && e.StackTrace?.Contains("Console") == true)
+        {
+            return "[unhandled: this program reads from standard input, which the playground does not support]";
+        }
+
+        return $"[unhandled: {e?.GetType().Name}: {e?.Message}]";
     }
 }
