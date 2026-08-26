@@ -102,6 +102,16 @@ export const GHUL_CONFIGURATION = {
         { open: '[', close: ']' },
         { open: '"', close: '"' }
     ],
+    // Named collapsible regions, opened by `// a name >>>` and closed by
+    // `// <<<`. The name is free text and the closing marker need not repeat
+    // it; regions nest, and an unmatched marker is ignored rather than
+    // reported.
+    foldingRules: {
+        markers: {
+            start: /^\s*\/\/.*>>>\s*$/,
+            end: /^\s*\/\/.*<<<\s*$/
+        }
+    },
     // The keyword pairs are ghūl's block delimiters, so indent between them.
     indentationRules: {
         increaseIndentPattern: /\b(is|then|do|try|val)\s*$/,
