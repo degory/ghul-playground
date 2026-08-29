@@ -247,6 +247,14 @@ jobs:
           repository: degory/ghul-dev
           path: ghul-dev
 
+      # The standalone page's example menu, built from the Rosetta Code
+      # solutions exactly as the deploy builds it, so the same job also
+      # verifies every menu entry compiles here.
+      - uses: actions/checkout@v7
+        with:
+          repository: degory/ghul-rosetta-code
+          path: ghul-rosetta-code
+
       - name: Check the corpus carries its expectations
         run: |
           test -d ghul-dev/example-tests || {
@@ -280,6 +288,9 @@ jobs:
               echo "runtime=$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Build the example menu
+        run: ROSETTA=ghul-rosetta-code node scripts/build-examples.js
+
       - name: Compile every example
         env:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
@@ -297,6 +308,11 @@ jobs:
           CORPUS=ghul-dev/examples CORPUS_TESTS=ghul-dev/example-tests \
             node test/corpus.js
           status=$?
+
+          if [ "$status" = 0 ]; then
+            node test/examples-corpus.js
+            status=$?
+          fi
 
           kill $service
           exit $status

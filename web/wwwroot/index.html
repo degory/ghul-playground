@@ -126,7 +126,28 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    #status { color: var(--fg-muted); white-space: nowrap; }
+    /* The compiler indicator: the same shape as the analyser's, so the two
+       services read as a pair. The dot carries the state, the text the detail. */
+    #compiler {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.5rem;
+      color: var(--fg-muted);
+      white-space: nowrap;
+    }
+
+    #compiler .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--fg-muted);
+      flex: none;
+    }
+
+    #compiler[data-state="ready"] .dot { background: var(--ok); }
+    #compiler[data-state="working"] .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+    #compiler[data-state="failed"] .dot { background: var(--bad); }
 
     .spacer { margin-left: auto; }
 
@@ -156,6 +177,37 @@
 
     @keyframes pulse { 50% { opacity: 0.25; } }
 
+    /* Floats over the editor's top-right corner, where the ghul.dev examples
+       put theirs, so the two surfaces agree about where copying lives. */
+    #editor-frame { position: relative; flex: 1; min-height: 0; display: flex; }
+
+    #copy {
+      position: absolute;
+      top: 0.4rem;
+      right: 1.2rem;
+      z-index: 10;
+      padding: 0.3rem 0.5rem;
+      color: var(--fg-muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      opacity: 0.7;
+    }
+    #copy:hover { opacity: 1; }
+    #copy svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+    #copy[data-copied] { color: var(--ok); opacity: 1; }
+
+    #examples {
+      font: inherit;
+      color: var(--fg);
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.25rem 0.4rem;
+      max-width: 14rem;
+    }
+    #examples:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
     #help-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
     #help-toggle svg { width: 16px; height: 16px; fill: currentColor; }
 
@@ -168,7 +220,7 @@
       min-height: 0;
     }
 
-    #editor { flex: 1; min-height: 0; }
+    #editor { flex: 1; min-height: 0; min-width: 0; }
 
     /* Dragged to resize the pane below. Deliberately larger than it looks:
        a 1px border is impossible to grab. */
@@ -318,6 +370,10 @@
   <header>
     <h1 class="wordmark">ghūl <span>playground</span></h1>
 
+    <select id="examples" title="Load an example" aria-label="Load an example" hidden>
+      <option value="">examples ...</option>
+    </select>
+
     <button id="run" disabled title="Compile and run (Ctrl+Enter)">
       <svg class="play" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13l11-6.5z" /></svg>
       <svg class="spinner" viewBox="0 0 16 16" aria-hidden="true">
@@ -327,9 +383,12 @@
       Run
     </button>
 
-    <span id="status">loading the .NET runtime ...</span>
-
     <span class="spacer"></span>
+
+    <span id="compiler" data-state="working" title="Loading the .NET runtime">
+      <span class="dot"></span>
+      <span id="status">compiler</span>
+    </span>
 
     <button id="analyser" data-state="connecting" title="Connecting to the analyser">
       <span class="dot"></span>
@@ -344,7 +403,15 @@
   </header>
 
   <main>
-    <div id="editor"></div>
+    <div id="editor-frame">
+      <div id="editor"></div>
+      <button id="copy" title="Copy the source" aria-label="Copy the source">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 2a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-.5a.5.5 0 00-.5.5v8a.5.5 0 00.5.5h6a.5.5 0 00.5-.5V2a.5.5 0 00-.5-.5H6z" />
+          <path d="M2 5a2 2 0 00-2 2v7a2 2 0 002 2h6a2 2 0 002-2v-1H8.5v1a.5.5 0 01-.5.5H2a.5.5 0 01-.5-.5V7a.5.5 0 01.5-.5h1V5H2z" />
+        </svg>
+      </button>
+    </div>
 
     <div id="splitter" role="separator" aria-orientation="horizontal"
          title="Drag to resize"></div>

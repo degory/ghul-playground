@@ -392,6 +392,10 @@ export async function createPlayground({
         // The client retries on its own, backing off to a minute between
         // attempts. This is for a reader who would rather not wait that out.
         reconnectAnalyser: () => client.reconnect(),
+        // A no-op unless the session was reaped for idleness, so callers can
+        // wire it to any interaction without ever forcing a reconnect on a
+        // healthy or deliberately-backed-off session.
+        wakeAnalyser: () => client.wake(),
         setSource: text => editor.setValue(text),
         getSource: () => editor.getValue(),
         setTheme: name => monaco.editor.setTheme(themeName(name)),

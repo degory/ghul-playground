@@ -38,6 +38,17 @@ jobs:
       - name: Install node dependencies and stage Monaco
         run: npm install
 
+      # The example menu's sources come from the Rosetta Code solutions at
+      # build time, so the menu stays current with them. build.yml compiles
+      # every entry through the compile service on each push and weekly.
+      - uses: actions/checkout@v7
+        with:
+          repository: degory/ghul-rosetta-code
+          path: ghul-rosetta-code
+
+      - name: Build the example menu
+        run: ROSETTA=ghul-rosetta-code node scripts/build-examples.js
+
       - name: Publish the web app
         run: dotnet publish web -c Release -o /tmp/playground-publish
 

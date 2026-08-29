@@ -95,11 +95,12 @@ chrome.on('error', e => {
     await cmd('Page.navigate', { url: BASE });
 
     for (let i = 0; i < 120; i++) {
-        if (await ev(`document.getElementById('status')?.innerText === 'ready'`)) break;
+        if (await ev(`document.getElementById('compiler')?.dataset.state === 'ready'`)) break;
         await sleep(500);
     }
     check('the runtime and editor load',
-        await ev(`document.getElementById('status')?.innerText === 'ready'`));
+        await ev(`document.getElementById('compiler')?.dataset.state === 'ready'`),
+        await ev(`document.getElementById('status')?.innerText`));
 
     for (let i = 0; i < 90; i++) {
         if (await ev(`document.getElementById('analyser')?.dataset.state === 'ready'`)) break;

@@ -5,6 +5,7 @@ import { createPlayground } from './playground.js'
 
 const runButton = document.getElementById('run');
 const status = document.getElementById('status');
+const compiler = document.getElementById('compiler');
 const analyser = document.getElementById('analyser');
 const analyserText = document.getElementById('analyser-text');
 const diagnosticsPane = document.getElementById('diagnostics');
@@ -18,10 +19,19 @@ const STATUS_TEXT = {
     failed: () => 'compilation failed',
     busy: () => 'the service is busy, try again',
     error: () => 'failed',
-    done: d => `compiled in ${d.compiled} ms, ran in ${d.ran} ms`
+    done: d => `compiled in ${d.compiled} ms, ran in ${d.ran} ms`,
+    ready: () => 'compiler'
 };
 
 const BUSY = new Set(['compiling', 'running', 'starting runtime']);
+
+// What the compiler dot's colour means, for the tooltip. `failed` is about the
+// last run - a compile error or a busy service - not about the service dying.
+const COMPILER_TITLE = {
+    ready: 'The compile service is ready',
+    working: 'Compiling or running',
+    failed: 'The last run did not complete: see the problems pane'
+};
 
 // What the dot means, and what the tooltip says it means. `dormant` is not a
 // failure: the session was reaped for idleness and the next edit brings it
@@ -95,9 +105,19 @@ document.addEventListener('keydown', event => {
 
 const darkMode = window.matchMedia('(prefers-color-scheme: dark)');
 
+// The editor's content survives the tab: saved on edit, restored on load.
+// Storage can be unavailable (private windows, blocked site data), in which
+// case the page behaves as it always did and starts from the default source.
+const STORAGE_KEY = 'ghul-playground-source';
+
+const savedSource = (() => {
+    try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+})();
+
 const playground = await createPlayground({
     container: document.getElementById('editor'),
     theme: darkMode.matches ? 'vs-dark' : 'vs',
+    ...(savedSource ? { source: savedSource } : {}),
 
     onOutput: text => {
         outputPane.textContent = text;
@@ -124,6 +144,12 @@ const playground = await createPlayground({
 
     onStatus: (state, detail) => {
         status.textContent = (STATUS_TEXT[state] ?? (() => state))(detail);
+
+        compiler.dataset.state =
+            BUSY.has(state) ? 'working'
+            : state === 'failed' || state === 'error' || state === 'busy' ? 'failed'
+            : 'ready';
+        compiler.title = COMPILER_TITLE[compiler.dataset.state];
 
         // Re-enable once the run has finished, however it finished.
         runButton.disabled = BUSY.has(state);
@@ -152,11 +178,21 @@ analyser.addEventListener('click', () => {
     if (analyser.dataset.state !== 'ready') playground.reconnectAnalyser();
 });
 
+// A reader coming back to the tab expects the analyser to be there when they
+// click into the editor, not only after their first edit. Waking is a no-op
+// unless the session was reaped for idleness, and every trigger here is a
+// deliberate act in the editor - focus, click, cursor movement - so an idle
+// window generates none of them and can never hold a slot.
+playground.editor.onDidFocusEditorText(() => playground.wakeAnalyser());
+playground.editor.onDidChangeCursorPosition(() => playground.wakeAnalyser());
+
 // Chrome and editor have to move together, or one of them looks broken.
 darkMode.addEventListener('change', event =>
     playground.setTheme(event.matches ? 'vs-dark' : 'vs'));
 
-status.textContent = 'ready';
+status.textContent = 'compiler';
+compiler.dataset.state = 'ready';
+compiler.title = COMPILER_TITLE.ready;
 runButton.disabled = false;
 
 // Ask up front rather than letting the analyser fail quietly and the first run
@@ -169,3 +205,71 @@ runButton.addEventListener('click', () => playground.run());
 
 playground.editor.addCommand(
     monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => playground.run());
+
+// --- the example picker ----------------------------------------------------
+
+const examplesMenu = document.getElementById('examples');
+
+// Only what the reader typed is worth a confirmation; a menu entry loaded and
+// left unedited is not theirs to lose.
+let loadedSource = playground.getSource();
+
+fetch('examples.json')
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then(({ examples }) => {
+        for (const example of examples) {
+            const option = document.createElement('option');
+            option.value = example.slug;
+            option.textContent = example.title;
+            examplesMenu.append(option);
+        }
+
+        examplesMenu.hidden = false;
+
+        // The menu names the loaded example while the buffer still is that
+        // example, and falls back to its placeholder once the reader edits -
+        // an edited buffer is theirs, not the example's.
+        const showCurrent = () => {
+            const current = examples.find(e => e.source === playground.getSource());
+            examplesMenu.value = current ? current.slug : '';
+        };
+
+        showCurrent();
+        playground.editor.onDidChangeModelContent(() =>
+            setTimeout(showCurrent, 0));
+
+        examplesMenu.addEventListener('change', () => {
+            const chosen = examples.find(e => e.slug === examplesMenu.value);
+            if (!chosen) { showCurrent(); return; }
+
+            if (playground.getSource() !== loadedSource
+                && !examples.some(e => e.source === playground.getSource())
+                && !confirm('Replace your edits with this example?')) {
+                showCurrent();
+                return;
+            }
+
+            loadedSource = chosen.source;
+            playground.setSource(chosen.source);
+        });
+    })
+    .catch(() => { /* no manifest, no menu - the page works without it */ });
+
+// --- saving and copying ----------------------------------------------------
+
+let saveDebounce = null;
+playground.editor.onDidChangeModelContent(() => {
+    clearTimeout(saveDebounce);
+    saveDebounce = setTimeout(() => {
+        try { localStorage.setItem(STORAGE_KEY, playground.getSource()); } catch { }
+    }, 500);
+});
+
+const copyButton = document.getElementById('copy');
+
+copyButton.addEventListener('click', () => {
+    navigator.clipboard?.writeText(playground.getSource()).then(() => {
+        copyButton.dataset.copied = '';
+        setTimeout(() => delete copyButton.dataset.copied, 1500);
+    });
+});
