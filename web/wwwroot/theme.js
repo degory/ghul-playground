@@ -83,6 +83,30 @@ const DARK_SYNTAX = {
     'delimiter.bracket': 'D4D4D4'
 };
 
+// Nesting depth is not something a reader of a keyword-delimited language
+// needs colour to follow, and Monaco's stock rainbow is the loudest thing on
+// screen when it is on. The editor turns bracket pair colourization off, so
+// these apply only where something else turns it back on - an embedding host,
+// or a future default - and they keep the brackets in the same quiet register
+// as the rest of the punctuation, varying only in weight.
+const LIGHT_BRACKETS = {
+    'editorBracketHighlight.foreground1': '#6C6C6C',
+    'editorBracketHighlight.foreground2': '#8A8A8A',
+    'editorBracketHighlight.foreground3': '#A6A6A6',
+    'editorBracketHighlight.foreground4': '#6C6C6C',
+    'editorBracketHighlight.foreground5': '#8A8A8A',
+    'editorBracketHighlight.foreground6': '#A6A6A6'
+};
+
+const DARK_BRACKETS = {
+    'editorBracketHighlight.foreground1': '#D4D4D4',
+    'editorBracketHighlight.foreground2': '#ABABAB',
+    'editorBracketHighlight.foreground3': '#868686',
+    'editorBracketHighlight.foreground4': '#D4D4D4',
+    'editorBracketHighlight.foreground5': '#ABABAB',
+    'editorBracketHighlight.foreground6': '#868686'
+};
+
 const rules = (...palettes) =>
     palettes.flatMap(palette =>
         Object.entries(palette).map(([token, foreground]) => ({ token, foreground })));
@@ -98,7 +122,7 @@ export function defineThemes() {
         // falls back to the grammar, which is the difference being fixed.
         semanticHighlighting: true,
         rules: rules(LIGHT_SYNTAX, LIGHT),
-        colors: {}
+        colors: LIGHT_BRACKETS
     });
 
     monaco.editor.defineTheme(DARK_THEME, {
@@ -106,7 +130,7 @@ export function defineThemes() {
         inherit: true,
         semanticHighlighting: true,
         rules: rules(DARK_SYNTAX, DARK),
-        colors: {}
+        colors: DARK_BRACKETS
     });
 }
 
