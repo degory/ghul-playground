@@ -1,9 +1,10 @@
 use IO.Std.write_line;
+use Ghul.Pipes;
 
 entry() is
     write_line("hello from ghūl, running in your browser");
 
-    let squares = [1, 2, 3, 4, 5] | .map(n => n * n) | .collect_list();
+    let squares = [1, 2, 3, 4, 5] |> map(n => n * n) |> collect_list();
 
     for s in squares do
         write_line("square: {s}");
