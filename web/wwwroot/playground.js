@@ -145,6 +145,15 @@ export async function createPlayground({
         bracketPairColorization: { enabled: false }
     });
 
+    // The option above reaches the editor, but the rainbow is drawn from
+    // decorations the *model* provides, and a model's colourization options are
+    // fixed when it is created - enabled, by default - with nothing carrying
+    // the editor's answer across. So the model has to be told separately, and
+    // its field is spelled without the "Pair" the editor option carries.
+    editor.getModel().updateOptions({
+        bracketColorizationOptions: { enabled: false, independentColorPoolPerBracketType: false }
+    });
+
     // Identifiers coloured by what the compiler resolved them to, rather than
     // by the grammar's guess. Registered once the legend is known, and it only
     // becomes known after the first initialize.
