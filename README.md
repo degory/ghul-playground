@@ -3,10 +3,11 @@
 Edit [ghūl](https://ghul.dev) in the browser, with diagnostics, hover and
 completion as you type. Compile it, and run it in the browser.
 
-**This is a prototype.** The services have containers that contain them, but
-there is no egress blocking and no rate limiting yet, so it is not something to
-put on the public internet. See
-[before this is exposed to anyone](#before-this-is-exposed-to-anyone).
+It runs at [playground.ghul.dev](https://playground.ghul.dev), open to anyone,
+and is embedded in the examples on [ghul.dev](https://ghul.dev). Nothing
+authenticates. What makes that defensible is that the server never runs what it
+compiles, and that the cost of compiling is capped rather than the audience
+being restricted - see [limits](#limits).
 
 ## how it works
 
@@ -73,9 +74,9 @@ npm.
 ## what works
 
 Syntax highlighting, compile, run, output, and from the analyse service:
-diagnostics as you type, hover, and completion. Measured in Chromium against
-the containers: a diagnostic appears about 500 ms after a keystroke, of which
-300 ms is the deliberate debounce.
+diagnostics as you type, hover, completion, semantic tokens, and the narrowing
+inlay hints. Measured in Chromium against the containers: a diagnostic appears
+about 500 ms after a keystroke, of which 300 ms is the deliberate debounce.
 
 The analyser is what makes those possible. Warm, it answers an edit in a
 millisecond or two; a cold compile pays process start, reflection and a
@@ -86,10 +87,10 @@ Not implemented: go to definition, references, rename, formatting and signature
 help. The language server offers all of them, so they are wiring rather than
 work.
 
-Highlighting comes from a Monarch grammar (`web/wwwroot/ghul-language.js`) and
-is approximate. It gives instant colour while typing. The language server also
-serves semantic tokens, which would colour identifiers by what the compiler
-resolved them to; that is not wired up yet.
+Highlighting has two layers. A Monarch grammar (`web/wwwroot/ghul-language.js`)
+is approximate and gives instant colour while typing; semantic tokens from the
+language server then recolour identifiers by what the compiler resolved them to,
+and are registered once the analyser reports its legend.
 
 ## embedding
 
@@ -170,6 +171,13 @@ editing at all.
 
 ## access tokens
 
+**The deployment at playground.ghul.dev configures none, so it is open to
+anyone.** The audience is whoever is reading ghul.dev, which a shared token
+cannot be handed to without also handing it to everybody; and what a token would
+have bounded is cost, which the caps under [limits](#limits) bound directly and
+without asking a reader for anything. `/health` reports `tokensRequired: false`
+there. The mechanism below is kept for a deployment whose audience is smaller.
+
 The services take a short fixed list of shared tokens, comma separated, in
 `PLAYGROUND_TOKENS`. Anyone holding one may use them; there is no per-user
 identity, no expiry, and no revocation beyond editing the list and restarting.
@@ -183,9 +191,12 @@ PLAYGROUND_TOKENS="one-token,another-token" docker compose up -d
 Tokens never go in the repository. In a deployment, put them in a `.env`
 alongside the compose file, which docker reads automatically.
 
-**With none configured the services are open.** That is convenient locally,
-where they are bound to loopback anyway, and wrong anywhere else, so both
-services say so loudly at startup.
+**With none configured the services are open**, and both say so loudly at
+startup. That is what the public deployment wants and what local development
+wants, where they are bound to loopback anyway. It is a decision to make
+deliberately rather than a default to arrive at, which is what the startup line
+is for: the caps are then the only thing standing between the compiler and
+whoever can reach it.
 
 The compile service takes `Authorization: Bearer <token>` and answers 401 when
 it is missing or wrong, so a front end can say the token was refused rather than
@@ -257,9 +268,13 @@ Docker will not give it one without the other.
 | --- | --- |
 | `web/` | the browser app: a .NET WebAssembly host plus the Monaco front end |
 | `web/Program.cs` | the only C#; see below |
-| `web/wwwroot/main.js` | editor, compile request, run, and wiring the two below |
-| `web/wwwroot/lsp.js` | the LSP client: markers, hover and completion providers |
+| `web/wwwroot/playground.js` | the editor wired to the services: diagnostics, hover, completion, compile, run |
+| `web/wwwroot/main.js` | the standalone page's chrome around it |
+| `web/wwwroot/embed.js` | embedded mode: the editor alone, framed by another site |
+| `web/wwwroot/lsp.js` | the LSP client the two modes share |
 | `web/wwwroot/ghul-language.js` | Monarch grammar and language configuration |
+| `web/wwwroot/theme.js` | editor themes, matched to how ghul.dev renders a static example |
+| `web/wwwroot/token.js` | the access token, and asking for one |
 | `analyse-service/` | a WebSocket in front of one language server per editor |
 | `compile-service/` | compiles posted source, returns an assembly |
 | `shared/toolchain.js` | where the toolchain is, and the reference set |
