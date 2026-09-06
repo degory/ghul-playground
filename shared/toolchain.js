@@ -10,34 +10,47 @@ const { readdir } = require('fs/promises');
 const { existsSync } = require('fs');
 const path = require('path');
 
-// The capability surface user code can name.
+// What user code can name. The test for an entry is whether it *runs* in the
+// wasm host, not whether it is safe: nothing here reaches the server, which
+// only compiles, and the browser sandbox is what bounds the program. Two
+// families stay out on that test alone. `System.Runtime.InteropServices.JavaScript`
+// would let a program script the hosting page, and it is the one exclusion
+// that matters to anyone but the author. `System.Net.Http` is the browser's
+// fetch, which makes every visitor's browser a network egress under our
+// origin. `System.Threading.Thread` compiles but throws at `start` on a
+// single-threaded host, so it is out for honesty rather than safety.
 //
 // This does NOT deny the filesystem: `System.Runtime` type-forwards the
 // `System.IO` surface and cannot be dropped, so `IO.File.read_all_text`
 // compiles under any set that also compiles ghūl. That is survivable only
 // because compiled code runs in the browser, which has no host filesystem.
-// It does deny `System.Net.*` and `System.Diagnostics.Process`, both verified.
 //
-// `System.Runtime.InteropServices.JavaScript` is excluded on purpose: with
-// execution client-side, JS interop would let user code script the hosting
-// page.
-// Two of these are here for completeness rather than for use, and are
-// deliberately not advertised to readers: `System.Linq` is reachable only as
-// explicit `System.Linq.Enumerable.foo(xs)` static calls, since ghūl has no
-// extension-method sugar, and the pipe combinators cover the same ground
-// idiomatically; `System.Memory` names `Span` and friends, which a console
-// program in a browser has no use for. Measured: nothing in the runtime or in
-// a representative program needs either to compile.
+// The list has to be closed under assembly reference. A type whose signature
+// names an assembly that is not loaded fails to materialise with a warning,
+// and then reports as a missing member - `Regex` did exactly that while
+// `System.Reflection.Emit.ILGeneration` was absent. The entries marked as
+// closure are there for that reason and nothing names them directly.
 const REFERENCES = [
     'System.Runtime',
     'System.Console',
     'System.Collections',
+    'System.Collections.Concurrent',
     'System.Linq',
+    'System.Memory',
     'System.Runtime.Extensions',
-    'netstandard',
+    'System.Runtime.Numerics',
+    'System.Text.Json',
     'System.Text.RegularExpressions',
-    'System.Threading.Tasks',
-    'System.Memory'
+    'System.Threading',
+    'System.Threading.Tasks.Parallel',
+    // closure of System.Text.RegularExpressions
+    'System.Reflection.Emit.ILGeneration',
+    'System.Diagnostics.StackTrace',
+    'System.Reflection.Primitives',
+    'System.Runtime.InteropServices',
+    // closure of System.Text.Json
+    'System.IO.Pipelines',
+    'System.Text.Encodings.Web'
 ];
 
 function highestVersion(versions) {
@@ -104,7 +117,17 @@ async function resolveReferencePaths() {
         resolveReferencePack(), resolveRuntime()
     ]);
 
-    return [runtime, ...REFERENCES.map(r => path.join(referencePack, `${r}.dll`))];
+    const paths = [runtime, ...REFERENCES.map(r => path.join(referencePack, `${r}.dll`))];
+
+    // A missing entry would not fail here: the compiler loads what it finds
+    // and the gap surfaces later as a baffling missing member. Refuse to
+    // start instead, so a renamed assembly is a failed deploy.
+    const missing = paths.filter(p => !existsSync(p));
+    if (missing.length > 0) {
+        throw new Error(`reference assemblies not found: ${missing.join(', ')}`);
+    }
+
+    return paths;
 }
 
 module.exports = {
