@@ -136,7 +136,7 @@ than a local one. The browser test needs a Chrome or Chromium binary and takes
 | `shared/toolchain.js` | where the toolchain is, and the reference set |
 | `runner/` | the load-and-run logic, in ghūl |
 | `examples/` | small programs used to check the host by hand |
-| `deploy/` | host setup, nginx and the deployment notes |
+| `deploy/` | host setup and the nginx configuration |
 | `docs/design.md` | why it is built this way |
 
 ## issues
