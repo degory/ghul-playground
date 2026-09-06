@@ -25,9 +25,9 @@ getting out of it would take a browser vulnerability - the same one any web
 page would need - rather than anything this project controls. A runaway loop is
 a tab that stops responding, not a server to clean up.
 
-The analyse service is separate from the compile service because analysis mode
-never runs code generation, so a warm analyser cannot produce an assembly. That
-suits both: compiling stays stateless, and only analysis is stateful.
+Analysing as you type and compiling on demand are different jobs, done by the
+same compiler binary in different modes, so they are two services: one holds a
+session open per editor, the other takes a source and hands back an assembly.
 
 The .NET runtime is fetched on the first run rather than at page load, because a
 documentation page embedding one of these per example cannot pay several
