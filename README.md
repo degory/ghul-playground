@@ -3,36 +3,10 @@
 Edit [ghūl](https://ghul.dev) in the browser, with diagnostics, hover and
 completion as you type. Compile it, and run it in the browser.
 
-**This is a prototype.** The services have containers that contain them, but
-there is no egress blocking and no rate limiting yet, so it is not something to
-put on the public internet. See
-[before this is exposed to anyone](#before-this-is-exposed-to-anyone).
-
-## how it works
-
-Four parts, separated by how much they are trusted with.
-
-| | runs where | handles untrusted source | executes untrusted code |
-| --- | --- | --- | --- |
-| editor | browser | yes | no |
-| analyse service | server | yes | no |
-| compile service | server | yes | no |
-| the compiled program | **browser** | yes | yes, in the browser's sandbox |
-
-Source is compiled on the server, and the resulting .NET assembly is sent back
-to the browser, which loads and runs it. The server never executes what it
-compiles.
-
-That split is what makes the playground defensible. A .NET runtime in the
-browser has no host filesystem, no network beyond what the page already has,
-and no process to escape into, so a program that tries `IO.File.read_all_text`
-gets a `DirectoryNotFoundException` rather than reaching anything. A runaway
-loop is a tab that stops responding, not a server to clean up.
-
-The analyse service is separate from the compile service because analysis mode
-never runs code generation, so a warm analyser cannot produce an assembly. That
-suits both: compiling stays stateless and cacheable, and only analysis is
-stateful.
+It runs at [playground.ghul.dev](https://playground.ghul.dev) and is embedded in
+the examples on [ghul.dev](https://ghul.dev). The server compiles the source and
+sends the assembly to the browser, which runs it. The server never runs what it
+compiles. [docs/design.md](docs/design.md) explains the design and the limits.
 
 ## running it
 
@@ -66,37 +40,40 @@ or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.
 
 To run a service outside a container while working on it, `npm run
 compile-service` and `npm run analyse-service` do that. The analyse service
-needs `ghul-language-server` on `PATH`; it is published as an asset on the
-[extension's releases](https://github.com/degory/ghul-vsce/releases), not to
-npm.
+needs `ghul-language-server` on `PATH`, which is published as an asset on the
+[extension's releases](https://github.com/degory/ghul-vsce/releases).
 
 ## what works
 
-Syntax highlighting, compile, run, output, and from the analyse service:
-diagnostics as you type, hover, and completion. Measured in Chromium against
-the containers: a diagnostic appears about 500 ms after a keystroke, of which
-300 ms is the deliberate debounce.
-
-The analyser is what makes those possible. Warm, it answers an edit in a
-millisecond or two; a cold compile pays process start, reflection and a
-from-scratch symbol table and takes seconds, so per-keystroke compilation would
-be both slower and more expensive.
+Syntax highlighting, compile, run and output; and from the analyse service,
+diagnostics as you type, hover, completion, semantic tokens and the narrowing
+inlay hints. A diagnostic appears about 500 ms after a keystroke, 300 ms of
+which is the debounce.
 
 Not implemented: go to definition, references, rename, formatting and signature
 help. The language server offers all of them, so they are wiring rather than
 work.
 
-Highlighting comes from a Monarch grammar (`web/wwwroot/ghul-language.js`) and
-is approximate. It gives instant colour while typing. The language server also
-serves semantic tokens, which would colour identifiers by what the compiler
-resolved them to; that is not wired up yet.
+## configuration
+
+Everything is an environment variable read by `docker compose`, or by the
+services directly when run outside it. None of these is set for local use.
+
+| | |
+| --- | --- |
+| `PLAYGROUND_TOKENS` | comma-separated shared tokens; unset, the services are open, which is how playground.ghul.dev runs |
+| `ALLOWED_ORIGINS` | the sites that may drive the services from a browser; unset, any |
+| `MAX_CONCURRENT_COMPILES`, `MAX_QUEUED_COMPILES`, `COMPILE_TIMEOUT_MS` | compile service caps |
+| `MAX_SESSIONS`, `POOL_SIZE`, `IDLE_TIMEOUT_MS`, `MAX_SESSION_MS` | analyse service caps |
+
+The reference assemblies user code can name are listed in
+`shared/toolchain.js`, which both services read.
 
 ## embedding
 
 `embed.html` is the editor with no chrome, meant to be framed by another site.
 The frame owns only the editor: output, diagnostics and status are posted to the
-parent, which renders them in whatever it already has, so an embedding page does
-not end up with two differently-styled output panels.
+parent, which renders them in whatever it already has.
 
 Messages carry `channel: "ghul-playground"`. Origins are checked both ways: the
 frame ignores messages from anywhere but an allowed parent, and replies only to
@@ -127,10 +104,6 @@ Frame to parent:
 parent that sends `init` while the frame is still loading loses it silently and
 sees an editor that never appears.
 
-The .NET runtime is fetched on the first run rather than at load, because a
-documentation page embedding one of these per example cannot pay several
-megabytes on every navigation.
-
 ## checking it works
 
 Two harnesses, neither with dependencies of its own:
@@ -144,154 +117,26 @@ Both take `ANALYSE_URL` / `BASE` and `TOKEN` to run against a deployment rather
 than a local one. The browser test needs a Chrome or Chromium binary and takes
 `CHROME` if it is not where Playwright puts it.
 
-The stress harness exists because "the analyser has hung" is a recurring
-suspicion and has so far always been something else, usually a deployment
-restarting the container.
-
-## sessions
-
-One WebSocket, one private workspace, one language server process. Processes
-are never shared between clients: a fresh process is the isolation boundary
-between them, so recycling one is a requirement rather than an optimisation.
-
-A session is closed after five minutes idle, and after an hour regardless. The
-client is expected to tolerate that, and reconnects and resends the document,
-which is cheap because there is only ever one file.
-
-The client addresses a fixed virtual path and never learns where its workspace
-actually is; the bridge maps between the two, so a browser cannot address
-anything outside its own session by naming a different URI.
-
-Sessions are capped rather than queued, because a warm analyser holds tens of
-megabytes and opening one is far cheaper for a client than for the service.
-`/health` answers even when every slot is taken: it reports that the service
-exists, which is what a front end needs in order to decide whether to offer
-editing at all.
-
-## access tokens
-
-The services take a short fixed list of shared tokens, comma separated, in
-`PLAYGROUND_TOKENS`. Anyone holding one may use them; there is no per-user
-identity, no expiry, and no revocation beyond editing the list and restarting.
-That is the intended scope: it keeps a passer-by out of services that run the
-compiler on whatever they are sent.
-
-```sh
-PLAYGROUND_TOKENS="one-token,another-token" docker compose up -d
-```
-
-Tokens never go in the repository. In a deployment, put them in a `.env`
-alongside the compose file, which docker reads automatically.
-
-**With none configured the services are open.** That is convenient locally,
-where they are bound to loopback anyway, and wrong anywhere else, so both
-services say so loudly at startup.
-
-The compile service takes `Authorization: Bearer <token>` and answers 401 when
-it is missing or wrong, so a front end can say the token was refused rather than
-report an opaque failure. The analyse service takes it as a WebSocket
-subprotocol, because a browser cannot set headers on a WebSocket and a query
-parameter would land in access logs; it is checked at the upgrade, so a bad
-token is a socket that never opens.
-
-`/health` is deliberately unauthenticated. An embedding page has to be able to
-ask whether a back end exists before it has a token to offer.
-
-It also reports `tokensRequired`, so a front end can tell whether to ask for a
-token at all. Asking for one the services do not want is worse than not asking:
-it reads as a closed door on a service that is open. A front end that cannot
-reach `/health` treats the answer as "no token needed", because the token dialog
-is not the way to tell somebody the back end is down.
-
-The front end keeps the token in `localStorage` for the playground's own origin,
-so a reader entering it once has it for every embedded example on every page.
-
-An address allow list was used first and has been removed. It cannot work once
-the audience is the readers of a documentation site.
-
-## limits
-
-The services run the compiler on whatever they are sent, so what bounds the cost
-matters more than who is sending it.
-
-Compiling is capped at two at once with a short queue behind it, and answers 503
-past the end of that queue. The cap rather than `mem_limit` is what keeps the
-container off its ceiling: a compile costs about a CPU-second and peaks near
-200 MB, and enough simultaneous requests without one drove the container into
-its memory cap, where the kernel killed compilers and every request in flight
-failed. Thirty at once was enough to do it. Each compile is also given ten
-seconds and 256 KB of source.
-
-Analysing is capped at six sessions, which bounds memory directly, with an idle
-timeout of five minutes and a lifetime of an hour.
-
-`deploy/nginx/playground-limits.conf` adds the per-address half: a compile rate
-limit and at most two concurrent sessions from one address. It bounds one
-address, which is all a proxy can see; the caps above are what hold whatever the
-traffic is spread across.
-
-`ALLOWED_ORIGINS` names the sites that may drive the services from a browser.
-It is not access control - anything that is not a browser can claim any origin,
-or none - but it stops a third-party page spending our CPU through its own
-visitors' browsers. Unset, any origin is accepted, which is what local
-development wants.
-
-Restricting the reference set (`REFERENCES` in `shared/toolchain.js`) makes
-some APIs unnameable and so uncallable: `System.Net.Http` and
-`System.Diagnostics.Process` are both unreachable, and
-`System.Runtime.InteropServices.JavaScript` is excluded so user code cannot
-script the hosting page. It does **not** deny the filesystem.
-`System.Runtime` type-forwards the `System.IO` surface and cannot be dropped,
-so `IO.File` compiles regardless. That is survivable only because the compiled
-program runs in the browser.
-
-Run in their containers the services are contained: non-root, read-only root
-filesystem, all capabilities dropped, `no-new-privileges`, a tmpfs for scratch,
-and memory, CPU and process limits. Outbound traffic is blocked at the host
-firewall rather than here, because a container needs a network for ingress and
-Docker will not give it one without the other.
-
 ## layout
 
 | | |
 | --- | --- |
 | `web/` | the browser app: a .NET WebAssembly host plus the Monaco front end |
-| `web/Program.cs` | the only C#; see below |
-| `web/wwwroot/main.js` | editor, compile request, run, and wiring the two below |
-| `web/wwwroot/lsp.js` | the LSP client: markers, hover and completion providers |
+| `web/Program.cs` | the only C#: the `[JSExport]` glue the source generator needs (see the design notes) |
+| `web/wwwroot/playground.js` | the editor wired to the services: diagnostics, hover, completion, compile, run |
+| `web/wwwroot/main.js` | the standalone page's chrome around it |
+| `web/wwwroot/embed.js` | embedded mode: the editor alone, framed by another site |
+| `web/wwwroot/lsp.js` | the LSP client the two modes share |
 | `web/wwwroot/ghul-language.js` | Monarch grammar and language configuration |
+| `web/wwwroot/theme.js` | editor themes, matched to how ghul.dev renders a static example |
+| `web/wwwroot/token.js` | the access token, and asking for one |
 | `analyse-service/` | a WebSocket in front of one language server per editor |
 | `compile-service/` | compiles posted source, returns an assembly |
 | `shared/toolchain.js` | where the toolchain is, and the reference set |
 | `runner/` | the load-and-run logic, in ghūl |
 | `examples/` | small programs used to check the host by hand |
-
-`shared/toolchain.js` is shared deliberately. If the analyse service and the
-compile service disagreed about the reference set, the editor would report
-errors the build does not, or stay silent about errors the build reports.
-
-### no LSP client library
-
-Monaco's own APIs cover what is needed: `setModelMarkers` for diagnostics,
-`registerHoverProvider` for hover, `registerCompletionItemProvider` for
-completion. Each takes a plain callback, so `web/wwwroot/lsp.js` speaks LSP
-directly in a few hundred lines. That avoids `monaco-languageclient` and its
-`@codingame/monaco-vscode-*` dependency chain.
-
-### why there is any C# here
-
-`web/Program.cs` exists because `[JSExport]`, the way JavaScript calls into
-.NET, is implemented by a Roslyn source generator. It emits a module
-initializer that registers the method and an unsafe wrapper that marshals
-through a `JSMarshalerArgument*` buffer. ghūl emits the attribute itself
-correctly, but the attribute does nothing without that generated glue.
-
-`runner/src/runner.ghul` implements the same logic in ghūl and compiles
-cleanly, with the intent that the C# shrinks to a single delegating call. That
-is currently blocked: a C# project referencing the ghūl library fails with
-`CS0012`, because the ghūl-emitted assembly records a reference to
-`System.Runtime 8.0.0.0` while recording `System.Memory 10.0.0.0` alongside
-it.
+| `deploy/` | host setup and the nginx configuration |
+| `docs/design.md` | why it is built this way |
 
 ## issues
 
