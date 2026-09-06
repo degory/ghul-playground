@@ -18,10 +18,12 @@ Four parts, separated by how much they are trusted with.
 Source is compiled on the server, and the resulting .NET assembly is sent back
 to the browser, which loads and runs it. The server never executes what it
 compiles, and that is the load-bearing decision. A .NET runtime in the browser
-has no host filesystem, no network beyond what the page already has, and no
-process to escape into, so a program that tries `IO.File.read_all_text` gets a
-`DirectoryNotFoundException` rather than reaching anything. A runaway loop is a
-tab that stops responding, not a server to clean up.
+has no host filesystem and no network beyond what the page already has, so a
+program that tries `IO.File.read_all_text` gets a `DirectoryNotFoundException`
+rather than reaching anything. It runs inside the browser's own sandbox, so
+getting out of it would take a browser vulnerability - the same one any web
+page would need - rather than anything this project controls. A runaway loop is
+a tab that stops responding, not a server to clean up.
 
 The analyse service is separate from the compile service because analysis mode
 never runs code generation, so a warm analyser cannot produce an assembly. That
