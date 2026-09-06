@@ -4,10 +4,9 @@ Edit [ghūl](https://ghul.dev) in the browser, with diagnostics, hover and
 completion as you type. Compile it, and run it in the browser.
 
 It runs at [playground.ghul.dev](https://playground.ghul.dev) and is embedded in
-the examples on [ghul.dev](https://ghul.dev). Source is compiled on the server;
-the resulting assembly is sent back and run in the browser, so the server never
-executes what it compiles. What that rests on, and what bounds the cost of
-compiling for anyone who turns up, is in [docs/design.md](docs/design.md).
+the examples on [ghul.dev](https://ghul.dev). The server compiles the source and
+sends the assembly to the browser, which runs it. The server never runs what it
+compiles. [docs/design.md](docs/design.md) explains the design and the limits.
 
 ## running it
 
@@ -65,7 +64,7 @@ services directly when run outside it. None of these is set for local use.
 | `PLAYGROUND_TOKENS` | comma-separated shared tokens; unset, the services are open, which is how playground.ghul.dev runs |
 | `ALLOWED_ORIGINS` | the sites that may drive the services from a browser; unset, any |
 | `MAX_CONCURRENT_COMPILES`, `MAX_QUEUED_COMPILES`, `COMPILE_TIMEOUT_MS` | compile service caps |
-| `MAX_SESSIONS`, `POOL_SIZE`, `MAX_SESSION_MS` | analyse service caps |
+| `MAX_SESSIONS`, `POOL_SIZE`, `IDLE_TIMEOUT_MS`, `MAX_SESSION_MS` | analyse service caps |
 
 The reference assemblies user code can name are listed in
 `shared/toolchain.js`, which both services read.
