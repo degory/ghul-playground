@@ -27,7 +27,7 @@ const MENU = [
     ['arithmetic-evaluation', 'arithmetic evaluation'],
     ['tree-traversal', 'tree traversal'],
     ['huffman-coding', 'Huffman coding'],
-    ['sieve-of-eratosthenes', 'sieve of Eratosthenes'],
+    ['sieve-of-eratosthenes/01-marking-multiples', 'sieve of Eratosthenes'],
     ['sorting-algorithms-quicksort', 'quicksort'],
     ['roman-numerals-encode', 'Roman numerals'],
     ['closures-value-capture', 'closures: value capture'],
@@ -37,7 +37,7 @@ const MENU = [
 ];
 
 const examples = MENU.map(([slug, title]) => {
-    const file = path.join(ROSETTA, 'tasks', slug, `${slug}.ghul`);
+    const file = path.join(ROSETTA, 'tasks', slug, `${path.basename(slug)}.ghul`);
     return { slug, title, source: fs.readFileSync(file, 'utf8') };
 });
 
