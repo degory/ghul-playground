@@ -29,7 +29,7 @@ RUN useradd --create-home --shell /usr/sbin/nologin playground
 USER playground
 WORKDIR /home/playground
 
-ARG GHUL_COMPILER_VERSION=46.0.0
+ARG GHUL_COMPILER_VERSION=52.2.1
 ARG GHUL_RUNTIME_VERSION=15.1.4
 
 RUN dotnet tool install --tool-path /home/playground/tools \
