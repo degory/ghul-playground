@@ -6,7 +6,7 @@
 #
 # Run limits are applied at run time, not here: see compose.yaml.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS base
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS base
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nodejs npm curl \
@@ -16,7 +16,7 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1 \
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
-ARG GHUL_LANGUAGE_SERVER_VERSION=1.27.4
+ARG GHUL_LANGUAGE_SERVER_VERSION=1.27.22
 
 # Not published to npm; it ships as an asset on the extension's releases.
 RUN npm install -g --no-audit --no-fund \

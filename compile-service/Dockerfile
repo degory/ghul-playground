@@ -12,7 +12,7 @@
 #
 # Run limits are applied at run time, not here: see compose.yaml.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS base
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS base
 
 # Node runs the service; the SDK supplies dotnet, the reference pack the
 # compiler compiles against, and a place to install the compiler tool.
