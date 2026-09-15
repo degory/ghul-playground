@@ -231,55 +231,6 @@ runButton.addEventListener('click', () => playground.run());
 playground.editor.addCommand(
     monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => playground.run());
 
-// --- the example picker ----------------------------------------------------
-
-const examplesMenu = document.getElementById('examples');
-
-// Only what the reader typed is worth a confirmation; a menu entry loaded and
-// left unedited is not theirs to lose.
-let loadedSource = playground.getSource();
-
-fetch('examples.json')
-    .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-    .then(({ examples }) => {
-        for (const example of examples) {
-            const option = document.createElement('option');
-            option.value = example.slug;
-            option.textContent = example.title;
-            examplesMenu.append(option);
-        }
-
-        examplesMenu.hidden = false;
-
-        // The menu names the loaded example while the buffer still is that
-        // example, and falls back to its placeholder once the reader edits -
-        // an edited buffer is theirs, not the example's.
-        const showCurrent = () => {
-            const current = examples.find(e => e.source === playground.getSource());
-            examplesMenu.value = current ? current.slug : '';
-        };
-
-        showCurrent();
-        playground.editor.onDidChangeModelContent(() =>
-            setTimeout(showCurrent, 0));
-
-        examplesMenu.addEventListener('change', () => {
-            const chosen = examples.find(e => e.slug === examplesMenu.value);
-            if (!chosen) { showCurrent(); return; }
-
-            if (playground.getSource() !== loadedSource
-                && !examples.some(e => e.source === playground.getSource())
-                && !confirm('Replace your edits with this example?')) {
-                showCurrent();
-                return;
-            }
-
-            loadedSource = chosen.source;
-            playground.setSource(chosen.source);
-        });
-    })
-    .catch(() => { /* no manifest, no menu - the page works without it */ });
-
 // --- saving and copying ----------------------------------------------------
 
 let saveDebounce = null;
