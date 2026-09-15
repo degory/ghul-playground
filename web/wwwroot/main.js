@@ -2,6 +2,7 @@
 // is the chrome around it.
 
 import { createPlayground } from './playground.js'
+import { requestedProgram, loadProgram } from './collections.js'
 
 const runButton = document.getElementById('run');
 const status = document.getElementById('status');
@@ -114,10 +115,23 @@ const savedSource = (() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
 })();
 
+// A program named by the page's path, such as /rosetta-code/100-doors, takes
+// the place of the saved source. Loading it again on reload is what the link
+// promises, so edits to it are not restored over it.
+const requested = requestedProgram(location.pathname);
+
+const program = requested
+    ? await loadProgram(requested).catch(e => ({ error: e.message }))
+    : null;
+
+if (program?.source) document.title = `${requested.name} - ghūl playground`;
+
+const initialSource = program?.source ?? savedSource;
+
 const playground = await createPlayground({
     container: document.getElementById('editor'),
     theme: darkMode.matches ? 'vs-dark' : 'vs',
-    ...(savedSource ? { source: savedSource } : {}),
+    ...(initialSource ? { source: initialSource } : {}),
 
     onOutput: text => {
         outputPane.textContent = text;
@@ -194,6 +208,17 @@ status.textContent = 'compiler';
 compiler.dataset.state = 'ready';
 compiler.title = COMPILER_TITLE.ready;
 runButton.disabled = false;
+
+// Said where the program's output would appear, since that is where a reader
+// who pressed run would look for why nothing happened.
+const notice = program?.error
+    ?? (program?.unsupported && `This program does not run in the playground: ${program.unsupported}`);
+
+if (notice) {
+    outputPane.replaceChildren(Object.assign(document.createElement('span'),
+        { className: 'notice', textContent: notice }));
+    showTab(outputPane);
+}
 
 // Ask up front rather than letting the analyser fail quietly and the first run
 // come back rejected - but only where the services actually want a token.

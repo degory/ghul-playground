@@ -4,6 +4,10 @@
 <head>
   <title>ghūl playground</title>
   <meta charset="UTF-8">
+  <!-- The page is also served at paths like /rosetta-code/100-doors, and every
+       relative URL below - Monaco, the import map, main.js - is meant from the
+       root whichever path loaded it. -->
+  <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="preload" id="webassembly" />
   <script type="importmap"></script>
@@ -290,6 +294,7 @@
     pre[hidden] { display: none; }
 
     .empty { color: var(--fg-muted); font-style: italic; }
+    .notice { color: var(--warn); }
 
     #diagnostics .error { color: var(--bad); }
     #diagnostics .warn { color: var(--warn); }

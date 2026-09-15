@@ -175,6 +175,19 @@ chrome.on('error', e => {
     }
     check('the program compiles and runs', output.includes('it ran'), JSON.stringify(output.trim()));
 
+    // A program opened by path is fetched from its collection into the editor,
+    // which exercises the path fallback, the <base> the page's own assets are
+    // resolved against, and the cross-origin fetch.
+    await cmd('Page.navigate', { url: new URL('/rosetta-code/hello-world-text', BASE).toString() });
+
+    let opened = '';
+    for (let i = 0; i < 120; i++) {
+        opened = await ev(`globalThis.monaco?.editor.getModels()[0]?.getValue() ?? ''`);
+        if (opened.includes('Hello world!')) break;
+        await sleep(500);
+    }
+    check('a program opens by path', opened.includes('Hello world!'), JSON.stringify(opened.slice(0, 60)));
+
     chrome.kill();
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');
