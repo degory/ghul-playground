@@ -69,6 +69,20 @@ services directly when run outside it. None of these is set for local use.
 The reference assemblies user code can name are listed in
 `shared/toolchain.js`, which both services read.
 
+## opening a program by path
+
+`/rosetta-code/<slug>` opens a solution from
+[ghul-rosetta-code](https://github.com/degory/ghul-rosetta-code) in the editor,
+and `/rosetta-code/<slug>/<NN-part>` opens one part of a task solved more than
+one way. The page fetches the source from `raw.githubusercontent.com` in the
+reader's browser, so nothing about the solutions is built into the site. A
+solution carrying a `playground-unsupported` file is still loaded, with the
+reason it cannot run shown in the output pane.
+
+Collections live in `web/wwwroot/collections.js`, each under its own path
+prefix. A new one needs an entry there and a matching `location` in the nginx
+configuration, which serves the entry page for every path under the prefix.
+
 ## embedding
 
 `embed.html` is the editor with no chrome, meant to be framed by another site.
