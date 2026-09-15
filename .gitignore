@@ -21,4 +21,3 @@ web/wwwroot/vs/
 
 # ghūl compiler response file, written next to the project on build
 .build.rsp
-web/wwwroot/examples.json
