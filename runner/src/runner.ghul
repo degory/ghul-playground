@@ -1,20 +1,42 @@
 namespace Playground is
-    // Loads an assembly the compiler produced, runs it, and hands back
-    // whatever it wrote to standard output. The C# side of the wasm host
-    // exists only to satisfy the JSExport source generator and calls
-    // straight into here.
+    use IO.Std.write_line;
+
+    // Loads an assembly the compiler produced, runs it, and hands back what it
+    // wrote - both what it wrote, since a program that draws has two outputs
+    // and one channel to return them on.
+    //
+    // The C# side of the wasm host exists only to satisfy the JSExport source
+    // generator, and reaches this through reflection rather than by naming it,
+    // because a ghūl assembly cannot be bound against from C# (see
+    // docs/design.md). So this is reached by name: Playground.RUNNER.run,
+    // taking and returning a string.
     class RUNNER is
+        // ghul.raster writes this line to name an image the program drew, at
+        // the point in the output where it belongs. It is a contract with
+        // whatever displays the output rather than an instruction to anything
+        // in particular: a terminal shows the line, and this page shows the
+        // picture.
+        MARKER_OPEN: string static => "<<image ";
+        MARKER_CLOSE: string static => ">>";
+
+        // Nothing bounds what a program can draw, and every byte is
+        // base64-encoded into a response the page then holds in memory. Past
+        // this the pictures are dropped and the run says so, which is a better
+        // failure than a tab that stops responding.
+        MAX_IMAGE_BYTES: int static => 8 * 1024 * 1024;
+
+        // `{"text": ..., "images": [{"name": ..., "png": "<base64>"}]}`.
         run(base64: string) -> string static is
             try
-                return _invoke(System.Reflection.Assembly.load(System.Convert.from_base64_string(base64)));
+                return _collect(_invoke(System.Reflection.Assembly.load(System.Convert.from_base64_string(base64))));
             catch e: System.Exception
-                return "host error: {e.get_type().name}: {e.message}";
+                return _respond("host error: {e.get_type().name}: {e.message}", Collections.LIST[IMAGE]())
             yrt
         si
 
-        // Standard output is redirected for the duration of the call:
-        // without this the program's output goes to the browser console,
-        // where the page cannot show it.
+        // Standard output is redirected for the duration of the call: without
+        // this the program's output goes to the browser console, where the
+        // page cannot show it.
         _invoke(assembly: System.Reflection.Assembly) -> string static is
             let entry = assembly.entry_point;
 
@@ -46,7 +68,7 @@ namespace Playground is
                 let inner = e.inner_exception;
 
                 if inner? then
-                    writer.write_line("[unhandled: {inner.get_type().name}: {inner.message}]");
+                    writer.write_line(_describe(inner));
                 else
                     writer.write_line("[unhandled: {e.message}]");
                 fi
@@ -56,5 +78,145 @@ namespace Playground is
 
             return writer.to_string();
         si
+
+        // The browser host has no standard input: reading it throws
+        // PlatformNotSupportedException with a generic message that gives no
+        // hint why. A program that never read standard input can hit the same
+        // exception for an unrelated reason, so the stack trace rather than
+        // the type is what tells the two apart.
+        _describe(e: System.Exception) -> string static is
+            if isa System.PlatformNotSupportedException(e) /\ (e.stack_trace ?? "").contains("Console") then
+                return "[unhandled: this program reads from standard input, which the playground does not support]";
+            fi
+
+            "[unhandled: {e.get_type().name}: {e.message}]"
+        si
+
+        // Replaces each image marker with the picture it names, and takes the
+        // marker line out of the text: the page is showing the picture, so
+        // leaving the line in would caption it with its own filename.
+        //
+        // A marker naming a file that is not there is left alone. A program can
+        // write one itself, and a reader who sees the line they wrote is better
+        // served than one whose output silently loses a line.
+        _collect(text: string) -> string static is
+            let images = Collections.LIST[IMAGE]();
+            let seen = Collections.MAP[string, ubyte[]]();
+
+            // Split on the newlines and joined back with them, so the text
+            // comes out exactly as the program wrote it apart from the lines
+            // taken away. Terminator or separator never has to be decided.
+            let kept = Collections.LIST[string]();
+
+            let total mut = 0;
+            let dropped mut = 0;
+
+            for line in text.split(['\n']) do
+                let path = _marked(line);
+
+                if !path? then
+                    kept.add(line);
+                    continue;
+                fi
+
+                // Taken before the read below, whose try block costs the
+                // narrowing that makes `path` a string rather than a string?.
+                let name = IO.Path.get_file_name(path) ?? path;
+
+                let bytes: ubyte[]? mut = null;
+
+                if seen.contains_key(path) then
+                    bytes = seen[path];
+                else
+                    try
+                        bytes = IO.File.read_all_bytes(path);
+                        seen[path] = bytes;
+                    catch e: System.Exception
+                        // Not a picture this run produced, so the line stands
+                        // as the program wrote it.
+                    yrt
+                fi
+
+                if !bytes? then
+                    kept.add(line);
+                    continue;
+                fi
+
+                if total + bytes.count > MAX_IMAGE_BYTES then
+                    dropped = dropped + 1;
+                    kept.add(line);
+                    continue;
+                fi
+
+                total = total + bytes.count;
+
+                images.add(IMAGE(name, System.Convert.to_base64_string(bytes)));
+            od
+
+            // The filesystem lives as long as the tab, so what one run wrote is
+            // still there for the next. A program that shows an image it did
+            // not write this time would otherwise be handed the last run's
+            // picture, which is worse than being handed none.
+            for path in seen.keys do
+                try
+                    IO.File.delete(path);
+                catch e: System.Exception
+                    // Nothing to do about it and nothing worth saying: the
+                    // next run reads whatever is there, as it would have
+                    // anyway.
+                yrt
+            od
+
+            if dropped > 0 then
+                kept.add("[{dropped} image(s) not shown: this run drew more than {MAX_IMAGE_BYTES / (1024 * 1024)} MB]");
+                kept.add("");
+            fi
+
+            _respond(string.join("\n", kept), images)
+        si
+
+        // The path a marker line names, or absent when the line is not one.
+        _marked(line: string) -> string? static is
+            let trimmed = line.trim();
+
+            if !trimmed.starts_with(MARKER_OPEN) \/ !trimmed.ends_with(MARKER_CLOSE) then
+                return null;
+            fi
+
+            let path = trimmed[MARKER_OPEN.length..trimmed.length - MARKER_CLOSE.length].trim();
+
+            if path.length == 0 then null else path fi
+        si
+
+        // Written rather than serialized from an object: the answer is two
+        // fields and a list, and a writer needs no reflection, which is one
+        // less thing to depend on being enabled in a wasm host.
+        _respond(text: string, images: Collections.List[IMAGE]) -> string static is
+            let buffer = IO.MemoryStream();
+
+            let json = System.Text.Json.Utf8JsonWriter(buffer, _);
+
+            json.write_start_object();
+            json.write_string("text", text);
+
+            json.write_start_array("images");
+
+            for image in images do
+                json.write_start_object();
+                json.write_string("name", image.name);
+                json.write_string("png", image.png);
+                json.write_end_object();
+            od
+
+            json.write_end_array();
+            json.write_end_object();
+
+            json.flush();
+            json.dispose();
+
+            System.Text.Encoding.utf8.get_string(buffer.to_array())
+        si
     si
+
+    class IMAGE(name: string public, png: string public);
 si

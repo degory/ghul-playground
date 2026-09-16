@@ -113,6 +113,7 @@ export async function createPlayground({
     source = DEFAULT_SOURCE,
     theme = 'vs',
     onOutput = () => { },
+    onImages = () => { },
     onDiagnostics = () => { },
     onStatus = () => { },
     onAnalyser = () => { }
@@ -294,6 +295,7 @@ export async function createPlayground({
 
     async function run() {
         onOutput('');
+        onImages([]);
 
         // Refused here rather than by the service, so a reader is told what the
         // limit is instead of watching a request fail.
@@ -380,7 +382,16 @@ export async function createPlayground({
             onStatus('running');
 
             const ran = performance.now();
-            onOutput(exports.GhulRunner.Run(result.assembly));
+
+            // The host answers with the program's text and any pictures it
+            // drew, which is two outputs on one channel - see web/Program.cs.
+            const produced = JSON.parse(exports.GhulRunner.Run(result.assembly));
+
+            onOutput(produced.text);
+            onImages(produced.images.map(image => ({
+                name: image.name,
+                url: `data:image/png;base64,${image.png}`
+            })));
 
             onStatus('done', { compiled, ran: Math.round(performance.now() - ran) });
         } catch (e) {
