@@ -330,8 +330,16 @@ const playground = await createPlayground({
     ...(initialSource ? { source: initialSource } : {}),
 
     onOutput: text => {
+        // Follow the output as it arrives, the way a terminal does - but only
+        // while the pane is already at the bottom, so a reader who has scrolled
+        // up to look at something is not dragged away from it by the next line.
+        const following =
+            outputPane.scrollTop + outputPane.clientHeight >= outputPane.scrollHeight - 4;
+
         outputPane.textContent = text;
         if (!text) outputPane.innerHTML = '<span class="empty">The program produced no output.</span>';
+
+        if (following) outputPane.scrollTop = outputPane.scrollHeight;
     },
 
     // Shown when the program asks and taken away the moment it stops asking,
@@ -454,7 +462,24 @@ if (await playground.tokenRequired() && !playground.hasToken()) {
     await playground.askForToken();
 }
 
-runButton.addEventListener('click', () => playground.run());
+const isRunning = () => runButton.hasAttribute('data-stop');
+
+runButton.addEventListener('click', () => {
+    if (!isRunning()) {
+        playground.run();
+        return;
+    }
+
+    // Ending the input is enough for a program that is waiting for a line, and
+    // leaves its transcript on screen. Nothing else can interrupt managed code
+    // on another thread, so for a program that is busy the only way to stop it
+    // is to take the runtime away, which means reloading - and the page comes
+    // back with nothing running, which is the state that was asked for. The
+    // editor's content is saved as it is typed, so that much survives.
+    if (playground.stop()) return;
+
+    location.reload();
+});
 
 // Enter sends the line. The box is cleared rather than left holding it,
 // because what was typed reappears in the output a moment later - the program
@@ -484,7 +509,7 @@ stdin.addEventListener('keydown', event => {
 });
 
 playground.editor.addCommand(
-    monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => playground.run());
+    monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { if (!isRunning()) playground.run(); });
 
 // --- saving and copying ----------------------------------------------------
 

@@ -252,6 +252,37 @@ chrome.on('error', e => {
         (await ev(`document.getElementById('run-label').textContent`)) === 'Run'
         && !(await ev(`document.getElementById('run').hasAttribute('data-stop')`)));
 
+    // Stop, clicked rather than merely looked at. The button showing the right
+    // word proves nothing about what pressing it does: it went a whole round
+    // saying Stop while still being wired to run the program again.
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(reading)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let waiting = false;
+    for (let i = 0; i < 180; i++) {
+        waiting = await boxShowing();
+        if (waiting) break;
+        await sleep(500);
+    }
+    check('the program is waiting again', waiting);
+
+    await ev(`document.getElementById('run').click(); true`);
+
+    let stopped = '';
+    for (let i = 0; i < 60; i++) {
+        stopped = await ev(`document.getElementById('run-label').textContent`);
+        if (stopped === 'Run') break;
+        await sleep(500);
+    }
+    check('stopping ends the program rather than starting another', stopped === 'Run',
+        await ev(`document.getElementById('status').textContent`));
+
+    // Ending the input is what a waiting program is told, so it runs on to
+    // whatever it does with no more input rather than being cut off.
+    check('the stopped program saw the end of its input',
+        (await ev(`document.getElementById('output').innerText`)).includes('hello, nobody'));
+
     // A program that draws: the picture has to survive being written to the
     // wasm filesystem, read back by the host, and carried to the page as a
     // data URL, and the marker naming it has to leave the text. Nothing short
