@@ -57,11 +57,15 @@ say "packages"
 # All from Ubuntu's own archive - there are no third-party apt sources on this
 # host, and adding one would be a new thing to trust.
 apt-get update -qq
+# rsync is here because the deploy copies the published front end with it. It is
+# in some Ubuntu images and not others, so a host that happens to have it makes
+# the dependency invisible until a host that does not fails the deploy on
+# "rsync: command not found".
 apt-get install -y -qq --no-install-recommends \
     nginx certbot python3-certbot-nginx \
     docker.io docker-compose-v2 \
     iptables-persistent netfilter-persistent \
-    chrony unattended-upgrades
+    chrony unattended-upgrades rsync
 
 say "ssh"
 
