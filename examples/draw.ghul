@@ -1,0 +1,28 @@
+use IO.Std.write_line;
+use Raster.IMAGE;
+
+entry() is
+    write_line("drawing sin x");
+
+    let image = IMAGE(640, 400);
+
+    image.view(-0.5D, -1.4D, 6.8D, 1.4D);
+
+    image.colour(20ub, 60ub, 200ub);
+    image.stroke(2.0D);
+
+    let steps = 200;
+
+    for i in 0..steps do
+        let x0 = cast double(i) * 6.3D / cast double(steps);
+        let x1 = cast double(i + 1) * 6.3D / cast double(steps);
+
+        image.line(x0, System.Math.sin(x0), x1, System.Math.sin(x1));
+    od
+
+    image.colour(0ub, 0ub, 0ub);
+    image.text(0.1D, 1.15D, 18.0D, "sin x");
+
+    image.write("plot.png");
+    image.show("plot.png");
+si

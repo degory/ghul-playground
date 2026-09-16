@@ -1,90 +1,49 @@
 using System;
-using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices.JavaScript;
 
-// The only C# in the playground. It exists because [JSExport] is implemented
-// by a Roslyn source generator that emits a module initializer and an unsafe
-// JSMarshalerArgument* wrapper, neither of which ghūl can currently produce.
+// The only C# in the playground, and as little of it as there can be. Loading
+// the program, running it, capturing its output and collecting the pictures it
+// drew are all in ../runner/src/runner.ghul; this exists for two reasons that
+// ghūl cannot currently cover.
 //
-// The intent is for this to shrink to a one-line delegation into
-// ../runner/src/runner.ghul, which already implements all of this in ghūl and
-// compiles cleanly on its own. That is blocked on a C#-referencing-ghūl
-// metadata problem -- see docs/claude/playground-design.md.
+// [JSExport] is implemented by a Roslyn source generator that emits a module
+// initializer and an unsafe JSMarshalerArgument* wrapper. ghūl can emit the
+// attribute but not the generated code, so the browser has no way to call in.
+//
+// And the call out goes through reflection rather than by naming
+// Playground.RUNNER, because a ghūl assembly cannot be bound against from C#:
+// every assembly the compiler emits records a reference to System.Runtime
+// 8.0.0.0, which is not a version that exists, and Roslyn refuses the
+// reference with CS0012 the moment C# names a type from it. Reflection is
+// resolved by the runtime rather than by Roslyn and is unaffected.
 
 Console.WriteLine("ghūl wasm shim ready");
 
 partial class GhulRunner
 {
+    // Looked up once. The runner is a compile-time ProjectReference, so the
+    // assembly is in the output and beside this one whether or not anything
+    // names it.
+    private static readonly MethodInfo Runner =
+        Assembly.Load("runner").GetType("Playground.RUNNER")!.GetMethod("run")!;
+
     // Bytes arrive base64-encoded rather than as a byte[] so the interop
     // surface stays to plain strings, which marshal the same way everywhere.
+    // What comes back is JSON, because a program that draws has two outputs
+    // and one channel to return them on - see the runner.
     [JSExport]
     internal static string Run(string base64)
     {
         try
         {
-            return Invoke(Assembly.Load(Convert.FromBase64String(base64)));
+            return (string)Runner.Invoke(null, new object[] { base64 })!;
         }
         catch (Exception e)
         {
-            return $"host error: {e.GetType().Name}: {e.Message}";
+            // The runner answers for anything the program did. Reaching here
+            // means the host itself failed, so there is no JSON to give back.
+            return $"{{\"text\":\"host error: {e.GetType().Name}\",\"images\":[]}}";
         }
-    }
-
-    // Console is redirected for the duration of the call: without this the
-    // program's output goes to the browser console, where the page cannot
-    // show it.
-    private static string Invoke(Assembly assembly)
-    {
-        var entry = assembly.EntryPoint;
-
-        if (entry is null)
-        {
-            return "assembly has no entry point";
-        }
-
-        var writer = new StringWriter();
-        var previous = Console.Out;
-
-        Console.SetOut(writer);
-
-        try
-        {
-            var arguments = entry.GetParameters().Length == 0
-                ? null
-                : new object[] { Array.Empty<string>() };
-
-            var result = entry.Invoke(null, arguments);
-
-            if (result is not null)
-            {
-                writer.WriteLine($"[exit status {result}]");
-            }
-        }
-        catch (TargetInvocationException e)
-        {
-            writer.WriteLine(DescribeFailure(e.InnerException));
-        }
-        finally
-        {
-            Console.SetOut(previous);
-        }
-
-        return writer.ToString();
-    }
-
-    // The browser host has no stdin: reading it throws PlatformNotSupportedException
-    // with a generic "not supported on this platform" message that gives no hint why.
-    // A program that never called Console.ReadLine can still hit this exception type
-    // for an unrelated reason, so the stack trace - not just the exception type - is
-    // what tells the two apart.
-    private static string DescribeFailure(Exception e)
-    {
-        if (e is PlatformNotSupportedException && e.StackTrace?.Contains("Console") == true)
-        {
-            return "[unhandled: this program reads from standard input, which the playground does not support]";
-        }
-
-        return $"[unhandled: {e?.GetType().Name}: {e?.Message}]";
     }
 }

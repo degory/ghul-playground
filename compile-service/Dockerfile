@@ -29,19 +29,22 @@ RUN useradd --create-home --shell /usr/sbin/nologin playground
 USER playground
 WORKDIR /home/playground
 
-ARG GHUL_COMPILER_VERSION=58.8.1
+ARG GHUL_COMPILER_VERSION=58.14.4
 ARG GHUL_RUNTIME_VERSION=21.1.1
+ARG GHUL_RASTER_VERSION=0.4.1
 
 RUN dotnet tool install --tool-path /home/playground/tools \
         ghul.compiler --version "${GHUL_COMPILER_VERSION}" \
  && dotnet new classlib -o /tmp/runtime-probe \
  && dotnet add /tmp/runtime-probe package ghul.runtime --version "${GHUL_RUNTIME_VERSION}" \
+ && dotnet add /tmp/runtime-probe package ghul.raster --version "${GHUL_RASTER_VERSION}" \
  && rm -rf /tmp/runtime-probe
 
 # Resolved once here rather than discovered per request, so a missing piece
 # fails the build rather than the first user request.
 ENV GHUL_COMPILER_DLL=/home/playground/tools/.store/ghul.compiler/${GHUL_COMPILER_VERSION}/ghul.compiler/${GHUL_COMPILER_VERSION}/tools/net10.0/any/ghul.dll \
-    GHUL_RUNTIME_DLL=/home/playground/.nuget/packages/ghul.runtime/${GHUL_RUNTIME_VERSION}/lib/net10.0/ghul-runtime.dll
+    GHUL_RUNTIME_DLL=/home/playground/.nuget/packages/ghul.runtime/${GHUL_RUNTIME_VERSION}/lib/net10.0/ghul-runtime.dll \
+    GHUL_RASTER_DLL=/home/playground/.nuget/packages/ghul.raster/${GHUL_RASTER_VERSION}/lib/net10.0/ghul-raster.dll
 
 COPY --chown=playground:playground shared /home/playground/service/shared
 COPY --chown=playground:playground compile-service/server.js /home/playground/service/compile-service/server.js

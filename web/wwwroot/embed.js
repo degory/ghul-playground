@@ -75,6 +75,11 @@ window.addEventListener('message', async event => {
             theme: message.theme ?? 'vs',
 
             onOutput: text => post('output', { text }),
+            // The pictures a drawing program produced, as data URLs. The
+            // marker naming each one is taken out of the text, so a parent
+            // that ignores this message shows the program's words and drops
+            // its drawings silently.
+            onImages: list => post('images', { images: list }),
             onDiagnostics: list => post('diagnostics', { diagnostics: list }),
             onStatus: (state, detail) => post('status', { state, detail: detail ?? null }),
             onAnalyser: state => post('analyser', { state })

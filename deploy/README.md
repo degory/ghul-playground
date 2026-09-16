@@ -4,10 +4,18 @@ What a playground host is, beyond the application itself. `host-setup.sh` puts
 all of it in place and is safe to re-run; this file is the part a script cannot
 carry, which is the reasoning and the three things it deliberately leaves alone.
 
-The box is a Linode VM, 2 vCPU / 4 GB, Ubuntu. Everything installed *by apt*
+The box is a netcup VPS, 8 vCPU / 16 GB, Ubuntu. Everything installed *by apt*
 comes from Ubuntu's own archive: nginx, certbot, docker.io, docker-compose-v2,
 iptables-persistent, chrony, unattended-upgrades. There are no third-party apt
 sources, and adding one would be a new thing to trust.
+
+netcup's Ubuntu image arrives with snapd and a couple of snaps, none of which
+anything here uses; they are purged and held, so the only package manager on the
+host is apt. It also arrives set to `en_US.UTF-8` and the timezone of wherever
+the machine is. Both are changed: `C.UTF-8`, because sorting and number
+formatting should not depend on a locale, and UTC, because everything a log is
+read against - GitHub Actions, the wiki, certbot - is already UTC, and because
+a zone that observes DST gives you one repeated hour and one missing hour a year.
 
 There is one piece of software on this host that Ubuntu does not package, and
 pretending otherwise would be worse than saying so: **GoatCounter**, the
@@ -36,17 +44,38 @@ root.
 
 **Certificates.** Let's Encrypt rate-limits issuance, so a provisioning script
 that re-issues every time it runs will eventually lock the host out of renewal.
-Issue once, by hand, after DNS points at the host and nginx is serving port 80:
+Issue once, by hand, after DNS points at the host.
+
+**On a host that has never had a certificate, `--webroot` cannot work**, and the
+reason is circular: the port 80 server block that serves
+`/.well-known/acme-challenge/` lives in the site config, and nginx refuses to
+load that config at all while the certificate the HTTPS block references is
+missing. So nginx is running, port 80 answers, and the challenge path 404s. Use
+`--standalone`, which binds port 80 itself:
 
 ```sh
-sudo certbot certonly --webroot -w /var/www/certbot -d playground.ghul.dev
-sudo systemctl reload nginx
+sudo systemctl stop nginx
+sudo certbot certonly --standalone -d playground.ghul.dev
 ```
 
-Webroot rather than the nginx authenticator, and the challenge path is served
-directly from the port 80 server block rather than redirected, so renewal does
-not depend on anything in the HTTPS block. Renewal is certbot's own systemd
-timer and needs no cron entry.
+`--standalone` then leaves two files uncreated that `--nginx` would have written
+and that the site config includes, so nginx fails to start afterwards on a
+missing-file error that reads as unrelated. Both ship inside the already
+installed `python3-certbot-nginx`:
+
+```sh
+sudo install -m 644 /usr/lib/python3/dist-packages/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf \
+    /etc/letsencrypt/options-ssl-nginx.conf
+sudo install -m 644 /usr/lib/python3/dist-packages/certbot/ssl-dhparams.pem \
+    /etc/letsencrypt/ssl-dhparams.pem
+sudo nginx -t && sudo systemctl start nginx
+```
+
+**Renewal is a different case and does use webroot**, which is why the challenge
+path is served directly from the port 80 block rather than redirected: once a
+certificate exists the site config loads, so renewal does not depend on anything
+in the HTTPS block and does not need nginx stopped. Renewal is certbot's own
+systemd timer and needs no cron entry.
 
 **The analytics exclusion list and the GoatCounter site.**
 `/etc/nginx/analytics-exclude.conf` is an optional list of networks whose visits
@@ -77,27 +106,49 @@ third-party page from driving the service through its own visitors' browsers,
 and it has to include the playground's own origin because a POST carries
 `Origin` even same-origin.
 
-**The Linode outbound firewall**, which is dashboard-side. Default outbound
-policy DROP, allowing:
+**The netcup firewall**, which is provider-side, configured through the Server
+Control Panel or its REST API. Both implicit rules are `DROP_ALL`, so everything
+the host needs is named in one policy, `playground-egress`:
 
-| Protocol | Port | For |
-| --- | --- | --- |
-| TCP | 443 | image pulls, NuGet, GitHub, ACME |
-| TCP | 80 | apt, which is configured over plain http here |
-| TCP+UDP | 53 | DNS |
-| UDP | 123 | NTP |
-| TCP | 4460 | the NTS key exchange chrony does before NTP |
-| ICMP | | optional |
+| Direction | Protocol | Port | For |
+| --- | --- | --- | --- |
+| INGRESS | TCP | 22 | ssh |
+| INGRESS | TCP | 443, 80 | the site, and the ACME challenge |
+| INGRESS | UDP | *source* 53, 123 | replies to our own DNS and NTP queries |
+| EGRESS | TCP | 443 | image pulls, NuGet, GitHub, ACME |
+| EGRESS | TCP | 80 | apt, which is configured over plain http here |
+| EGRESS | TCP | 4460 | the NTS key exchange chrony does before NTP |
+| EGRESS | UDP | 53, 123 | DNS, NTP |
+| EGRESS | TCP | *source* 22, 443, 80 | replies to inbound connections |
 
-Two of those are easy to miss. apt on this host really is plain http
-(mirrors.linode.com, security.ubuntu.com, archive.canonical.com), so port 80 is
-a dependency rather than a courtesy. And chrony syncs over NTS, whose key
-exchange runs on TCP 4460 before NTP speaks UDP 123 at all: allow 123 alone and
-time sync fails in a way that looks nothing like a firewall rule.
+netcup also attaches two policies of its own: a mail block, which drops outbound
+SMTP and which we want, and a ping allow.
 
-The firewall is stateful, so this governs only connections the host starts.
-Replies to inbound SSH and HTTPS need no outbound rule, and an outbound policy
-cannot lock anyone out of SSH.
+Several of these are easy to miss, and each fails in a way that looks nothing
+like a firewall rule.
+
+- apt on this host really is plain http, so port 80 is a dependency rather than
+  a courtesy.
+- chrony syncs over NTS, whose key exchange runs on TCP 4460 before NTP speaks
+  UDP 123 at all: allow 123 alone and time sync silently never happens.
+- **The firewall is stateful for TCP but not for UDP.** Return traffic for a
+  connection the host started is accepted automatically - but only for TCP, so
+  DNS and NTP replies need the two *source*-port ingress rules above, or there is
+  no name resolution and no clock.
+- The egress *source*-port rules are belt and braces. netcup documents the
+  connection tracking as covering connections originating from the server, which
+  leaves replies to inbound connections unstated; naming them costs nothing and
+  removes the question.
+
+**The trap, if you configure this through the API.** The write side of
+`/servers/{id}/interfaces/{mac}/firewall` takes only `copiedPolicies`,
+`userPolicies` and `active`. It has no field for either implicit rule, and it
+does not preserve them: every PUT resets both to `DROP_ALL`, and an
+`ingressImplicitRule` sent in the body is accepted and ignored. Attaching a
+policy that does not itself allow ssh will therefore lock you out the moment it
+applies. This is recoverable only because the API does not depend on ssh - which
+is the reason to keep the ingress rules in the policy rather than leaning on an
+implicit `ACCEPT_ALL` that any later PUT would silently remove.
 
 **The deploy key.** `host-setup.sh` creates the `deploy` account and its
 `~/.ssh` directory, but not the key that goes in `authorized_keys`: it is
@@ -106,8 +157,8 @@ deploying.
 
 ## the firewall rules on the host, and why there are two
 
-Egress from the containers is denied on the host rather than at the Linode edge,
-because container traffic is SNATed to the host address and the two are
+Egress from the containers is denied on the host rather than at the provider's
+edge, because container traffic is SNATed to the host address and the two are
 indistinguishable from outside.
 
 It takes two rules that look like one, and the second is easy to believe the
@@ -124,6 +175,15 @@ Order matters in the first set: the ESTABLISHED rule has to precede the DROP, or
 replies travelling back to nginx match the DROP and the site goes down. That is
 why `host-setup.sh` removes and re-adds those three rather than checking whether
 each is present.
+
+**These rules are IPv4 only, and that is currently correct rather than an
+oversight.** They are `iptables` rules matching an IPv4 subnet, with nothing
+equivalent in `ip6tables` - which is sound only because docker's IPv6 is off, so
+the containers have no IPv6 address to reach anything from. The host itself does
+have working IPv6, and the provider firewall covers both families, so this is the
+one layer that does not. Enabling docker IPv6 would silently hand the containers
+the egress these rules exist to remove; if that ever happens, the `DOCKER-USER`
+and `INPUT` rules need `ip6tables` counterparts in the same change.
 
 **Re-run `host-setup.sh` after recreating the docker network.** The subnet is
 pinned in `compose.yaml` precisely so these rules keep matching, but a rule that
@@ -156,6 +216,33 @@ the schema - `-automigrate` runs pending migrations on first start, which is the
 point the old database stops being readable by the old binary.
 `GOATCOUNTER_VERSION` in `goatcounter/Dockerfile` is the pin, and moving it is
 the whole upgrade.
+
+Moving it to another host, which is also how to take that copy. **Stop the
+container first**: the database is SQLite in WAL mode, so a running instance has
+its recent writes in a `-wal` file beside the database rather than in it, and
+copying the three files live is copying a torn database. A clean stop
+checkpoints the lot into one file.
+
+```sh
+# on the old host
+sudo docker compose stop goatcounter
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data -v /tmp:/out \
+    alpine tar -C /data -czf /out/gc.tgz .
+
+# on the new one, whose volume the first deploy will have created empty
+sudo docker compose stop goatcounter
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data alpine sh -c "rm -rf /data/*"
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data -v /tmp:/in \
+    alpine tar -C /data -xzf /in/gc.tgz
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data alpine chown -R 1000:1000 /data
+sudo docker compose start goatcounter
+```
+
+Going through a container rather than `/var/lib/docker/volumes/...` keeps this
+independent of where docker stores volumes, and needs no root beyond docker
+itself. The site row travels with the database, so a host that receives one does
+**not** then need the site created below - and should not have it, since a second
+site with the same `cname` is not what records the hits.
 
 **The database starts empty and holds no site**, so a fresh instance serves
 nothing until one is created:
@@ -291,12 +378,20 @@ short of running a program in a browser catches that, which is why CI does.
 
 ## getting back in
 
-ssh is key-only and root's password is locked, so the routes back are, in order:
-another key that is already in `authorized_keys`; the Linode console, which
-needs a user with a password (`degory` has one, and passwordless sudo, so that
-password is what console access rests on); Rescue Mode, which boots a rescue
-image with the disk mounted; and the dashboard's root password reset, which
-writes to the offline disk.
+ssh is key-only and **no account on this host has a password at all** - root,
+`degory` and `deploy` are all locked. That is deliberate: access is exactly the
+set of keys in `authorized_keys` and nothing else. It also means the SCP console
+cannot help, because there is no credential to type into it.
+
+The routes back, in order: another key already in `authorized_keys`; the
+firewall API, if what locked you out was the firewall, since it does not depend
+on ssh and the policy is what decides whether port 22 is reachable; netcup's
+rescue system, which boots a rescue image with the disk mounted, from which the
+authorized keys can be edited.
 
 If none of that appeals, the honest answer for a box this disposable is to
-rebuild it: `host-setup.sh` plus the three steps above.
+rebuild it: `host-setup.sh` plus the steps above.
+
+Putting a password on `degory` would restore the console as a route. It is a
+deliberate choice not to: a password that exists is a password that can be
+guessed or reused, and the rescue system covers the same ground without one.

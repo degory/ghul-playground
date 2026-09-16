@@ -175,6 +175,62 @@ chrome.on('error', e => {
     }
     check('the program compiles and runs', output.includes('it ran'), JSON.stringify(output.trim()));
 
+    // A program that draws: the picture has to survive being written to the
+    // wasm filesystem, read back by the host, and carried to the page as a
+    // data URL, and the marker naming it has to leave the text. Nothing short
+    // of a browser exercises any of that.
+    const drawing = require('fs')
+        .readFileSync(`${__dirname}/../examples/draw.ghul`, 'utf8');
+
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(drawing)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let drawn = 0;
+    for (let i = 0; i < 180; i++) {
+        drawn = await ev(`document.querySelectorAll('#images-grid img').length`);
+        if (drawn > 0) break;
+        await sleep(500);
+    }
+
+    check('a drawing reaches the page', drawn === 1, `${drawn} image(s)`);
+    check('the picture decoded',
+        await ev(`(() => { const i = document.querySelector('#images-grid img');
+                           return Boolean(i && i.naturalWidth === 640 && i.naturalHeight === 400); })()`));
+    check('the image marker leaves the output',
+        !(await ev(`document.getElementById('output').innerText`)).includes('<<image'));
+
+    // The file menu, as far as a headless browser can be taken: the pickers
+    // themselves are native dialogs with nothing to drive them, so what is
+    // checked is that the menu opens, says what Save would do, and closes.
+    await ev(`document.getElementById('images-close').click();
+              document.getElementById('file-toggle').click(); true`);
+    await sleep(500);
+
+    check('the file menu opens', await ev(`!document.getElementById('file-menu').hidden`));
+    check('Ctrl+S is the page\'s, not the browser\'s', await ev(`(() => {
+        const e = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true });
+        document.dispatchEvent(e);
+        return e.defaultPrevented;
+    })()`));
+
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+    await sleep(300);
+    check('Escape closes the file menu', await ev(`document.getElementById('file-menu').hidden`));
+
+    // A program opened by path is fetched from its collection into the editor,
+    // which exercises the path fallback, the <base> the page's own assets are
+    // resolved against, and the cross-origin fetch.
+    await cmd('Page.navigate', { url: new URL('/rosetta-code/hello-world-text', BASE).toString() });
+
+    let opened = '';
+    for (let i = 0; i < 120; i++) {
+        opened = await ev(`globalThis.monaco?.editor.getModels()[0]?.getValue() ?? ''`);
+        if (opened.includes('Hello world!')) break;
+        await sleep(500);
+    }
+    check('a program opens by path', opened.includes('Hello world!'), JSON.stringify(opened.slice(0, 60)));
+
     chrome.kill();
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');

@@ -4,7 +4,18 @@
 <head>
   <title>ghūl playground</title>
   <meta charset="UTF-8">
+  <!-- The page is also served at paths like /rosetta-code/100-doors, and every
+       relative URL below - Monaco, the import map, main.js - is meant from the
+       root whichever path loaded it. -->
+  <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Relative to <base>, so the icon is found whichever path served the
+       page - /rosetta-code/100-doors would otherwise look for it alongside
+       itself. The ico carries the small sizes a tab strip picks from and the
+       png is what a bookmark or a home screen takes. -->
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32">
+  <link rel="icon" type="image/png" href="ghul-logo-128.png" sizes="128x128">
+  <link rel="apple-touch-icon" href="ghul-logo-128.png">
   <link rel="preload" id="webassembly" />
   <script type="importmap"></script>
   <style>
@@ -108,6 +119,61 @@
     button:disabled { cursor: default; opacity: 0.45; }
     button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+    /* --- the file menu --- */
+
+    .menu { position: relative; }
+
+    #file-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
+    #file-toggle svg { width: 8px; height: 5px; fill: currentColor; opacity: 0.7; }
+    #file-toggle[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+    #file-toggle[data-done] { color: var(--ok); }
+
+    #file-menu {
+      position: absolute;
+      top: calc(100% + 0.35rem);
+      left: 0;
+      z-index: 20;
+      min-width: 14rem;
+      padding: 0.3rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    #file-menu[hidden] { display: none; }
+
+    #file-menu button {
+      width: 100%;
+      justify-content: space-between;
+      padding: 0.4rem 0.6rem;
+      border-radius: 5px;
+    }
+
+    #file-menu kbd { color: var(--fg-muted); background: none; padding: 0; font-size: 0.75rem; }
+
+    /* Says which of the two mechanisms is in use, since "save" means writing
+       back to a file in one and downloading a copy in the other. */
+    #file-note {
+      margin: 0.3rem 0.6rem 0.2rem;
+      color: var(--fg-muted);
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    #file-note:empty { display: none; }
+
+    #fullscreen { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
+    #fullscreen svg { width: 15px; height: 15px; fill: currentColor; }
+    #fullscreen .exit { display: none; }
+    :root:fullscreen #fullscreen .enter { display: none; }
+    :root:fullscreen #fullscreen .exit { display: block; }
+
+    #images-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
+    #images-toggle[hidden] { display: none; }
+    #images-toggle svg { width: 15px; height: 15px; fill: currentColor; }
+    #images-count { font-size: 0.8rem; }
+
     #run {
       padding: 0.3rem 0.75rem 0.3rem 0.55rem;
       border-color: var(--border);
@@ -197,23 +263,13 @@
     #copy svg { width: 15px; height: 15px; fill: currentColor; display: block; }
     #copy[data-copied] { color: var(--ok); opacity: 1; }
 
-    #examples {
-      font: inherit;
-      color: var(--fg);
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.25rem 0.4rem;
-      max-width: 14rem;
-    }
-    #examples:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
     #help-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
     #help-toggle svg { width: 16px; height: 16px; fill: currentColor; }
 
     /* --- editor and the pane below it --- */
 
     main {
+      position: relative;
       flex: 1;
       display: flex;
       flex-direction: column;
@@ -290,9 +346,129 @@
     pre[hidden] { display: none; }
 
     .empty { color: var(--fg-muted); font-style: italic; }
+    .notice { color: var(--warn); }
 
     #diagnostics .error { color: var(--bad); }
     #diagnostics .warn { color: var(--warn); }
+
+    /* --- the images overlay --- */
+
+    /* Covers the editor and the pane both, because a drawing wants the window
+       rather than a corner of it. It is closeable rather than a third pane for
+       the same reason: a program that draws nothing should cost no space, and
+       one that draws should not have its picture shrunk to fit around code the
+       reader is not looking at. */
+    #images {
+      position: absolute;
+      inset: 0;
+      z-index: 15;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+
+    #images[hidden] { display: none; }
+
+    #images-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-raised);
+      flex: none;
+    }
+
+    #images-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+    #images-bar button { padding: 0.25rem 0.5rem; color: var(--fg-muted); font-size: 0.8rem; }
+
+    #images-size {
+      border-color: var(--border);
+      background: var(--bg);
+      min-width: 5.5rem;
+    }
+    #images-bar button svg { width: 14px; height: 14px; fill: currentColor; display: block; }
+
+    /* Two things decide the tiling. The floor --tile comes from how many
+       drawings there are, so one gets the window and a dozen share it rather
+       than every count being laid out the same; auto-fit then turns that into
+       as many columns as the window is actually wide enough for, so a phone
+       gets one column whatever the floor says. */
+    #images-grid {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(var(--tile, 22rem), 100%), 1fr));
+      gap: 0.75rem;
+      padding: 0.75rem;
+      align-content: start;
+    }
+
+    #images-grid figure {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+
+    /* A light ground whichever theme is in use: an image carries no alpha, so
+       what shows through is nothing, and a plot drawn in dark ink on the white
+       it starts as would be invisible against a dark panel. */
+    #images-grid .frame {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f6f7f9;
+      overflow: auto;
+    }
+
+    /* Fit: as wide as the column allows, scaling the drawing up as readily as
+       down, except where that would make it taller than its shelf - hence the
+       drawing's own proportions, which only the decoded image knows. Both
+       bounds are written into one width rather than left to object-fit, so
+       there is no letterboxing inside the frame. Strokes are antialiased
+       rather than pixel art, so scaling one smoothly is right.
+
+       The frame stays the column's width. Shrinking it to the drawing reads
+       better but cannot be done: the width below is a percentage of the frame,
+       so a frame sized to its contents would size the drawing to itself, and
+       every drawing would come out at its own pixel size. */
+    #images-grid img {
+      display: block;
+      width: min(100%, calc(var(--shelf, 70vh) * var(--aspect, 1.5)));
+      height: auto;
+      margin: 0 auto;
+    }
+
+    /* Actual size: one per row, and the frame scrolls rather than the drawing
+       shrinking, which is what a reader looking for a detail asked for. */
+    #images[data-size="actual"] #images-grid { grid-template-columns: 1fr; }
+
+    #images[data-size="actual"] #images-grid .frame { justify-content: flex-start; }
+
+    #images[data-size="actual"] #images-grid img {
+      width: auto;
+      max-width: none;
+      flex: none;
+    }
+
+    #images-grid figcaption {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--fg-muted);
+      font-size: 0.75rem;
+      font-family: var(--mono);
+    }
+
+    #images-grid figcaption button { padding: 0.15rem 0.4rem; color: inherit; }
+    #images-grid figcaption svg { width: 13px; height: 13px; fill: currentColor; display: block; }
 
     /* --- the about panel --- */
 
@@ -304,7 +480,9 @@
       align-items: center;
       justify-content: center;
       padding: 1rem;
-      z-index: 10;
+      /* Above the images overlay and the file menu both: it is the topmost
+         thing on the page whenever it is open. */
+      z-index: 30;
     }
 
     #help[hidden] { display: none; }
@@ -370,9 +548,19 @@
   <header>
     <h1 class="wordmark">ghūl <span>playground</span></h1>
 
-    <select id="examples" title="Load an example" aria-label="Load an example" hidden>
-      <option value="">examples ...</option>
-    </select>
+    <div class="menu">
+      <button id="file-toggle" aria-haspopup="menu" aria-expanded="false" title="Open and save">
+        File
+        <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0h10L5 6z" /></svg>
+      </button>
+
+      <div id="file-menu" role="menu" hidden>
+        <button id="file-open" role="menuitem">Open<kbd>Ctrl+O</kbd></button>
+        <button id="file-save" role="menuitem"><span id="file-save-label">Save</span><kbd>Ctrl+S</kbd></button>
+        <button id="file-save-as" role="menuitem">Save as</button>
+        <p id="file-note"></p>
+      </div>
+    </div>
 
     <button id="run" disabled title="Compile and run (Ctrl+Enter)">
       <svg class="play" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13l11-6.5z" /></svg>
@@ -393,6 +581,22 @@
     <button id="analyser" data-state="connecting" title="Connecting to the analyser">
       <span class="dot"></span>
       <span id="analyser-text">analyser</span>
+    </button>
+
+    <button id="images-toggle" hidden title="Show the pictures this program drew">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M1.5 2h13a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5zm.5 10.3V13h12v-2.6l-3.1-3.1-2.6 2.6-2.4-2.4L2 12.3zM11 4.6a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8z" />
+      </svg>
+      <span id="images-count"></span>
+    </button>
+
+    <button id="fullscreen" title="Full screen (F11)" aria-label="Full screen">
+      <svg class="enter" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M1 1h5v1.6H2.6V6H1V1zm9 0h5v5h-1.6V2.6H10V1zM1 10h1.6v3.4H6V15H1v-5zm12.4 0H15v5h-5v-1.6h3.4V10z" />
+      </svg>
+      <svg class="exit" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M6 1v5H1V4.4h3.4V1H6zm4 0h1.6v3.4H15V6h-5V1zM1 10h5v5H4.4v-3.4H1V10zm9 0h5v1.6h-3.4V15H10v-5z" />
+      </svg>
     </button>
 
     <button id="help-toggle" title="What is this?" aria-label="What is this?">
@@ -429,6 +633,25 @@
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
       <pre id="output" role="tabpanel" hidden><span class="empty">Run the program to see its output here.</span></pre>
     </div>
+
+    <!-- Over the editor and the pane rather than inside either. A picture
+         wants the whole window and the output pane is a few lines tall, so
+         putting them there would show every drawing as a thumbnail. Closing
+         it leaves the button in the header to bring it back. -->
+    <section id="images" hidden aria-label="Images this program drew">
+      <div id="images-bar">
+        <strong id="images-title">Images</strong>
+        <button id="images-size" title="Show the images at their own size">Fit</button>
+        <span class="spacer"></span>
+        <button id="images-close" title="Close (Esc)" aria-label="Close">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M3.7 2.6L8 6.9l4.3-4.3 1.1 1.1L9.1 8l4.3 4.3-1.1 1.1L8 9.1l-4.3 4.3-1.1-1.1L6.9 8 2.6 3.7z" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="images-grid"></div>
+    </section>
   </main>
 
   <div id="help" hidden>
@@ -463,24 +686,29 @@
       <p>
         A small fixed set of .NET reference assemblies rather than the whole
         framework: the core types, the console, collections, regular
-        expressions and tasks, plus the ghūl runtime. Anything outside that set
-        will not compile, so this is a narrower .NET than a real project has.
+        expressions and tasks, plus the ghūl runtime and ghul.raster. Anything
+        outside that set will not compile, so this is a narrower .NET than a
+        real project has.
       </p>
 
       <p>
         The service is small and shared, so it can ask you to wait a moment.
       </p>
 
+      <h3>Drawing</h3>
+      <p>
+        <a href="https://github.com/degory/ghul-raster" target="_blank" rel="noopener">ghul.raster</a>
+        is here as well as the runtime, so a program can draw into an image and
+        write a PNG. Call <code>show</code> on it and the picture appears over
+        the editor, where you can save it.
+      </p>
+
       <h3>Keeping what you write</h3>
       <p>
-        There is no way to save anything here, and reloading the page starts
-        again from the example - so copy out anything you want to keep.
-      </p>
-      <p>
-        <a href="https://github.com/degory/ghul-scratchpad" target="_blank" rel="noopener">ghul-scratchpad</a>
-        is somewhere to put it: a project that opens in a GitHub Codespace with
-        the compiler already set up, so you can paste something in and carry on
-        with nothing to install.
+        What you type is kept in this browser and comes back when you return,
+        so closing the tab loses nothing. <strong>File</strong> opens a
+        <code>.ghul</code> file from your machine and saves back to it - or, in
+        a browser without that, saves a copy to your downloads.
       </p>
       <p>
         For a real project, start from

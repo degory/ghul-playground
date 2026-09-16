@@ -32,9 +32,10 @@ jobs:
 
       - run: dotnet tool restore
 
-      # The versions are written in five places and all have to agree: the
-      # services compile against one runtime and the browser loads another, so
-      # a disagreement is a program that compiles and then fails to load.
+      # Each version is written in several places and all of them have to
+      # agree: the services compile against one runtime and the browser loads
+      # another, so a disagreement is a program that compiles and then fails
+      # to load.
       - name: Check the pinned versions agree
         run: node scripts/check-versions.js
 
@@ -49,29 +50,47 @@ jobs:
         id: toolchain
         run: |
           compiler=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
-          runtime=$(node -p "
-              require('fs').readFileSync('web/web.csproj', 'utf8')
-                  .match(/Include=\"ghul\.runtime\"\s+Version=\"([^\"]+)\"/)[1]")
+          # The web app is where both package versions are written, so one
+          # reader serves for each of them.
+          pinned() {
+              node -e '
+                  const web = require("fs").readFileSync("web/web.csproj", "utf8");
+                  const found = web.match(new RegExp(`Include="${process.argv[1]}"\\s+Version="([^"]+)"`));
 
-          # The runtime arrives through the web app's PackageReference; the
-          # compiler is a tool, and `dotnet tool restore` has already put it in
-          # the cache at the pinned version.
+                  if (!found) {
+                      console.error(`web/web.csproj: no ${process.argv[1]} PackageReference`);
+                      process.exit(1);
+                  }
+
+                  console.log(found[1]);
+              ' "$1"
+          }
+
+          runtime=$(pinned ghul.runtime)
+          raster=$(pinned ghul.raster)
+
+          # The runtime and raster arrive through the web app's package
+          # references; the compiler is a tool, and `dotnet tool restore` has
+          # already put it in the cache at the pinned version.
           dotnet restore web
 
           compiler_dll="$HOME/.nuget/packages/ghul.compiler/$compiler/tools/net10.0/any/ghul.dll"
           runtime_dll="$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
+          raster_dll="$HOME/.nuget/packages/ghul.raster/$raster/lib/net10.0/ghul-raster.dll"
 
-          for dll in "$compiler_dll" "$runtime_dll"; do
+          for dll in "$compiler_dll" "$runtime_dll" "$raster_dll"; do
               test -f "$dll" || { echo "missing: $dll" >&2; exit 1; }
           done
 
           {
               echo "compiler=$compiler_dll"
               echo "runtime=$runtime_dll"
+              echo "raster=$raster_dll"
           } >> "$GITHUB_OUTPUT"
 
           echo "compiler $compiler"
           echo "runtime  $runtime"
+          echo "raster   $raster"
 
       - name: Install node dependencies and stage Monaco
         run: npm install
@@ -81,6 +100,7 @@ jobs:
           for f in shared/*.js analyse-service/*.js compile-service/*.js \
                    scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js web/wwwroot/embed.js \
                    web/wwwroot/playground.js web/wwwroot/token.js web/wwwroot/theme.js \
+                   web/wwwroot/collections.js web/wwwroot/files.js \
                    web/wwwroot/ghul-language.js; do
             node --check "$f" || exit 1
           done
@@ -99,6 +119,7 @@ jobs:
         env:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
           GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_RASTER_DLL: ${{ steps.toolchain.outputs.raster }}
         run: |
           npm run compile-service &
           service=$!
@@ -247,14 +268,6 @@ jobs:
           repository: degory/ghul-dev
           path: ghul-dev
 
-      # The standalone page's example menu, built from the Rosetta Code
-      # solutions exactly as the deploy builds it, so the same job also
-      # verifies every menu entry compiles here.
-      - uses: actions/checkout@v7
-        with:
-          repository: degory/ghul-rosetta-code
-          path: ghul-rosetta-code
-
       - name: Check the corpus carries its expectations
         run: |
           test -d ghul-dev/example-tests || {
@@ -277,24 +290,38 @@ jobs:
         id: toolchain
         run: |
           compiler=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
-          runtime=$(node -p "
-              require('fs').readFileSync('web/web.csproj', 'utf8')
-                  .match(/Include=\"ghul\.runtime\"\s+Version=\"([^\"]+)\"/)[1]")
+          # The web app is where both package versions are written, so one
+          # reader serves for each of them.
+          pinned() {
+              node -e '
+                  const web = require("fs").readFileSync("web/web.csproj", "utf8");
+                  const found = web.match(new RegExp(`Include="${process.argv[1]}"\\s+Version="([^"]+)"`));
+
+                  if (!found) {
+                      console.error(`web/web.csproj: no ${process.argv[1]} PackageReference`);
+                      process.exit(1);
+                  }
+
+                  console.log(found[1]);
+              ' "$1"
+          }
+
+          runtime=$(pinned ghul.runtime)
+          raster=$(pinned ghul.raster)
 
           dotnet restore web
 
           {
               echo "compiler=$HOME/.nuget/packages/ghul.compiler/$compiler/tools/net10.0/any/ghul.dll"
               echo "runtime=$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
+              echo "raster=$HOME/.nuget/packages/ghul.raster/$raster/lib/net10.0/ghul-raster.dll"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Build the example menu
-        run: ROSETTA=ghul-rosetta-code node scripts/build-examples.js
 
       - name: Compile every example
         env:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
           GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_RASTER_DLL: ${{ steps.toolchain.outputs.raster }}
         run: |
           node compile-service/server.js &
           service=$!
@@ -308,11 +335,6 @@ jobs:
           CORPUS=ghul-dev/examples CORPUS_TESTS=ghul-dev/example-tests \
             node test/corpus.js
           status=$?
-
-          if [ "$status" = 0 ]; then
-            node test/examples-corpus.js
-            status=$?
-          fi
 
           kill $service
           exit $status
@@ -346,15 +368,31 @@ jobs:
         id: toolchain
         run: |
           compiler=$(node -p "require('./.config/dotnet-tools.json').tools['ghul.compiler'].version")
-          runtime=$(node -p "
-              require('fs').readFileSync('web/web.csproj', 'utf8')
-                  .match(/Include=\"ghul\.runtime\"\s+Version=\"([^\"]+)\"/)[1]")
+          # The web app is where both package versions are written, so one
+          # reader serves for each of them.
+          pinned() {
+              node -e '
+                  const web = require("fs").readFileSync("web/web.csproj", "utf8");
+                  const found = web.match(new RegExp(`Include="${process.argv[1]}"\\s+Version="([^"]+)"`));
+
+                  if (!found) {
+                      console.error(`web/web.csproj: no ${process.argv[1]} PackageReference`);
+                      process.exit(1);
+                  }
+
+                  console.log(found[1]);
+              ' "$1"
+          }
+
+          runtime=$(pinned ghul.runtime)
+          raster=$(pinned ghul.raster)
 
           dotnet restore web
 
           {
               echo "compiler=$HOME/.nuget/packages/ghul.compiler/$compiler/tools/net10.0/any/ghul.dll"
               echo "runtime=$HOME/.nuget/packages/ghul.runtime/$runtime/lib/net10.0/ghul-runtime.dll"
+              echo "raster=$HOME/.nuget/packages/ghul.raster/$raster/lib/net10.0/ghul-raster.dll"
           } >> "$GITHUB_OUTPUT"
 
       # Named by path rather than left to PATH: the service spawns the language
@@ -381,6 +419,7 @@ jobs:
         env:
           GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
           GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_RASTER_DLL: ${{ steps.toolchain.outputs.raster }}
           GHUL_LANGUAGE_SERVER: ${{ steps.language-server.outputs.command }}
           # The language server's stderr carries the reason when an analyser
           # will not start, which the service's own log does not.

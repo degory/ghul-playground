@@ -54,6 +54,34 @@ Not implemented: go to definition, references, rename, formatting and signature
 help. The language server offers all of them, so they are wiring rather than
 work.
 
+## drawing
+
+[`ghul.raster`](https://github.com/degory/ghul-raster) is on the reference list
+beside the runtime, so a program can draw into an image and write a PNG. The
+picture goes to the browser's own in-memory filesystem, which is emptied with
+the tab; calling `show` on it prints the marker that brings it to the page,
+where it appears over the editor and can be saved.
+
+```ghul
+image.write("plot.png");
+image.show("plot.png");
+```
+
+`examples/draw.ghul` is a complete one, and is what the browser test draws.
+
+## opening and saving
+
+**File** opens a `.ghul` file from the reader's machine and saves back to it,
+through the File System Access API. Firefox and Safari have neither half of
+that, so there opening reads a file through an `<input>` and saving downloads a
+copy; the menu says which of the two it is offering. The handle of the file
+last opened is kept in IndexedDB, so **Save** still knows where to write after
+a reload.
+
+None of that is what keeps a reader's work: the editor's contents go to local
+storage on every edit and come back on load, so closing the tab loses nothing.
+A file is for taking a program somewhere else.
+
 ## configuration
 
 Everything is an environment variable read by `docker compose`, or by the
@@ -68,6 +96,20 @@ services directly when run outside it. None of these is set for local use.
 
 The reference assemblies user code can name are listed in
 `shared/toolchain.js`, which both services read.
+
+## opening a program by path
+
+`/rosetta-code/<slug>` opens a solution from
+[ghul-rosetta-code](https://github.com/degory/ghul-rosetta-code) in the editor,
+and `/rosetta-code/<slug>/<NN-part>` opens one part of a task solved more than
+one way. The page fetches the source from `raw.githubusercontent.com` in the
+reader's browser, so nothing about the solutions is built into the site. A
+solution carrying a `playground-unsupported` file is still loaded, with the
+reason it cannot run shown in the output pane.
+
+Collections live in `web/wwwroot/collections.js`, each under its own path
+prefix. A new one needs an entry there and a matching `location` in the nginx
+configuration, which serves the entry page for every path under the prefix.
 
 ## embedding
 
@@ -97,6 +139,7 @@ Frame to parent:
 | `height` | `{ height }` - what the content needs; the frame cannot size itself |
 | `status` | `{ state, detail }` - `compiling`, `starting runtime`, `running`, `done`, `failed`, `error` |
 | `output` | `{ text }` - what the program wrote |
+| `images` | `{ images }` - `{ name, url }` for each picture it drew, as data URLs |
 | `diagnostics` | `{ diagnostics }` - from the compiler |
 | `analyser` | `{ state }` - `ready`, `connecting` or `disconnected` |
 
@@ -122,7 +165,7 @@ than a local one. The browser test needs a Chrome or Chromium binary and takes
 | | |
 | --- | --- |
 | `web/` | the browser app: a .NET WebAssembly host plus the Monaco front end |
-| `web/Program.cs` | the only C#: the `[JSExport]` glue the source generator needs (see the design notes) |
+| `web/Program.cs` | the only C#: the `[JSExport]` glue the source generator needs, and nothing else (see the design notes) |
 | `web/wwwroot/playground.js` | the editor wired to the services: diagnostics, hover, completion, compile, run |
 | `web/wwwroot/main.js` | the standalone page's chrome around it |
 | `web/wwwroot/embed.js` | embedded mode: the editor alone, framed by another site |
@@ -130,10 +173,11 @@ than a local one. The browser test needs a Chrome or Chromium binary and takes
 | `web/wwwroot/ghul-language.js` | Monarch grammar and language configuration |
 | `web/wwwroot/theme.js` | editor themes, matched to how ghul.dev renders a static example |
 | `web/wwwroot/token.js` | the access token, and asking for one |
+| `web/wwwroot/files.js` | opening and saving a `.ghul` file, and saving a drawing |
 | `analyse-service/` | a WebSocket in front of one language server per editor |
 | `compile-service/` | compiles posted source, returns an assembly |
 | `shared/toolchain.js` | where the toolchain is, and the reference set |
-| `runner/` | the load-and-run logic, in ghūl |
+| `runner/` | the host, in ghūl: load, run, capture the output, collect the drawings |
 | `examples/` | small programs used to check the host by hand |
 | `deploy/` | host setup and the nginx configuration |
 | `docs/design.md` | why it is built this way |

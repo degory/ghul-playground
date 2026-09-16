@@ -14,8 +14,8 @@
 #     See "certificates" in deploy/README.md for the one-time command.
 #   - write .env. It holds the origin list and, if the access gate is ever
 #     re-enabled, the tokens; it lives only on the host, at mode 600.
-#   - set the Linode firewall, which is dashboard-side. deploy/README.md lists
-#     the rules.
+#   - set the netcup firewall, which is provider-side. deploy/README.md lists
+#     the rules, and the trap in configuring it through the API.
 #   - install the deploy user's SSH key. It is created per deployment and held
 #     as a CI secret, so it is copied into /home/deploy/.ssh/authorized_keys
 #     once by hand; see "deploying" in deploy/README.md.
@@ -57,11 +57,15 @@ say "packages"
 # All from Ubuntu's own archive - there are no third-party apt sources on this
 # host, and adding one would be a new thing to trust.
 apt-get update -qq
+# rsync is here because the deploy copies the published front end with it. It is
+# in some Ubuntu images and not others, so a host that happens to have it makes
+# the dependency invisible until a host that does not fails the deploy on
+# "rsync: command not found".
 apt-get install -y -qq --no-install-recommends \
     nginx certbot python3-certbot-nginx \
     docker.io docker-compose-v2 \
     iptables-persistent netfilter-persistent \
-    chrony unattended-upgrades
+    chrony unattended-upgrades rsync
 
 say "ssh"
 
@@ -195,6 +199,31 @@ fi
 
 netfilter-persistent save
 
+say "locale and timezone"
+
+# Sorting and number formatting should not depend on where the machine happens
+# to be, and everything a log here is read against - GitHub Actions, the wiki,
+# certbot - is UTC. C.UTF-8 rather than plain C: the latter is ASCII-only, and
+# there is non-ASCII in the content this host serves.
+localectl set-locale LANG=C.UTF-8
+timedatectl set-timezone UTC
+
+say "snaps"
+
+# Nothing here uses snapd, and a second package manager on a host whose whole
+# appeal is being reproducible from this script is a second thing to keep
+# current. Held so an apt upgrade cannot quietly bring it back.
+if command -v snap >/dev/null 2>&1; then
+    for s in $(snap list 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^snapd$'); do
+        snap remove --purge "$s" || true
+    done
+    snap remove --purge snapd 2>/dev/null || true
+    systemctl disable --now snapd.service snapd.socket snapd.seeded.service 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq snapd || true
+    rm -rf /var/cache/snapd /var/lib/snapd /snap /root/snap
+fi
+apt-mark hold snapd >/dev/null
+
 say "unattended upgrades"
 
 cat > "$tmpdir/20auto-upgrades" <<'CONF'
@@ -215,7 +244,7 @@ say "done"
 echo "still to do by hand, if this is a fresh host:"
 echo "  - issue the certificate            (see deploy/README.md)"
 echo "  - write /opt/ghul-playground/.env  (origins; tokens optional, mode 600)"
-echo "  - set the Linode outbound rules    (see deploy/README.md)"
+echo "  - set the netcup firewall policy   (see deploy/README.md)"
 echo "  - install the deploy SSH key       (see deploy/README.md)"
 echo "  - write /etc/nginx/analytics-exclude.conf (optional), from the"
 echo "    .example in deploy/nginx/ - wanted BEFORE any site points at the"
