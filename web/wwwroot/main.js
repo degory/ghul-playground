@@ -3,6 +3,7 @@
 
 import { createPlayground } from './playground.js'
 import { requestedProgram, loadProgram } from './collections.js'
+import * as files from './files.js'
 
 const runButton = document.getElementById('run');
 const status = document.getElementById('status');
@@ -87,6 +88,124 @@ splitter.addEventListener('pointerdown', event => {
     splitter.addEventListener('pointerup', up);
 });
 
+// --- the images this program drew ----------------------------------------
+
+const imagesPane = document.getElementById('images');
+const imagesGrid = document.getElementById('images-grid');
+const imagesTitle = document.getElementById('images-title');
+const imagesToggle = document.getElementById('images-toggle');
+const imagesCount = document.getElementById('images-count');
+const imagesSize = document.getElementById('images-size');
+
+const DOWNLOAD_ICON =
+    '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+    '<path d="M7.2 1h1.6v6.3l2.3-2.3 1.1 1.1L8 10.4 3.8 6.1l1.1-1.1 2.3 2.3V1zM2 12h12v1.6H2z" /></svg>';
+
+function showImages(list) {
+    imagesToggle.hidden = list.length === 0;
+    imagesCount.textContent = list.length > 1 ? String(list.length) : '';
+
+    if (!list.length) {
+        imagesPane.hidden = true;
+        imagesGrid.replaceChildren();
+        return;
+    }
+
+    imagesTitle.textContent = list.length === 1 ? 'Image' : `${list.length} images`;
+
+    // Roughly square: with four drawings, two rows of two uses a window far
+    // better than one row of four does. The floor keeps a tile worth looking
+    // at once there are enough of them for that to bite.
+    const across = Math.ceil(Math.sqrt(list.length));
+
+    imagesGrid.style.setProperty('--tile', `${Math.max(18, 60 / across)}rem`);
+
+    // How tall one drawing may be, so that laying them out across also lays
+    // them out down: one gets the pane, four get a quarter of it each.
+    imagesGrid.style.setProperty('--shelf', `${Math.max(24, 68 / across)}vh`);
+
+    imagesGrid.replaceChildren(...list.map(image => {
+        const figure = document.createElement('figure');
+
+        const frame = document.createElement('div');
+        frame.className = 'frame';
+
+        const img = document.createElement('img');
+        img.src = image.url;
+        img.alt = image.name;
+
+        // The shelf above bounds the height, and the layout needs the width
+        // that height implies. Only the decoded image knows its proportions,
+        // so the figure is told once it has them.
+        img.addEventListener('load', () =>
+            figure.style.setProperty('--aspect', img.naturalWidth / img.naturalHeight));
+
+        frame.append(img);
+
+        const caption = document.createElement('figcaption');
+
+        const name = document.createElement('span');
+        name.textContent = image.name;
+
+        // The picture exists only in this page - the program wrote it to a
+        // filesystem that is the browser's memory - so without this there is
+        // no way to get one out.
+        const download = document.createElement('button');
+        download.innerHTML = DOWNLOAD_ICON;
+        download.title = `Save ${image.name}`;
+        download.setAttribute('aria-label', `Save ${image.name}`);
+        download.addEventListener('click', () => files.saveImage(image.url, image.name));
+
+        caption.append(name, download);
+        figure.append(frame, caption);
+
+        return figure;
+    }));
+
+    imagesPane.hidden = false;
+}
+
+imagesToggle.addEventListener('click', () => { imagesPane.hidden = !imagesPane.hidden; });
+document.getElementById('images-close').addEventListener('click', () => { imagesPane.hidden = true; });
+
+// Fit is the useful default and actual size is the one a reader asks for when
+// a detail matters, so the button says which it would switch to.
+imagesSize.addEventListener('click', () => {
+    const actual = imagesPane.dataset.size === 'actual';
+
+    imagesPane.dataset.size = actual ? 'fit' : 'actual';
+    imagesSize.textContent = actual ? 'Fit' : 'Actual size';
+    imagesSize.title = actual
+        ? 'Show the images at their own size'
+        : 'Scale the images to fit';
+});
+
+// --- full screen ----------------------------------------------------------
+
+// The editor is the whole page, so there is nothing to fill but the window
+// itself. F11 is the browser's own and is left alone; this is for the reader
+// on a machine where that key does something else, and for a phone, where
+// there is no key at all.
+const fullscreen = document.getElementById('fullscreen');
+
+fullscreen.addEventListener('click', () => {
+    if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        document.documentElement.requestFullscreen().catch(() => { });
+    }
+});
+
+// The browser can leave full screen without going through the button - Escape,
+// or the window manager - so the tooltip follows the document rather than the
+// last click.
+document.addEventListener('fullscreenchange', () => {
+    fullscreen.title = document.fullscreenElement ? 'Leave full screen' : 'Full screen';
+});
+
+// A browser that cannot do it should not offer it.
+if (!document.documentElement.requestFullscreen) fullscreen.hidden = true;
+
 // --- the about panel ------------------------------------------------------
 
 const help = document.getElementById('help');
@@ -99,7 +218,12 @@ document.getElementById('help-close').addEventListener('click', () => showHelp(f
 help.addEventListener('click', event => { if (event.target === help) showHelp(false); });
 
 document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !help.hidden) showHelp(false);
+    if (event.key !== 'Escape') return;
+
+    // Innermost first: the about panel sits over the images, which sit over
+    // the editor, and Escape should dismiss one layer rather than all of them.
+    if (!help.hidden) showHelp(false);
+    else if (!imagesPane.hidden) imagesPane.hidden = true;
 });
 
 // --- the editor -----------------------------------------------------------
@@ -137,6 +261,8 @@ const playground = await createPlayground({
         outputPane.textContent = text;
         if (!text) outputPane.innerHTML = '<span class="empty">The program produced no output.</span>';
     },
+
+    onImages: showImages,
 
     onDiagnostics: list => {
         problemCount.hidden = list.length === 0;
@@ -248,4 +374,121 @@ copyButton.addEventListener('click', () => {
         copyButton.dataset.copied = '';
         setTimeout(() => delete copyButton.dataset.copied, 1500);
     });
+});
+
+// --- the file menu ---------------------------------------------------------
+
+const fileToggle = document.getElementById('file-toggle');
+const fileMenu = document.getElementById('file-menu');
+const fileNote = document.getElementById('file-note');
+const saveItem = document.getElementById('file-save');
+const saveLabel = document.getElementById('file-save-label');
+
+function closeMenu() {
+    fileMenu.hidden = true;
+    fileToggle.setAttribute('aria-expanded', 'false');
+}
+
+// What Save would do is not fixed: it writes back to a file once one has been
+// opened, and before that it has to ask. The menu is told each time it opens
+// rather than kept in step, so it is right after a reload as well.
+async function openMenu() {
+    fileMenu.hidden = false;
+    fileToggle.setAttribute('aria-expanded', 'true');
+
+    if (!files.canWriteFiles) {
+        saveLabel.textContent = 'Save a copy';
+        fileNote.textContent =
+            'This browser cannot write back to a file it opened, so saving downloads a copy.';
+        return;
+    }
+
+    const target = await files.savesTo();
+
+    saveLabel.textContent = target ? `Save to ${target}` : 'Save';
+    fileNote.textContent = '';
+}
+
+fileToggle.addEventListener('click', () => {
+    if (fileMenu.hidden) openMenu(); else closeMenu();
+});
+
+// Anywhere outside it, including the editor, which does not bubble a click the
+// way an ordinary element does.
+document.addEventListener('pointerdown', event => {
+    if (!fileMenu.hidden && !event.target.closest('.menu')) closeMenu();
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !fileMenu.hidden) closeMenu();
+});
+
+// The same acknowledgement the copy button gives: the act is over in a moment
+// and there is nothing to keep saying about it. The document title carries the
+// lasting half, which is which file this now is.
+let acknowledgement = null;
+let currentName = null;
+
+function acknowledge(name) {
+    currentName = name;
+    document.title = `${name} - ghūl playground`;
+
+    fileToggle.dataset.done = '';
+    clearTimeout(acknowledgement);
+    acknowledgement = setTimeout(() => delete fileToggle.dataset.done, 1500);
+}
+
+async function openFile() {
+    closeMenu();
+
+    const file = await files.open();
+
+    if (!file) return;
+
+    playground.setSource(file.text);
+    acknowledge(file.name);
+}
+
+async function saveFile() {
+    closeMenu();
+
+    const name = await files.save(playground.getSource());
+
+    if (name) {
+        acknowledge(name);
+        return;
+    }
+
+    // Nothing to write back to, so Save means Save as the first time.
+    await saveFileAs();
+}
+
+async function saveFileAs() {
+    closeMenu();
+
+    const name = await files.saveAs(
+        playground.getSource(), files.defaultName({ current: currentName, requested }));
+
+    if (!name) return;
+
+    acknowledge(name);
+}
+
+document.getElementById('file-open').addEventListener('click', openFile);
+saveItem.addEventListener('click', saveFile);
+document.getElementById('file-save-as').addEventListener('click', saveFileAs);
+
+// Taken off the browser, which would otherwise save or open the page. Monaco
+// binds neither chord, so an event from inside the editor reaches here too and
+// a second registration with the editor would run these twice.
+document.addEventListener('keydown', event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+    const key = event.key.toLowerCase();
+
+    if (key !== 's' && key !== 'o') return;
+
+    event.preventDefault();
+
+    if (key === 's') saveFile(); else openFile();
 });
