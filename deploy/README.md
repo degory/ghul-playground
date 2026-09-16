@@ -55,9 +55,11 @@ blocks, separate certificates, and the documentation site is deployed by the
 is a failure: an outage now takes out both, where before it left the
 documentation up. That is less of a change than it sounds, since the site
 already depends on this host for the embedded playground and for the analytics,
-but it is the reason to leave the Pages workflow in place with no `cname` - it
-costs nothing and leaves a readable copy of the site at its `github.io` address
-when the host is gone.
+but it is worth knowing before an outage rather than during one. There is no
+standby copy: the site builds with its links rooted at `/`, so a copy served
+from a project URL would 404 on every asset it loads, and a broken standby is
+worse than none. What the documentation site's workflow keeps instead is the
+built site as a run artifact, which can be served from anywhere.
 
 ## the things host-setup.sh does not do
 
