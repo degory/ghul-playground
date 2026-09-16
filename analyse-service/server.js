@@ -15,6 +15,7 @@
 // the Content-Length headers stdio needs are added and stripped here and the
 // browser deals in plain JSON-RPC objects.
 
+const fs = require('fs');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 
@@ -156,12 +157,40 @@ function acquire() {
 const sessions = new Set();
 let nextSessionId = 1;
 
+// CPU seconds the given process has used, or null if it cannot be read - the
+// process may have exited between the caller deciding to ask and asking. Fields
+// 14 and 15 of /proc/<pid>/stat are user and system time in clock ticks; the
+// command name in field 2 can itself contain spaces and brackets, so the split
+// starts after the last ')' rather than at the first space.
+function cpuSeconds(pid) {
+    if (!pid) return null;
+
+    try {
+        const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+
+        return (Number(fields[11]) + Number(fields[12])) / HERTZ;
+    } catch {
+        return null;
+    }
+}
+
+// The kernel reports those times in clock ticks. It is 100 on every Linux this
+// runs on, and there is no way to ask for it from node without spawning
+// getconf, so it is named here rather than hidden as a bare 100 below.
+const HERTZ = 100;
+
 class Session {
     constructor(socket, analyser) {
         this.id = nextSessionId++;
         this.socket = socket;
         this.analyser = analyser;
         this.closed = false;
+
+        // What the analyser had already spent being warmed, so that the figure
+        // logged on close is the work this client asked for and not the pool's.
+        this.startedAt = Date.now();
+        this.startCpu = cpuSeconds(analyser.process?.pid);
 
         this.idleTimer = null;
         this.lifetimeTimer = setTimeout(
@@ -174,6 +203,23 @@ class Session {
 
     log(message) {
         console.log(`[session ${this.id}] ${message}`);
+    }
+
+    // What the session actually cost, for deciding whether MAX_SESSIONS is the
+    // right number. Sessions are capped well below one per core on the premise
+    // that an editor is idle between keystrokes; this is the measurement that
+    // says whether that is true, and how far the cap could move. Read before
+    // the analyser is killed, since it comes from that process.
+    cost() {
+        const endCpu = cpuSeconds(this.analyser.process?.pid);
+
+        if (this.startCpu === null || endCpu === null) return '';
+
+        const wall = (Date.now() - this.startedAt) / 1000;
+        const cpu = endCpu - this.startCpu;
+        const duty = wall > 0 ? (100 * cpu / wall).toFixed(1) : '0.0';
+
+        return ` (${wall.toFixed(0)}s wall, ${cpu.toFixed(1)}s cpu, ${duty}% duty)`;
     }
 
     touch() {
@@ -264,7 +310,7 @@ class Session {
         clearTimeout(this.idleTimer);
         clearTimeout(this.lifetimeTimer);
 
-        this.log(`closing: ${reason}`);
+        this.log(`closing: ${reason}${this.cost()}`);
 
         // The analyser is destroyed rather than returned: a process a client
         // has touched is never handed to another one.
