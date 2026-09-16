@@ -1,18 +1,18 @@
-// Bumps the compiler and/or runtime version at every site check-versions.js
-// checks, so a bump is one edit instead of five kept in sync by hand - the
-// history this repository has is exactly the other way round, a version
-// landing in four of the five sites and check-versions.js catching it after
-// the fact.
+// Bumps the compiler, runtime and/or raster version at every site
+// check-versions.js checks, so a bump is one edit instead of several kept in
+// sync by hand - the history this repository has is exactly the other way
+// round, a version landing in all but one site and check-versions.js catching
+// it after the fact.
 //
 //   node scripts/bump-versions.js --compiler 52.2.1
 //   node scripts/bump-versions.js --runtime 18.0.1
+//   node scripts/bump-versions.js --raster 0.4.1
 //   node scripts/bump-versions.js --compiler 52.2.1 --runtime 18.0.1
 //   node scripts/bump-versions.js --latest
 //
 // `--latest` resolves each version's current highest listed release on
-// nuget.org and bumps both; an explicit `--compiler`/`--runtime` bumps only
-// what it names. Running with neither prints the current versions and does
-// nothing.
+// nuget.org and bumps all three; an explicit flag bumps only what it names.
+// Running with neither prints the current versions and does nothing.
 
 const fs = require('fs');
 const path = require('path');
@@ -73,29 +73,51 @@ function bumpCompiler(version) {
     // A regex substitution rather than a parse/stringify round-trip, so a
     // manifest with no trailing newline (or different indentation) is left
     // exactly as it was apart from the one field this bump changes.
-    const updated = original.replace(
-        /("ghul\.compiler":\s*\{\s*"version":\s*")[^"]+(")/,
-        `$1${version}$2`
-    );
+    const pin = /("ghul\.compiler":\s*\{\s*"version":\s*")[^"]+(")/;
 
-    if (updated === original) {
+    if (!pin.test(original)) {
         throw new Error(`${manifestFile}: no ghul.compiler version to update`);
     }
 
-    write(manifestFile, updated);
+    write(manifestFile, original.replace(pin, `$1${version}$2`));
 
     for (const image of ['compile-service/Dockerfile', 'analyse-service/Dockerfile']) {
         const text = read(image);
-        const updated = text.replace(/^ARG GHUL_COMPILER_VERSION=.+$/m, `ARG GHUL_COMPILER_VERSION=${version}`);
 
-        if (updated === text) {
+        if (!/^ARG GHUL_COMPILER_VERSION=.+$/m.test(text)) {
             throw new Error(`${image}: no ARG GHUL_COMPILER_VERSION line to update`);
         }
 
-        write(image, updated);
+        write(image, text.replace(/^ARG GHUL_COMPILER_VERSION=.+$/m, `ARG GHUL_COMPILER_VERSION=${version}`));
     }
 
     console.log(`compiler: ${before} -> ${version}`);
+}
+
+// Only the web app references raster and only the images carry its version,
+// so this has fewer sites than the runtime rather than the same ones.
+function bumpRaster(version) {
+    const project = 'web/web.csproj';
+    const text = read(project);
+    const match = text.match(/Include="ghul\.raster"\s+Version="([^"]+)"/);
+
+    if (!match) {
+        throw new Error(`${project}: no ghul.raster PackageReference`);
+    }
+
+    write(project, text.replace(/(Include="ghul\.raster"\s+Version=")[^"]+(")/, `$1${version}$2`));
+
+    for (const image of ['compile-service/Dockerfile', 'analyse-service/Dockerfile']) {
+        const text = read(image);
+
+        if (!/^ARG GHUL_RASTER_VERSION=.+$/m.test(text)) {
+            throw new Error(`${image}: no ARG GHUL_RASTER_VERSION line to update`);
+        }
+
+        write(image, text.replace(/^ARG GHUL_RASTER_VERSION=.+$/m, `ARG GHUL_RASTER_VERSION=${version}`));
+    }
+
+    console.log(`raster: ${match[1]} -> ${version}`);
 }
 
 function bumpRuntime(version) {
@@ -121,13 +143,12 @@ function bumpRuntime(version) {
 
     for (const image of ['compile-service/Dockerfile', 'analyse-service/Dockerfile']) {
         const text = read(image);
-        const updated = text.replace(/^ARG GHUL_RUNTIME_VERSION=.+$/m, `ARG GHUL_RUNTIME_VERSION=${version}`);
 
-        if (updated === text) {
+        if (!/^ARG GHUL_RUNTIME_VERSION=.+$/m.test(text)) {
             throw new Error(`${image}: no ARG GHUL_RUNTIME_VERSION line to update`);
         }
 
-        write(image, updated);
+        write(image, text.replace(/^ARG GHUL_RUNTIME_VERSION=.+$/m, `ARG GHUL_RUNTIME_VERSION=${version}`));
     }
 
     console.log(`runtime: ${before} -> ${version}`);
@@ -144,26 +165,31 @@ async function main() {
 
     let compilerVersion = flagValue('--compiler');
     let runtimeVersion = flagValue('--runtime');
+    let rasterVersion = flagValue('--raster');
 
     if (wantLatest) {
-        [compilerVersion, runtimeVersion] = await Promise.all([
+        [compilerVersion, runtimeVersion, rasterVersion] = await Promise.all([
             compilerVersion || latestPublished('ghul.compiler'),
             runtimeVersion || latestPublished('ghul.runtime'),
+            rasterVersion || latestPublished('ghul.raster'),
         ]);
     }
 
-    if (!compilerVersion && !runtimeVersion) {
+    if (!compilerVersion && !runtimeVersion && !rasterVersion) {
         const manifest = JSON.parse(read('.config/dotnet-tools.json'));
-        const runtimeMatch = read('web/web.csproj').match(/Include="ghul\.runtime"\s+Version="([^"]+)"/);
+        const web = read('web/web.csproj');
+        const version = id => web.match(new RegExp(`Include="${id}"\\s+Version="([^"]+)"`))?.[1] ?? '(not found)';
 
         console.log(`compiler: ${manifest.tools['ghul.compiler'].version}`);
-        console.log(`runtime:  ${runtimeMatch ? runtimeMatch[1] : '(not found)'}`);
-        console.log('\nNothing to do - pass --compiler/--runtime/--latest to bump.');
+        console.log(`runtime:  ${version('ghul\\.runtime')}`);
+        console.log(`raster:   ${version('ghul\\.raster')}`);
+        console.log('\nNothing to do - pass --compiler/--runtime/--raster/--latest to bump.');
         return;
     }
 
     if (compilerVersion) bumpCompiler(compilerVersion);
     if (runtimeVersion) bumpRuntime(runtimeVersion);
+    if (rasterVersion) bumpRaster(rasterVersion);
 }
 
 main().catch(err => {

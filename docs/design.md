@@ -16,12 +16,19 @@ The server compiles the source and sends the assembly back to the browser. The
 browser loads and runs it. The server never runs what it compiles.
 
 This is the main design decision. A .NET runtime in the browser has no host
-filesystem, and no network beyond what the page already has. A program that
-calls `IO.File.read_all_text` gets a `DirectoryNotFoundException`. A program
+filesystem, and no network beyond what the page already has. What it has in
+place of a filesystem is one of its own, in the page's memory, which is emptied
+with the tab: `IO.File.write_all_bytes` writes there and reads back, and
+nothing a program writes exists anywhere but the tab that ran it. A program
 that loops forever makes a tab stop responding; the server is not involved. The
 program runs inside the browser's own sandbox, so escaping it would need a
 browser vulnerability, which is not something this project can add to or take
 away.
+
+That in-memory filesystem is how a drawing reaches the page. `ghul.raster`
+writes a PNG to it and prints `<<image plot.png>>`; the host reads the file
+back, sends it to the page as a data URL, and takes the line out of the output.
+See `runner/src/runner.ghul`.
 
 Analysing as you type and compiling on demand are different jobs. The same
 compiler binary does both, in different modes, so they are two services. The
@@ -91,7 +98,9 @@ inbound traffic and Docker does not offer inbound without outbound.
 ## the reference set
 
 `REFERENCES` in `shared/toolchain.js` lists the framework assemblies user code
-can use. An assembly is on the list if what it offers runs in the browser. The
+can use, alongside the two ghūl ones: the runtime, and `ghul.raster` for
+drawing. Both are resolved to the exact assembly the web app ships, because
+what a program is compiled against is what the browser binds it to. An assembly is on the list if what it offers runs in the browser. The
 list is not a security boundary: the server only compiles, so the list does not
 change what the server is exposed to.
 
@@ -102,8 +111,8 @@ browser under this origin.
 
 The list does not exclude the filesystem. `System.Runtime` forwards the
 `System.IO` types and cannot be left out, so `IO.File` always compiles. This is
-fine because the program runs in the browser, where there is no filesystem to
-reach.
+fine because the program runs in the browser, where the only filesystem is the
+page's own memory and there is no host one to reach.
 
 The list includes each assembly's transitive references. The compiler cannot
 load a type whose members mention an assembly it does not have, and reports the
@@ -157,6 +166,19 @@ initializer that registers the method, and an unsafe wrapper that marshals
 arguments through a `JSMarshalerArgument*` buffer. ghūl can emit the attribute,
 but without the generated code the attribute does nothing.
 
-`runner/src/runner.ghul` implements the same logic in ghūl. The C# can shrink to
-a single call into it. A `CS0012` error used to stop a C# project from
-referencing a ghūl library; it no longer occurs, so this is now just work to do.
+Everything else the host does is in `runner/src/runner.ghul`: loading the
+program, running it, capturing its output, and collecting the pictures it drew.
+
+The C# reaches it through `Assembly.Load` and `MethodInfo.Invoke` rather than by
+naming `Playground.RUNNER`, and that is not a style choice. Every assembly the
+ghūl compiler emits records a reference to `System.Runtime 8.0.0.0`, which is
+not a version that exists, and Roslyn rejects the reference with `CS0012` as
+soon as C# names a type from the assembly. Reflection is resolved by the runtime
+rather than by Roslyn, so it is unaffected. When
+[degory/ghul#2709](https://github.com/degory/ghul/issues/2709) is fixed, the
+reflection can become a direct call.
+
+This is also why `web.csproj` can reference `ghul.runtime` and `ghul.raster`
+without trouble: nothing in the C# names a type from either. The browser binds
+the user's program against them at run time, where the recorded version is
+ignored.

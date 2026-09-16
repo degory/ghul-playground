@@ -1,5 +1,5 @@
-// The compiler and runtime versions are written in five places, and they all
-// have to say the same thing.
+// The compiler, runtime and raster versions are written in several places
+// each, and every copy of one has to say the same thing.
 //
 // The services compile user code against one runtime and the browser loads
 // another, so a disagreement between the service images and the web app is not
@@ -10,7 +10,7 @@
 // behaviour is not deployed behaviour.
 //
 // An updater proposing a new version edits each site separately, so this is
-// also what catches a bump that landed in four of the five.
+// also what catches a bump that landed everywhere but one.
 //
 //   node scripts/check-versions.js
 
@@ -42,11 +42,27 @@ for (const project of ['web/web.csproj', 'runner/runner.ghulproj']) {
     record(project, 'runtime', match[1]);
 }
 
+// Raster, which only the web app references: the runner does not draw.
+{
+    const match = read('web/web.csproj').match(/Include="ghul\.raster"\s+Version="([^"]+)"/);
+
+    if (!match) {
+        console.error('web/web.csproj: no ghul.raster PackageReference');
+        process.exit(1);
+    }
+
+    record('web/web.csproj', 'raster', match[1]);
+}
+
 // Both, as each service image builds them in.
 for (const image of ['compile-service/Dockerfile', 'analyse-service/Dockerfile']) {
     const text = read(image);
 
-    for (const [what, arg] of [['compiler', 'GHUL_COMPILER_VERSION'], ['runtime', 'GHUL_RUNTIME_VERSION']]) {
+    for (const [what, arg] of [
+        ['compiler', 'GHUL_COMPILER_VERSION'],
+        ['runtime', 'GHUL_RUNTIME_VERSION'],
+        ['raster', 'GHUL_RASTER_VERSION']
+    ]) {
         const match = text.match(new RegExp(`^ARG ${arg}=(.+)$`, 'm'));
 
         if (!match) {
@@ -60,7 +76,7 @@ for (const image of ['compile-service/Dockerfile', 'analyse-service/Dockerfile']
 
 let failed = false;
 
-for (const what of ['compiler', 'runtime']) {
+for (const what of ['compiler', 'runtime', 'raster']) {
     const found = sites.filter(s => s.what === what);
     const versions = [...new Set(found.map(s => s.version))];
 
