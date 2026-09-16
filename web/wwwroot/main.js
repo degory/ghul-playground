@@ -58,12 +58,44 @@ const ANALYSER_STATE = {
 
 // --- the pane below the editor -------------------------------------------
 
+const pane = document.getElementById('pane');
+const paneToggle = document.getElementById('pane-toggle');
+
+// The height to come back to. The pane's own height is cleared while
+// collapsed, so without this an expand would forget a drag made before it.
+let paneHeight = '';
+
+function setPaneCollapsed(collapsed) {
+    if (collapsed === (pane.dataset.collapsed !== undefined)) return;
+
+    if (collapsed) {
+        paneHeight = pane.style.height;
+        pane.style.height = '';
+        pane.dataset.collapsed = '';
+    } else {
+        delete pane.dataset.collapsed;
+        pane.style.height = paneHeight;
+    }
+
+    const label = collapsed ? 'Expand the pane' : 'Collapse the pane';
+
+    paneToggle.setAttribute('aria-expanded', String(!collapsed));
+    paneToggle.setAttribute('aria-label', label);
+    paneToggle.title = label;
+}
+
+paneToggle.addEventListener('click', () => setPaneCollapsed(pane.dataset.collapsed === undefined));
+
 const tabs = [
     { button: document.getElementById('tab-problems'), panel: diagnosticsPane },
     { button: document.getElementById('tab-output'), panel: outputPane }
 ];
 
+// Every caller is putting something in front of the reader, so a collapsed
+// pane is opened rather than switched behind their back.
 function showTab(panel) {
+    setPaneCollapsed(false);
+
     for (const tab of tabs) {
         const selected = tab.panel === panel;
         tab.button.setAttribute('aria-selected', String(selected));
@@ -76,10 +108,10 @@ for (const tab of tabs) {
 }
 
 const splitter = document.getElementById('splitter');
-const pane = document.getElementById('pane');
 
 splitter.addEventListener('pointerdown', event => {
     splitter.setPointerCapture(event.pointerId);
+    setPaneCollapsed(false);
     splitter.dataset.dragging = '';
 
     const move = e => {

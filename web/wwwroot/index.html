@@ -128,6 +128,12 @@
 
     .wordmark span { color: var(--fg-muted); font-weight: 400; }
 
+    /* Reads as the page's name rather than as a link, so it is not underlined
+       and takes the colours around it. */
+    .wordmark a { color: inherit; text-decoration: none; }
+    .wordmark a:hover { color: var(--accent); }
+    .wordmark a:hover span { color: inherit; }
+
     /* Separates the name from the controls, so the gap between them does not
        have to be wide enough to say it on its own. */
     .divider {
@@ -379,6 +385,16 @@
       white-space: nowrap;
     }
 
+    /* Collapsing leaves the tab row standing, so the problem count still says
+       there is something in the pane worth opening. */
+    #pane[data-collapsed] { height: auto; }
+    #pane[data-collapsed] > pre { display: none; }
+
+    #pane-toggle { min-width: 1.5rem; padding: 0 0.35rem; color: var(--fg-muted); }
+    #pane-toggle:hover { color: var(--fg); }
+    #pane-toggle svg { width: 9px; height: 6px; fill: currentColor; display: block; }
+    #pane[data-collapsed] #pane-toggle svg { transform: rotate(180deg); }
+
     #diagnostics .error { color: var(--bad); }
     #diagnostics .warn { color: var(--warn); }
 
@@ -577,7 +593,9 @@
 
 <body>
   <header>
-    <h1 class="wordmark">ghūl <span>playground</span></h1>
+    <!-- A new tab rather than this one: the editor holds work nobody has
+         saved, and a same-tab navigation would lose it. -->
+    <h1 class="wordmark"><a href="https://ghul.dev" target="_blank" rel="noopener">ghūl <span>playground</span></a></h1>
 
     <span class="divider"></span>
 
@@ -666,6 +684,11 @@
         </button>
 
         <span id="run-cost"></span>
+
+        <button id="pane-toggle" title="Collapse the pane" aria-label="Collapse the pane"
+                aria-expanded="true" aria-controls="pane">
+          <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0h10L5 6z" /></svg>
+        </button>
       </div>
 
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
