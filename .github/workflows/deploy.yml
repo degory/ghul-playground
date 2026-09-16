@@ -38,6 +38,10 @@ jobs:
       - name: Install node dependencies and stage Monaco
         run: npm install
 
+      # The web app references the ghūl runner, so publishing it builds that
+      # too, and the ghūl build needs the compiler this manifest pins.
+      - run: dotnet tool restore
+
       - name: Publish the web app
         run: dotnet publish web -c Release -o /tmp/playground-publish
 
