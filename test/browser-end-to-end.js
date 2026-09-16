@@ -231,6 +231,19 @@ chrome.on('error', e => {
     }
     check('a program opens by path', opened.includes('Hello world!'), JSON.stringify(opened.slice(0, 60)));
 
+    // The path says where the buffer came from, so editing the program leaves
+    // it alone - the link still loads what it names - while replacing the
+    // buffer wholesale gives it up, along with the name Save would offer.
+    await ev(`monaco.editor.getModels()[0].applyEdits(
+        [{ range: new monaco.Range(1, 1, 1, 1), text: '// edited\\n' }]); true`);
+    await sleep(300);
+    check('editing a program keeps its path',
+        await ev(`location.pathname`) === '/rosetta-code/hello-world-text');
+
+    await ev(`monaco.editor.getModels()[0].setValue('entry() is si\\n'); true`);
+    await sleep(300);
+    check('replacing the buffer gives up the path', await ev(`location.pathname`) === '/');
+
     chrome.kill();
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');

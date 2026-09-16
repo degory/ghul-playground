@@ -81,26 +81,61 @@
       color: var(--fg);
     }
 
-    /* --- the top bar --- */
+    /* --- the top bar ---
+
+       Two registers and one geometry. An action - File, Run - carries the
+       foreground colour; an indicator or a secondary icon carries the muted one
+       and brightens on hover. Weight is left to the wordmark, which is the only
+       thing in the bar that should be asking for attention. Everything in the row
+       is one height and one text size, so the bar has a single rhythm whatever
+       sits in it. */
 
     header {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.5rem 0.75rem;
+      gap: 0.5rem;
+      padding: 0.4rem 0.6rem;
       border-bottom: 1px solid var(--border);
       background: var(--bg-raised);
       flex: none;
     }
 
+    header :where(#file-toggle, #run, .indicator, .group button) {
+      height: 1.75rem;
+      font-size: 0.8125rem;
+    }
+
+    header svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+
+    /* Square, so an icon on its own has the same hit area as its neighbours
+       rather than a short wide slab around a small glyph - and wider only when
+       it has a count to carry. */
+    .group button { min-width: 1.75rem; padding: 0 0.35rem; gap: 0.3rem; }
+
+    /* Tight, because these are one toolbar rather than three loose controls
+       sharing the bar's spacing with the indicators beside them. */
+    .group { display: flex; align-items: center; gap: 0.125rem; margin-right: -0.25rem; }
+
+    .group button { color: var(--fg-muted); }
+    .group button:hover:not(:disabled) { color: var(--fg); }
+
     .wordmark {
       font-size: 0.95rem;
       font-weight: 600;
-      margin: 0 0.25rem 0 0.25rem;
+      margin: 0;
       white-space: nowrap;
     }
 
     .wordmark span { color: var(--fg-muted); font-weight: 400; }
+
+    /* Separates the name from the controls, so the gap between them does not
+       have to be wide enough to say it on its own. */
+    .divider {
+      width: 1px;
+      height: 1.25rem;
+      background: var(--border);
+      flex: none;
+    }
 
     button {
       font: inherit;
@@ -123,8 +158,8 @@
 
     .menu { position: relative; }
 
-    #file-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
-    #file-toggle svg { width: 8px; height: 5px; fill: currentColor; opacity: 0.7; }
+    #file-toggle { padding: 0 0.5rem; }
+    #file-toggle svg { width: 8px; height: 5px; opacity: 0.6; }
     #file-toggle[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
     #file-toggle[data-done] { color: var(--ok); }
 
@@ -163,24 +198,20 @@
 
     #file-note:empty { display: none; }
 
-    #fullscreen { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
-    #fullscreen svg { width: 15px; height: 15px; fill: currentColor; }
     #fullscreen .exit { display: none; }
     :root:fullscreen #fullscreen .enter { display: none; }
     :root:fullscreen #fullscreen .exit { display: block; }
 
-    #images-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
     #images-toggle[hidden] { display: none; }
-    #images-toggle svg { width: 15px; height: 15px; fill: currentColor; }
-    #images-count { font-size: 0.8rem; }
 
     #run {
-      padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+      padding: 0 0.7rem 0 0.55rem;
       border-color: var(--border);
       background: var(--bg);
-      font-weight: 500;
     }
 
+    /* A shade smaller than the bar's icons, so the triangle sits inside the
+       button's border rather than filling it. */
     #run svg { width: 14px; height: 14px; fill: var(--ok); }
     #run:disabled svg { fill: var(--fg-muted); }
 
@@ -192,43 +223,25 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* The compiler indicator: the same shape as the analyser's, so the two
-       services read as a pair. The dot carries the state, the text the detail. */
-    #compiler {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.3rem 0.5rem;
-      color: var(--fg-muted);
-      white-space: nowrap;
-    }
-
-    #compiler .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--fg-muted);
-      flex: none;
-    }
-
-    #compiler[data-state="ready"] .dot { background: var(--ok); }
-    #compiler[data-state="working"] .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
-    #compiler[data-state="failed"] .dot { background: var(--bad); }
-
     .spacer { margin-left: auto; }
 
-    /* The analyser indicator. A dot carries the state at a glance and the
-       tooltip explains it, which is the part a first-time reader needs. */
-    #analyser {
+    /* The two service indicators. A dot carries the state at a glance and the
+       tooltip explains it, which is the part a first-time reader needs. One
+       shape for both, so the pair reads as a pair - including the transparent
+       border, which is what every button in the bar is sized with and what the
+       compiler span would otherwise be two pixels short of. */
+    .indicator {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.3rem 0.5rem;
+      padding: 0 0.4rem;
       color: var(--fg-muted);
       white-space: nowrap;
+      border: 1px solid transparent;
+      border-radius: 6px;
     }
 
-    #analyser .dot {
+    .indicator .dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
@@ -236,10 +249,16 @@
       flex: none;
     }
 
+    #compiler[data-state="ready"] .dot,
     #analyser[data-state="ready"] .dot { background: var(--ok); }
+
+    #compiler[data-state="working"] .dot,
     #analyser[data-state="connecting"] .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
-    #analyser[data-state="dormant"] .dot { background: var(--fg-muted); }
+
+    #compiler[data-state="failed"] .dot,
     #analyser[data-state="disconnected"] .dot { background: var(--bad); }
+
+    #analyser[data-state="dormant"] .dot { background: var(--fg-muted); }
 
     @keyframes pulse { 50% { opacity: 0.25; } }
 
@@ -252,7 +271,9 @@
       top: 0.4rem;
       right: 1.2rem;
       z-index: 10;
-      padding: 0.3rem 0.5rem;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
       color: var(--fg-muted);
       background: var(--bg);
       border: 1px solid var(--border);
@@ -262,9 +283,6 @@
     #copy:hover { opacity: 1; }
     #copy svg { width: 15px; height: 15px; fill: currentColor; display: block; }
     #copy[data-copied] { color: var(--ok); opacity: 1; }
-
-    #help-toggle { padding: 0.3rem 0.5rem; color: var(--fg-muted); }
-    #help-toggle svg { width: 16px; height: 16px; fill: currentColor; }
 
     /* --- editor and the pane below it --- */
 
@@ -309,24 +327,25 @@
       flex: none;
     }
 
+    /* Sentence case and the same size as the bar above: the selected tab is
+       already said by its colour and the rule under it, and small caps here
+       made these the only two words on the page shouting. */
     .tab {
-      padding: 0.4rem 0.6rem;
+      height: 1.9rem;
+      padding: 0 0.6rem;
       border-radius: 0;
       border-bottom: 2px solid transparent;
       color: var(--fg-muted);
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-size: 0.8125rem;
     }
 
     .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
 
     .count {
-      font-size: 0.7rem;
+      font-size: 0.6875rem;
       padding: 0.05rem 0.35rem;
       border-radius: 999px;
       background: color-mix(in srgb, var(--fg) 12%, transparent);
-      letter-spacing: 0;
     }
 
     .count[data-severity="error"] { background: var(--bad); color: #fff; }
@@ -347,6 +366,18 @@
 
     .empty { color: var(--fg-muted); font-style: italic; }
     .notice { color: var(--warn); }
+
+    /* At the end of the tab row rather than in the header: next to the output
+       a reader who pressed run is already looking at, out of the chrome, and
+       above the pane rather than inside it, so a long program's output cannot
+       scroll it away. */
+    #run-cost {
+      margin-left: auto;
+      padding-right: 0.4rem;
+      color: var(--fg-muted);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
 
     #diagnostics .error { color: var(--bad); }
     #diagnostics .warn { color: var(--warn); }
@@ -379,9 +410,9 @@
       flex: none;
     }
 
-    #images-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    #images-title { font-size: 0.8125rem; font-weight: 600; }
 
-    #images-bar button { padding: 0.25rem 0.5rem; color: var(--fg-muted); font-size: 0.8rem; }
+    #images-bar button { height: 1.6rem; padding: 0 0.5rem; color: var(--fg-muted); font-size: 0.8125rem; }
 
     #images-size {
       border-color: var(--border);
@@ -548,6 +579,8 @@
   <header>
     <h1 class="wordmark">ghūl <span>playground</span></h1>
 
+    <span class="divider"></span>
+
     <div class="menu">
       <button id="file-toggle" aria-haspopup="menu" aria-expanded="false" title="Open and save">
         File
@@ -573,37 +606,40 @@
 
     <span class="spacer"></span>
 
-    <span id="compiler" data-state="working" title="Loading the .NET runtime">
+    <span id="compiler" class="indicator" data-state="working" title="Loading the .NET runtime">
       <span class="dot"></span>
       <span id="status">compiler</span>
     </span>
 
-    <button id="analyser" data-state="connecting" title="Connecting to the analyser">
+    <button id="analyser" class="indicator" data-state="connecting" title="Connecting to the analyser">
       <span class="dot"></span>
       <span id="analyser-text">analyser</span>
     </button>
 
-    <button id="images-toggle" hidden title="Show the pictures this program drew">
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M1.5 2h13a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5zm.5 10.3V13h12v-2.6l-3.1-3.1-2.6 2.6-2.4-2.4L2 12.3zM11 4.6a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8z" />
-      </svg>
-      <span id="images-count"></span>
-    </button>
+    <div class="group">
+      <button id="images-toggle" hidden title="Show the pictures this program drew">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.5 2h13a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5zm.5 10.3V13h12v-2.6l-3.1-3.1-2.6 2.6-2.4-2.4L2 12.3zM11 4.6a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8z" />
+        </svg>
+        <span id="images-count"></span>
+      </button>
 
-    <button id="fullscreen" title="Full screen (F11)" aria-label="Full screen">
-      <svg class="enter" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M1 1h5v1.6H2.6V6H1V1zm9 0h5v5h-1.6V2.6H10V1zM1 10h1.6v3.4H6V15H1v-5zm12.4 0H15v5h-5v-1.6h3.4V10z" />
-      </svg>
-      <svg class="exit" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M6 1v5H1V4.4h3.4V1H6zm4 0h1.6v3.4H15V6h-5V1zM1 10h5v5H4.4v-3.4H1V10zm9 0h5v1.6h-3.4V15H10v-5z" />
-      </svg>
-    </button>
+      <button id="fullscreen" title="Full screen (F11)" aria-label="Full screen">
+        <svg class="enter" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1 1h5v1.6H2.6V6H1V1zm9 0h5v5h-1.6V2.6H10V1zM1 10h1.6v3.4H6V15H1v-5zm12.4 0H15v5h-5v-1.6h3.4V10z" />
+        </svg>
+        <svg class="exit" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 1v5H1V4.4h3.4V1H6zm4 0h1.6v3.4H15V6h-5V1zM1 10h5v5H4.4v-3.4H1V10zm9 0h5v1.6h-3.4V15H10v-5z" />
+        </svg>
+      </button>
 
-    <button id="help-toggle" title="What is this?" aria-label="What is this?">
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm.9 12.2H7.1v-1.8h1.8v1.8zm1.2-4.6c-.5.4-.8.8-.9 1.2l-.1.5H7.4l.1-.7c.1-.6.4-1.2 1.1-1.7.6-.5.9-.8.9-1.3 0-.6-.4-1-1.2-1-.6 0-1.2.2-1.6.5l-.5-1.4A4.2 4.2 0 018.5 3c1.8 0 2.7 1 2.7 2.2 0 1-.6 1.7-1.1 2.1z" />
-      </svg>
-    </button>
+      <button id="help-toggle" title="What is this?" aria-label="What is this?">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.9" fill="none" stroke="currentColor" stroke-width="1.2" />
+          <path d="M8.9 12.3H7.1v-1.8h1.8v1.8zm1.2-4.7c-.5.4-.8.8-.9 1.2l-.1.5H7.4l.1-.7c.1-.6.4-1.2 1.1-1.7.6-.5.9-.8.9-1.3 0-.6-.4-1-1.2-1-.6 0-1.2.2-1.6.5l-.5-1.4A4.2 4.2 0 018.5 3c1.8 0 2.7 1 2.7 2.2 0 1-.6 1.7-1.1 2.1z" />
+        </svg>
+      </button>
+    </div>
   </header>
 
   <main>
@@ -628,6 +664,8 @@
         <button class="tab" id="tab-output" role="tab" aria-selected="false" aria-controls="output">
           Output
         </button>
+
+        <span id="run-cost"></span>
       </div>
 
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
