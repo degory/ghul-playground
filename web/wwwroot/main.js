@@ -6,6 +6,8 @@ import { requestedProgram, loadProgram } from './collections.js'
 import * as files from './files.js'
 
 const runButton = document.getElementById('run');
+const inputRow = document.getElementById('input-row');
+const stdin = document.getElementById('stdin');
 const status = document.getElementById('status');
 const compiler = document.getElementById('compiler');
 const analyser = document.getElementById('analyser');
@@ -331,6 +333,20 @@ const playground = await createPlayground({
         if (!text) outputPane.innerHTML = '<span class="empty">The program produced no output.</span>';
     },
 
+    // Shown when the program asks and taken away the moment it stops asking,
+    // including when the run ends while it is still waiting - a box left
+    // behind would take a line nothing is going to read.
+    onInput: wanted => {
+        inputRow.hidden = !wanted;
+
+        if (!wanted) return;
+
+        // showTab expands the pane as well, so a box in a collapsed one is
+        // not asked for and then hidden.
+        showTab(outputPane);
+        stdin.focus();
+    },
+
     onImages: showImages,
 
     onDiagnostics: list => {
@@ -427,6 +443,33 @@ if (await playground.tokenRequired() && !playground.hasToken()) {
 }
 
 runButton.addEventListener('click', () => playground.run());
+
+// Enter sends the line. The box is cleared rather than left holding it,
+// because what was typed reappears in the output a moment later - the program
+// echoes it there, where it belongs in the transcript.
+inputRow.addEventListener('submit', event => {
+    event.preventDefault();
+
+    const line = stdin.value;
+
+    stdin.value = '';
+    inputRow.hidden = true;
+
+    playground.sendInput(line);
+});
+
+// A program reading until its input runs out is waiting for this rather than
+// for another line, and nothing else on the page can say it.
+stdin.addEventListener('keydown', event => {
+    if (event.key !== 'd' || !event.ctrlKey) return;
+
+    event.preventDefault();
+
+    stdin.value = '';
+    inputRow.hidden = true;
+
+    playground.endInput();
+});
 
 playground.editor.addCommand(
     monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => playground.run());

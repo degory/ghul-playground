@@ -11,6 +11,21 @@ namespace Playground is
     // docs/design.md). So this is reached by name: Playground.RUNNER.run,
     // taking and returning a string.
     class RUNNER is
+        // Created before the first run and kept, because the page holds the
+        // addresses of its buffers and has no way to be told they have moved.
+        _channel: CHANNEL? static;
+
+        // The address of the control block, which is all the page is told
+        // directly - the buffers' own addresses are in the block. Called once,
+        // before anything is run.
+        open_channel() -> int static is
+            let channel = _channel ?? CHANNEL();
+
+            _channel = channel;
+
+            channel.address
+        si
+
         // ghul.raster writes this line to name an image the program drew, at
         // the point in the output where it belongs. It is a contract with
         // whatever displays the output rather than an instruction to anything
@@ -47,7 +62,16 @@ namespace Playground is
             let writer = IO.StringWriter();
             let previous = IO.Std.out;
 
-            IO.Std.set_out(writer);
+            let channel = _channel;
+
+            if channel? then
+                let out = CONSOLE_OUT(channel, writer);
+
+                IO.Std.set_out(out);
+                IO.Std.set_in(CONSOLE_IN(channel, out));
+            else
+                IO.Std.set_out(writer);
+            fi
 
             try
                 // A ghūl `entry()` takes no arguments, but the emitted entry
@@ -74,6 +98,11 @@ namespace Playground is
                 fi
             finally
                 IO.Std.set_out(previous);
+
+                // Set rather than put back: reading IO.Std.in is what throws
+                // in a browser, where there is no such stream to hand back,
+                // so there is nothing to have saved.
+                IO.Std.set_in(IO.TextReader.`null);
             yrt
 
             return writer.to_string();

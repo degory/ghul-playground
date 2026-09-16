@@ -26,6 +26,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # The multithreaded wasm runtime pack, which the browser runtime needs so
+      # that a program can block reading a line. It ships with this workload
+      # rather than with the SDK, and without it the build succeeds and the
+      # runtime aborts at startup with
+      # mono_wasm_start_deputy_thread_async() failed.
+      - name: Install the wasm workload
+        run: dotnet workload install wasm-tools
+
       - uses: actions/setup-node@v7
         with:
           node-version: '24'

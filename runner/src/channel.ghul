@@ -1,0 +1,140 @@
+namespace Playground is
+    use System.Runtime.InteropServices.Marshal;
+
+    // How a running program and the page talk to each other.
+    //
+    // The runtime runs on a worker thread, so a program that reads a line
+    // blocks that thread, which is the whole point: Console.ReadLine is
+    // synchronous and cannot suspend. But a blocked thread runs no managed
+    // code, so nothing the page calls can reach it and the page cannot hand it
+    // the line by calling in. What the page can do is write into the runtime's
+    // own memory: with threading enabled the wasm heap is a SharedArrayBuffer,
+    // and an address in it is an offset the page can build a typed-array view
+    // over.
+    //
+    // So everything that crosses the boundary crosses through the two buffers
+    // and the control block below, and neither side ever calls the other. The
+    // page polls; the program polls while it waits. Nothing here is a
+    // substitute for that: an ordinary call in either direction deadlocks the
+    // moment the program is waiting for input, which is the only moment that
+    // matters.
+    //
+    // The memory is unmanaged rather than a pinned array, for two reasons. A
+    // ghul array is read-only, so the control block could not be written
+    // through one at all; and unmanaged memory has no collector to be kept
+    // away from it, where a pin held for the life of the page is a promise
+    // nothing checks.
+    class CHANNEL is
+        // Offsets into the control block, in slots of four bytes. The page has
+        // the same list, in web/wwwroot/playground.js, and the two have to
+        // agree. Written out on both sides rather than generated: there are
+        // nine, and a generator would be more machinery than the thing it
+        // generates.
+        OUTPUT_WRITTEN: int static => 0;     // characters of output so far
+        OUTPUT_TRUNCATED: int static => 1;   // output stopped at the cap
+        // Counted rather than a flag, and only ever increased. Two reads in a
+        // row set a flag back and forth inside one of the page's polls, so a
+        // flag would look unchanged and the page would never ask for the
+        // second line. A number that only goes up cannot be missed that way:
+        // the page compares it with the last turn it answered.
+        INPUT_TURN: int static => 2;
+        INPUT_READY: int static => 3;        // the page has left one
+        INPUT_LENGTH: int static => 4;       // how many characters of it, or -1 for end of input
+        OUTPUT_ADDRESS: int static => 5;
+        OUTPUT_CAPACITY: int static => 6;
+        INPUT_ADDRESS: int static => 7;
+        INPUT_CAPACITY: int static => 8;
+        CONTROL_SLOTS: int static => 9;
+
+        // Both buffers hold UTF-16, which is what a .NET string and a
+        // JavaScript string are already made of, so neither side encodes or
+        // decodes and neither can disagree with the other about where a
+        // character ends. Lengths below are therefore in characters.
+        //
+        // Output is capped rather than wrapped. A ring buffer would let a
+        // program that prints without stopping run for ever, and the page
+        // would have to reassemble a character split across the join. The cap
+        // is past anything anyone reads, and a program that reaches it is told
+        // it was cut off.
+        OUTPUT_CHARS: int static => 512 * 1024;
+
+        // One line of typed input. Past anything a person types into a
+        // single-line box, and the page refuses to send more.
+        INPUT_CHARS: int static => 4 * 1024;
+
+        // How long the program sleeps between looks at the control block while
+        // it waits. There is a person typing at the other end, so the delay is
+        // imperceptible, and a sleeping thread costs nothing.
+        POLL_MS: int static => 10;
+
+        _control: word;
+        _output: word;
+        _input: word;
+
+        init() is
+            _control = Marshal.alloc_h_global(CONTROL_SLOTS * 4);
+            _output = Marshal.alloc_h_global(OUTPUT_CHARS * 2);
+            _input = Marshal.alloc_h_global(INPUT_CHARS * 2);
+
+            for slot in 0..CONTROL_SLOTS do
+                _set(slot, 0);
+            od
+
+            _set(OUTPUT_ADDRESS, cast int(_output));
+            _set(OUTPUT_CAPACITY, OUTPUT_CHARS);
+            _set(INPUT_ADDRESS, cast int(_input));
+            _set(INPUT_CAPACITY, INPUT_CHARS);
+        si
+
+        // The address of the control block, which is the one thing the page is
+        // told directly. Everything else it needs is in the block.
+        address: int => cast int(_control);
+
+        _get(slot: int) -> int => Marshal.read_int32(_control, slot * 4);
+        _set(slot: int, value: int) is Marshal.write_int32(_control, slot * 4, value); si
+
+        // Appends to the output buffer, stopping at the cap rather than
+        // wrapping. The count is written last, so the page never reads bytes
+        // that are not there yet.
+        write(text: string) is
+            if _get(OUTPUT_TRUNCATED) != 0 then
+                return;
+            fi
+
+            let chars = text.to_char_array();
+            let written = _get(OUTPUT_WRITTEN);
+
+            if written + chars.count > OUTPUT_CHARS then
+                _set(OUTPUT_TRUNCATED, 1);
+                return;
+            fi
+
+            Marshal.copy(chars, 0, _output + cast word(written * 2), chars.count);
+
+            _set(OUTPUT_WRITTEN, written + chars.count);
+        si
+
+        // Blocks until the page leaves a line, and hands it back without its
+        // terminator, as Console.ReadLine does. Absent is end of input, which
+        // is what the page says when the run is being stopped.
+        read_line() -> string? is
+            _set(INPUT_READY, 0);
+            _set(INPUT_LENGTH, 0);
+            _set(INPUT_TURN, _get(INPUT_TURN) + 1);
+
+            while _get(INPUT_READY) == 0 do
+                System.Threading.Thread.sleep(POLL_MS);
+            od
+
+            let length = _get(INPUT_LENGTH);
+
+            _set(INPUT_READY, 0);
+
+            if length < 0 then
+                return null;
+            fi
+
+            Marshal.ptr_to_string_uni(_input, length)
+        si
+    si
+si

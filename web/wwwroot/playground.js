@@ -91,21 +91,84 @@ function loadMonaco() {
     return monacoLoaded;
 }
 
+// Slots in the channel's control block. Playground.CHANNEL in the runner has
+// the same list and the two have to agree; see that file for why everything
+// crossing this boundary crosses through memory rather than through a call.
+const OUTPUT_WRITTEN = 0;
+const OUTPUT_TRUNCATED = 1;
+const INPUT_TURN = 2;
+const INPUT_READY = 3;
+const INPUT_LENGTH = 4;
+const OUTPUT_ADDRESS = 5;
+const OUTPUT_CAPACITY = 6;
+const INPUT_ADDRESS = 7;
+const INPUT_CAPACITY = 8;
+const CONTROL_SLOTS = 9;
+
+// How often the page looks at the control block while a program runs. It is
+// reading a counter out of memory, so this is cheap; what it bounds is how far
+// behind the output can be and how long after a program asks for input the box
+// takes to appear.
+const POLL_MS = 50;
+
 // The .NET runtime is several megabytes and is only needed to run a program, so
 // it is started on the first run rather than on load. A page that embeds one of
 // these per example cannot pay that on every navigation.
 let runtime = null;
 
+// The resolved runtime, kept beside the promise so that code which only wants
+// the channel - and only when there is one - does not have to await anything.
+let loaded = null;
+
 function loadRuntime() {
     if (!runtime) {
         runtime = (async () => {
-            const { getAssemblyExports, getConfig } = await dotnet.create();
+            const api = await dotnet.create();
+            const exports = await api.getAssemblyExports(api.getConfig().mainAssemblyName);
+            const address = await exports.GhulRunner.OpenChannel();
 
-            return await getAssemblyExports(getConfig().mainAssemblyName);
+            // Rebuilt whenever the runtime's memory grows: growing replaces the
+            // buffer, which leaves every view made over the old one detached
+            // and reading zero. Nothing announces that, so the check is on
+            // every use rather than wired to an event.
+            let over = null;
+            let control = null;
+            let output = null;
+            let input = null;
+
+            const views = () => {
+                const heap = api.Module.HEAPU8.buffer;
+
+                if (heap !== over) {
+                    over = heap;
+                    control = new Int32Array(heap, address, CONTROL_SLOTS);
+                    output = new Uint16Array(heap, control[OUTPUT_ADDRESS], control[OUTPUT_CAPACITY]);
+                    input = new Uint16Array(heap, control[INPUT_ADDRESS], control[INPUT_CAPACITY]);
+                }
+
+                return { control, output, input };
+            };
+
+            loaded = { exports, views };
+
+            return loaded;
         })();
     }
 
     return runtime;
+}
+
+// The buffers carry UTF-16, which is what a JavaScript string already is, so
+// there is nothing to decode - but a very long run cannot go through apply() in
+// one call without overflowing the argument stack.
+function readOutput(output, from, to) {
+    let text = '';
+
+    for (let at = from; at < to; at += 8192) {
+        text += String.fromCharCode.apply(null, output.subarray(at, Math.min(at + 8192, to)));
+    }
+
+    return text;
 }
 
 export async function createPlayground({
@@ -113,6 +176,7 @@ export async function createPlayground({
     source = DEFAULT_SOURCE,
     theme = 'vs',
     onOutput = () => { },
+    onInput = () => { },
     onImages = () => { },
     onDiagnostics = () => { },
     onStatus = () => { },
@@ -383,15 +447,70 @@ export async function createPlayground({
 
             onStatus('starting runtime');
 
-            const exports = await loadRuntime();
+            const { exports, views } = await loadRuntime();
 
             onStatus('running');
 
             const ran = performance.now();
 
+            // Reset here rather than in the runner. Nothing is running at this
+            // instant, so the page and the program cannot disagree about which
+            // run a count belongs to - where a reset the runner did would race
+            // the first poll, which would read the last run's total and decide
+            // it had already shown everything.
+            {
+                const { control } = views();
+
+                Atomics.store(control, OUTPUT_WRITTEN, 0);
+                Atomics.store(control, OUTPUT_TRUNCATED, 0);
+                Atomics.store(control, INPUT_TURN, 0);
+                Atomics.store(control, INPUT_READY, 0);
+            }
+
+            let shown = 0;
+            let live = '';
+            let answered = 0;
+            let asking = false;
+
+            const watch = setInterval(() => {
+                const { control, output } = views();
+
+                const written = Atomics.load(control, OUTPUT_WRITTEN);
+
+                if (written > shown) {
+                    live += readOutput(output, shown, written);
+                    shown = written;
+                    onOutput(live);
+                }
+
+                // Asked for only when the program is actually waiting, so the
+                // box appears because the program wanted a line rather than
+                // because somebody guessed it might.
+                const turn = Atomics.load(control, INPUT_TURN);
+
+                if (turn !== answered) {
+                    answered = turn;
+                    asking = true;
+                    onInput(true);
+                }
+            }, POLL_MS);
+
             // The host answers with the program's text and any pictures it
             // drew, which is two outputs on one channel - see web/Program.cs.
-            const produced = JSON.parse(exports.GhulRunner.Run(result.assembly));
+            // It is a promise because with threading enabled the browser's
+            // main thread cannot call a synchronous C# method at all.
+            let produced;
+
+            try {
+                produced = JSON.parse(await exports.GhulRunner.Run(result.assembly));
+            } finally {
+                clearInterval(watch);
+                if (asking) onInput(false);
+            }
+
+            if (Atomics.load(views().control, OUTPUT_TRUNCATED) === 1) {
+                onOutput(`${live}\n[output stopped here: this program printed more than the playground shows]`);
+            }
 
             onOutput(produced.text);
             onImages(produced.images.map(image => ({
@@ -406,9 +525,46 @@ export async function createPlayground({
         }
     }
 
+    // What the page calls when somebody has typed a line. Writing the length
+    // before the flag is what makes the handshake safe: the program only ever
+    // sees a length that is already there.
+    function sendInput(text) {
+        const { control, input } = currentViews();
+
+        if (!control) return;
+
+        const length = Math.min(text.length, control[INPUT_CAPACITY]);
+
+        for (let at = 0; at < length; at++) {
+            input[at] = text.charCodeAt(at);
+        }
+
+        Atomics.store(control, INPUT_LENGTH, length);
+        Atomics.store(control, INPUT_READY, 1);
+    }
+
+    // End of input rather than a line, which is what a program reading until
+    // the stream runs out is waiting for.
+    function endInput() {
+        const { control } = currentViews();
+
+        if (!control) return;
+
+        Atomics.store(control, INPUT_LENGTH, -1);
+        Atomics.store(control, INPUT_READY, 1);
+    }
+
+    // The runtime is only started by the first run, so before then there is no
+    // channel to write to - and nothing can be waiting for input either.
+    function currentViews() {
+        return loaded ? loaded.views() : {};
+    }
+
     return {
         editor,
         run,
+        sendInput,
+        endInput,
         hasToken: () => Boolean(getToken()),
         tokenRequired,
         askForToken: message =>

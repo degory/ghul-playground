@@ -175,6 +175,57 @@ chrome.on('error', e => {
     }
     check('the program compiles and runs', output.includes('it ran'), JSON.stringify(output.trim()));
 
+    // A program that reads a line. This is the one thing on the page that
+    // cannot work at all unless the runtime is on a worker thread and the page
+    // is cross-origin isolated, so it is also the check that says both are
+    // true - and neither shows up as a failure anywhere else, because a
+    // runtime that will not start looks like a run that never finishes.
+    check('the page is cross-origin isolated', await ev(`self.crossOriginIsolated`));
+
+    const reading = [
+        'use IO.Std.write_line;', 'use IO.Std.read_line;', '', 'entry() is',
+        '    write_line("what is your name?");', '', '    let name = read_line();', '',
+        '    write_line("hello, {name ?? "nobody"}");', 'si', ''
+    ].join('\n');
+
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(reading)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let asked = false;
+    for (let i = 0; i < 180; i++) {
+        asked = await ev(`!document.getElementById('input-row').hidden`);
+        if (asked) break;
+        await sleep(500);
+    }
+    check('a program that reads asks for a line', asked);
+
+    // The prompt has to be readable before anything is typed, which is only
+    // possible if output reaches the page while the program is still running.
+    check('output arrives before the run has finished',
+        (await ev(`document.getElementById('output').innerText`)).includes('what is your name?'));
+
+    await ev(`(() => {
+        document.getElementById('stdin').value = 'world';
+        document.getElementById('input-row')
+            .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        return true;
+    })()`);
+
+    let answered = '';
+    for (let i = 0; i < 180; i++) {
+        answered = await ev(`document.getElementById('output').innerText`);
+        if (answered.includes('hello, world')) break;
+        await sleep(500);
+    }
+    check('the typed line reaches the program', answered.includes('hello, world'),
+        JSON.stringify(answered.trim()));
+    // A line of its own, so this is the echo rather than the greeting that
+    // also contains the word.
+    check('what was typed is echoed into the transcript', /^world$/m.test(answered));
+    check('the box goes away once the run has finished',
+        await ev(`document.getElementById('input-row').hidden`));
+
     // A program that draws: the picture has to survive being written to the
     // wasm filesystem, read back by the host, and carried to the page as a
     // data URL, and the marker naming it has to leave the text. Nothing short
