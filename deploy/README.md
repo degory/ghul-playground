@@ -68,9 +68,18 @@ that re-issues every time it runs will eventually lock the host out of renewal.
 Issue once, by hand, after DNS points at the host.
 
 There are two, one per site, and the documentation site's covers both of its
-names. Take the `A` and `AAAA` records for `ghul.dev` and `www.ghul.dev` off the
-GitHub Pages addresses and on to this host before issuing, or validation fails
-against a host that is not this one.
+names. Adding the second one to a host that is already serving the playground
+goes in this order, and the order is what keeps the playground up:
+
+1. `sudo ./deploy/host-setup.sh`. It installs the documentation site's server
+   block but leaves it disabled, because the block names a certificate that
+   does not exist yet.
+2. Move the `A` and `AAAA` records for `ghul.dev` and `www.ghul.dev` off the
+   GitHub Pages addresses and on to this host. Validation is against whatever
+   the name resolves to, so this cannot wait until after the next step.
+3. Issue the certificate, below.
+4. `sudo ./deploy/host-setup.sh` again. The certificate now exists, so the site
+   is enabled and nginx reloads.
 
 **On a host that has never had a certificate, `--webroot` cannot work**, and the
 reason is circular: the port 80 server block that serves

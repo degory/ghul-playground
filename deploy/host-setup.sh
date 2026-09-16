@@ -127,8 +127,23 @@ ln -sfn "/etc/nginx/sites-available/$DOMAIN" "/etc/nginx/sites-enabled/$DOMAIN"
 # The documentation site, served from this host as well. It is here because the
 # embedded playground needs the page framing it to be cross-origin isolated, and
 # only a host we control can send the headers that grant that.
+#
+# Enabled only once its certificate exists. The server block names the
+# certificate, and nginx refuses to load a configuration naming one that is not
+# there - so enabling it first would leave a running host whose config is valid
+# in memory and broken on disk. Nothing would look wrong until the next reboot
+# or the next reload certbot's renewal timer does, at which point nginx fails to
+# start and takes the playground down with it. The first run of this script
+# therefore installs the file and leaves it disabled; issue the certificate, run
+# the script again, and it is picked up.
 install -m 644 "$here/nginx/$DOCS_DOMAIN.conf" "/etc/nginx/sites-available/$DOCS_DOMAIN"
-ln -sfn "/etc/nginx/sites-available/$DOCS_DOMAIN" "/etc/nginx/sites-enabled/$DOCS_DOMAIN"
+
+if [ -f "/etc/letsencrypt/live/$DOCS_DOMAIN/fullchain.pem" ]; then
+    ln -sfn "/etc/nginx/sites-available/$DOCS_DOMAIN" "/etc/nginx/sites-enabled/$DOCS_DOMAIN"
+else
+    rm -f "/etc/nginx/sites-enabled/$DOCS_DOMAIN"
+    echo "no certificate for $DOCS_DOMAIN yet; installed but not enabled"
+fi
 
 rm -f /etc/nginx/sites-enabled/default
 
@@ -136,19 +151,15 @@ rm -f /etc/nginx/sites-enabled/default
 # nginx will not start without it. On a fresh host this is expected to be the
 # state until the issuance step in deploy/README.md has been run.
 #
-# Both sites are checked, because either missing certificate stops nginx from
-# loading and the one that is present tells you nothing about the other.
-if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] \
-   && [ -f "/etc/letsencrypt/live/$DOCS_DOMAIN/fullchain.pem" ]; then
+# Only the playground's is checked here. The documentation site is enabled
+# above only when its own certificate exists, so a missing one leaves a
+# configuration that still loads rather than one that has to be reloaded around.
+if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
     nginx -t
     systemctl reload nginx
 else
-    for d in "$DOMAIN" "$DOCS_DOMAIN"; do
-        if [ ! -f "/etc/letsencrypt/live/$d/fullchain.pem" ]; then
-            echo "no certificate for $d yet"
-        fi
-    done
-    echo "skipping the nginx reload; see 'certificates' in deploy/README.md"
+    echo "no certificate for $DOMAIN yet; skipping the nginx reload"
+    echo "see 'certificates' in deploy/README.md"
 fi
 
 say "deploy user"
