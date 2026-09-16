@@ -21,11 +21,22 @@ const STATUS_TEXT = {
     failed: () => 'compilation failed',
     busy: () => 'the service is busy, try again',
     error: () => 'failed',
-    done: d => `compiled in ${d.compiled} ms, ran in ${d.ran} ms`,
+    done: () => 'compiler',
     ready: () => 'compiler'
 };
 
 const BUSY = new Set(['compiling', 'running', 'starting runtime']);
+
+// What the run cost, beside its output rather than in the header. Somebody who
+// pressed run is already looking at the pane below, while the header is for
+// what the services are doing now rather than for what they did a moment ago.
+const runCost = document.getElementById('run-cost');
+
+function reportCost(detail) {
+    runCost.textContent = detail
+        ? `compiled in ${detail.compiled} ms \u00b7 ran in ${detail.ran} ms`
+        : '';
+}
 
 // What the compiler dot's colour means, for the tooltip. `failed` is about the
 // last run - a compile error or a busy service - not about the service dying.
@@ -250,6 +261,32 @@ const program = requested
 
 if (program?.source) document.title = `${requested.name} - ghūl playground`;
 
+// Two questions about the buffer, kept together because they answer as a pair:
+// which file it is, once it has been opened or saved as one, and which program
+// it came from, when the page was asked for one by path.
+//
+// The path is provenance rather than identity. It stays true while the buffer
+// is that program edited - following the link still loads the program, which is
+// what a reader who is sent one expects - and stops naming it the moment the
+// buffer becomes something else. Same rule as Save As in an editor: once the
+// document is saved somewhere else, the path it was opened from is no longer
+// what it is.
+let currentName = null;
+let provenance = requested;
+
+function forgetProvenance() {
+    if (!provenance) return;
+
+    provenance = null;
+
+    // replaceState rather than pushState: replacing the buffer is not a
+    // navigation, and a back button that returned to the program the reader
+    // has just thrown away would be a trap rather than a convenience.
+    history.replaceState(null, '', '/');
+
+    document.title = currentName ? `${currentName} - ghūl playground` : 'ghūl playground';
+}
+
 const initialSource = program?.source ?? savedSource;
 
 const playground = await createPlayground({
@@ -300,6 +337,11 @@ const playground = await createPlayground({
         // know which tab to be on.
         if (state === 'running' || state === 'done') showTab(outputPane);
         if (state === 'failed') showTab(diagnosticsPane);
+
+        // Cleared when the next run starts, so it always describes the run
+        // whose output is on screen.
+        if (state === 'done') reportCost(detail);
+        if (BUSY.has(state)) reportCost(null);
     },
 
     onAnalyser: state => {
@@ -360,10 +402,32 @@ playground.editor.addCommand(
 // --- saving and copying ----------------------------------------------------
 
 let saveDebounce = null;
-playground.editor.onDidChangeModelContent(() => {
+let sourceLength = playground.getSource().length;
+
+playground.editor.onDidChangeModelContent(event => {
+    const source = playground.getSource();
+
+    // One edit spanning the whole buffer is a paste over it or a select-all
+    // delete, and either way what is there now did not come from the program
+    // the page loaded. Deleting it in pieces reaches the same place, hence the
+    // second test. Opening a file needs no case of its own: replacing the
+    // source is exactly the edit this describes.
+    //
+    // Undoing such an edit does not bring the path back. Following the link
+    // again does, and tracking it through the undo stack would cost more than
+    // it is worth.
+    const replaced = !event.isEolChange
+        && event.changes.length === 1
+        && event.changes[0].rangeOffset === 0
+        && event.changes[0].rangeLength >= sourceLength;
+
+    sourceLength = source.length;
+
+    if (replaced || !source.trim()) forgetProvenance();
+
     clearTimeout(saveDebounce);
     saveDebounce = setTimeout(() => {
-        try { localStorage.setItem(STORAGE_KEY, playground.getSource()); } catch { }
+        try { localStorage.setItem(STORAGE_KEY, source); } catch { }
     }, 500);
 });
 
@@ -427,7 +491,6 @@ document.addEventListener('keydown', event => {
 // and there is nothing to keep saying about it. The document title carries the
 // lasting half, which is which file this now is.
 let acknowledgement = null;
-let currentName = null;
 
 function acknowledge(name) {
     currentName = name;
@@ -466,10 +529,14 @@ async function saveFile() {
 async function saveFileAs() {
     closeMenu();
 
-    const name = await files.saveAs(
-        playground.getSource(), files.defaultName({ current: currentName, requested }));
+    const offered = files.defaultName({ current: currentName, requested: provenance });
+    const name = await files.saveAs(playground.getSource(), offered);
 
     if (!name) return;
+
+    // Keeping the name it was offered says this is still that program, so the
+    // path stays. Choosing another one says it is theirs now.
+    if (name !== offered) forgetProvenance();
 
     acknowledge(name);
 }
