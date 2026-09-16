@@ -91,6 +91,24 @@ async function resolveRuntime() {
     return path.join(packages, version, 'lib', 'net10.0', 'ghul-runtime.dll');
 }
 
+// Drawing. Held to the same rule as the runtime: the web app ships this exact
+// assembly, so what is compiled against here is what the browser binds.
+//
+// It is a ghūl library like any other and needs nothing from the host, which
+// is the point - a program here draws into a buffer and writes a PNG in
+// managed code, where a graphics stack would need a native library the wasm
+// host does not have.
+async function resolveRaster() {
+    if (process.env.GHUL_RASTER_DLL) {
+        return process.env.GHUL_RASTER_DLL;
+    }
+
+    const packages = path.join(process.env.HOME, '.nuget', 'packages', 'ghul.raster');
+    const version = highestVersion(await readdir(packages));
+
+    return path.join(packages, version, 'lib', 'net10.0', 'ghul-raster.dll');
+}
+
 async function resolveReferencePack() {
     if (process.env.GHUL_REFERENCE_PACK) {
         return process.env.GHUL_REFERENCE_PACK;
@@ -110,14 +128,14 @@ async function resolveReferencePack() {
     throw new Error('could not find Microsoft.NETCore.App.Ref; set GHUL_REFERENCE_PACK');
 }
 
-// Every reference as an absolute path: the runtime first, then the framework
-// assemblies. Both services build their arguments from this one list.
+// Every reference as an absolute path: the ghūl assemblies first, then the
+// framework ones. Both services build their arguments from this one list.
 async function resolveReferencePaths() {
-    const [referencePack, runtime] = await Promise.all([
-        resolveReferencePack(), resolveRuntime()
+    const [referencePack, runtime, raster] = await Promise.all([
+        resolveReferencePack(), resolveRuntime(), resolveRaster()
     ]);
 
-    const paths = [runtime, ...REFERENCES.map(r => path.join(referencePack, `${r}.dll`))];
+    const paths = [runtime, raster, ...REFERENCES.map(r => path.join(referencePack, `${r}.dll`))];
 
     // A missing entry would not fail here: the compiler loads what it finds
     // and the gap surfaces later as a baffling missing member. Refuse to
@@ -135,6 +153,7 @@ module.exports = {
     highestVersion,
     resolveCompiler,
     resolveRuntime,
+    resolveRaster,
     resolveReferencePack,
     resolveReferencePaths
 };
