@@ -470,7 +470,6 @@ export async function createPlayground({
             let shown = 0;
             let live = '';
             let answered = 0;
-            let asking = false;
 
             const watch = setInterval(() => {
                 const { control, output } = views();
@@ -490,7 +489,7 @@ export async function createPlayground({
 
                 if (turn !== answered) {
                     answered = turn;
-                    asking = true;
+                    waiting = true;
                     onInput(true);
                 }
             }, POLL_MS);
@@ -505,7 +504,11 @@ export async function createPlayground({
                 produced = JSON.parse(await exports.GhulRunner.Run(result.assembly));
             } finally {
                 clearInterval(watch);
-                if (asking) onInput(false);
+
+                if (waiting) {
+                    waiting = false;
+                    onInput(false);
+                }
             }
 
             if (Atomics.load(views().control, OUTPUT_TRUNCATED) === 1) {
@@ -525,6 +528,10 @@ export async function createPlayground({
         }
     }
 
+    // Whether the program is waiting for a line right now, which decides what
+    // stopping it can do.
+    let waiting = false;
+
     // What the page calls when somebody has typed a line. Writing the length
     // before the flag is what makes the handshake safe: the program only ever
     // sees a length that is already there.
@@ -541,6 +548,8 @@ export async function createPlayground({
 
         Atomics.store(control, INPUT_LENGTH, length);
         Atomics.store(control, INPUT_READY, 1);
+
+        waiting = false;
     }
 
     // End of input rather than a line, which is what a program reading until
@@ -552,6 +561,8 @@ export async function createPlayground({
 
         Atomics.store(control, INPUT_LENGTH, -1);
         Atomics.store(control, INPUT_READY, 1);
+
+        waiting = false;
     }
 
     // The runtime is only started by the first run, so before then there is no
@@ -560,9 +571,24 @@ export async function createPlayground({
         return loaded ? loaded.views() : {};
     }
 
+    // Stopping a program that is waiting for a line is telling it there is no
+    // more input, which ends it the way running out of input would and leaves
+    // the transcript intact. A program that is not waiting cannot be stopped
+    // from here at all: it is managed code on another thread, and nothing in
+    // the browser can interrupt that. Answering false says so, and leaves what
+    // to do about it to the page.
+    function stop() {
+        if (!waiting) return false;
+
+        endInput();
+
+        return true;
+    }
+
     return {
         editor,
         run,
+        stop,
         sendInput,
         endInput,
         hasToken: () => Boolean(getToken()),

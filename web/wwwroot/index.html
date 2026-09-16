@@ -227,6 +227,13 @@
     #run[data-busy] .spinner { display: block; animation: spin 0.9s linear infinite; }
     #run[data-busy] .play { display: none; }
 
+    /* Once the program is actually running there is something to stop, so the
+       button becomes that instead - the spinner goes, because the square is
+       now what says a run is in flight. */
+    #run .stop { display: none; width: 12px; height: 12px; fill: var(--error); }
+    #run[data-stop] .stop { display: block; }
+    #run[data-stop] .play, #run[data-stop] .spinner { display: none; }
+
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .spacer { margin-left: auto; }
@@ -380,6 +387,8 @@
     /* A line for the running program to read, across the foot of the pane. It
        is part of the output rather than beside it, so it reads as the place
        the transcript is being written to. */
+    #input-row[hidden] { display: none; }
+
     #input-row {
       display: flex;
       align-items: center;
@@ -406,10 +415,6 @@
       font-family: var(--mono);
       font-size: 0.85rem;
       padding: 0.15rem 0;
-    }
-
-    #stdin::placeholder {
-      color: var(--muted);
     }
 
     #run-cost {
@@ -655,7 +660,8 @@
         <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-dasharray="26" stroke-dashoffset="8" opacity="0.7" />
       </svg>
-      Run
+      <svg class="stop" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
+      <span id="run-label">Run</span>
     </button>
 
     <span class="spacer"></span>
@@ -736,8 +742,7 @@
       <form id="input-row" hidden>
         <label for="stdin">&gt;</label>
         <input id="stdin" type="text" autocomplete="off" autocapitalize="off"
-               spellcheck="false" aria-label="Input for the running program"
-               placeholder="this program is waiting for a line - type one and press Enter">
+               spellcheck="false" aria-label="Input for the running program">
       </form>
     </div>
 
