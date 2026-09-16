@@ -75,8 +75,11 @@ services:
 
     # A compile of a single file peaks under 200 MB measured; the cap is here so
     # a runaway allocation fails rather than taking the host down.
-    mem_limit: 2g
-    memswap_limit: 2g
+    # Six concurrent compiles peaking near 200 MB each is around 1.2 GB, so
+    # this is roughly double what a full queue can reach. It bounds a runaway
+    # rather than rationing what the host has to spare.
+    mem_limit: 3g
+    memswap_limit: 3g
     # One core per concurrent compile, since the compiler is single threaded.
     # Docker refuses a value above the host's CPU count, so this has to fit the
     # smallest machine deployed to.
@@ -110,8 +113,13 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
 
-    mem_limit: 3g
-    memswap_limit: 3g
+    # Well above what the sessions above can hold - a measured analyser is
+    # around 90 MB, so a full house is under 3 GB. The limit is here to make a
+    # runaway allocation fail rather than to ration memory the host has spare,
+    # and it is set high enough that the per-analyser figure drifting upward
+    # between compiler releases cannot quietly turn it into a real ceiling.
+    mem_limit: 6g
+    memswap_limit: 6g
     # Fewer than MAX_SESSIONS on purpose. An analyser is single threaded and a
     # session spends nearly all of its life idle between keystrokes, so this is
     # the number of requests that can be served at once rather than the number
