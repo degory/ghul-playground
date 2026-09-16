@@ -56,8 +56,12 @@ services:
       # A compile is about a CPU-second and peaks near 200 MB, so this rather
       # than mem_limit is what keeps the container off its cap. Past the queue
       # the service answers 503 rather than accepting work it cannot do.
-      MAX_CONCURRENT_COMPILES: "2"
-      MAX_QUEUED_COMPILES: "6"
+      #
+      # The compiler is single threaded, so this is a count of cores in use as
+      # much as it is a concurrency limit: raising it makes the service wider,
+      # never any one compile faster, and it should not exceed the cpus below.
+      MAX_CONCURRENT_COMPILES: "6"
+      MAX_QUEUED_COMPILES: "12"
       COMPILE_TIMEOUT_MS: "10000"
 
     # Bound to loopback: these sit behind a reverse proxy that terminates TLS,
@@ -71,11 +75,12 @@ services:
 
     # A compile of a single file peaks under 200 MB measured; the cap is here so
     # a runaway allocation fails rather than taking the host down.
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 2g
+    memswap_limit: 2g
+    # One core per concurrent compile, since the compiler is single threaded.
     # Docker refuses a value above the host's CPU count, so this has to fit the
-    # smallest machine deployed to. Raise it where there is more to give.
-    cpus: 2.0
+    # smallest machine deployed to.
+    cpus: 6.0
     pids_limit: 256
 
   analyse:
@@ -95,8 +100,8 @@ services:
       # analyser costs around 70 MB rather than the 260 MB a full project
       # needs. The worst case is MAX_SESSIONS + POOL_SIZE of them, since the
       # pool tops up alongside the sessions in use rather than instead of them.
-      MAX_SESSIONS: "6"
-      POOL_SIZE: "3"
+      MAX_SESSIONS: "24"
+      POOL_SIZE: "6"
       IDLE_TIMEOUT_MS: "300000"
       MAX_SESSION_MS: "3600000"
 
@@ -105,9 +110,14 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
 
-    mem_limit: 1g
-    memswap_limit: 1g
-    cpus: 2.0
+    mem_limit: 3g
+    memswap_limit: 3g
+    # Fewer than MAX_SESSIONS on purpose. An analyser is single threaded and a
+    # session spends nearly all of its life idle between keystrokes, so this is
+    # the number of requests that can be served at once rather than the number
+    # of sessions that can be open. Raise it if hover latency under load is the
+    # complaint; it cannot usefully exceed the sessions actually mid-request.
+    cpus: 4.0
     pids_limit: 512
 
   goatcounter:

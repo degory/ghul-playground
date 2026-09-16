@@ -55,12 +55,18 @@ slot is taken, so an embedding page can tell that the service is up.
 Anyone can send source to the services, so the limits are on cost, not on who
 is sending.
 
-The compile service runs at most two compiles at once and queues a few more
-behind them. Past the queue it answers 503. Each compile gets ten seconds and
-32 KB of source. The compile cap is what keeps the container inside its memory
-limit: a compile peaks near 200 MB, and without the cap thirty simultaneous
-requests were enough to hit the limit, at which point the kernel killed
-compilers and every request in flight failed.
+The compile service runs a fixed number of compiles at once and queues a few
+more behind them. Past the queue it answers 503. Each compile gets ten seconds
+and 32 KB of source. The compile cap is what keeps the container inside its
+memory limit: a compile peaks near 200 MB, and without the cap thirty
+simultaneous requests were enough to hit the limit, at which point the kernel
+killed compilers and every request in flight failed.
+
+The compiler is single threaded, so the cap is a count of cores as much as a
+concurrency limit, and a host with more of them serves more clients at once
+rather than serving any one of them faster. The same holds for an analyser, but
+a session is idle between keystrokes rather than busy for its whole life, so
+the analyse service deliberately allows more sessions than it has cores.
 
 The analyse service caps the number of open sessions, with the idle timeout and
 lifetime above. The cap bounds memory directly.
