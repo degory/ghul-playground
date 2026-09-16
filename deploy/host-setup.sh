@@ -21,11 +21,13 @@
 #     once by hand; see "deploying" in deploy/README.md.
 #
 # Usage:  sudo ./deploy/host-setup.sh [--user NAME] [--domain NAME]
+#                                    [--docs-domain NAME]
 
 set -euo pipefail
 
 USER_NAME="degory"
 DOMAIN="playground.ghul.dev"
+DOCS_DOMAIN="ghul.dev"
 
 # The docker network the services share. Pinned in compose.yaml, and repeated
 # here because the firewall rules below match on it: if the two ever disagree,
@@ -36,6 +38,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --user) USER_NAME="$2"; shift 2 ;;
         --domain) DOMAIN="$2"; shift 2 ;;
+        --docs-domain) DOCS_DOMAIN="$2"; shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -120,17 +123,32 @@ install -m 644 "$here/nginx/playground-limits.conf" /etc/nginx/conf.d/playground
 install -m 644 "$here/nginx/reject-unknown-hosts.conf" /etc/nginx/conf.d/reject-unknown-hosts.conf
 install -m 644 "$here/nginx/$DOMAIN.conf" "/etc/nginx/sites-available/$DOMAIN"
 ln -sfn "/etc/nginx/sites-available/$DOMAIN" "/etc/nginx/sites-enabled/$DOMAIN"
+
+# The documentation site, served from this host as well. It is here because the
+# embedded playground needs the page framing it to be cross-origin isolated, and
+# only a host we control can send the headers that grant that.
+install -m 644 "$here/nginx/$DOCS_DOMAIN.conf" "/etc/nginx/sites-available/$DOCS_DOMAIN"
+ln -sfn "/etc/nginx/sites-available/$DOCS_DOMAIN" "/etc/nginx/sites-enabled/$DOCS_DOMAIN"
+
 rm -f /etc/nginx/sites-enabled/default
 
 # Only reload once the certificate exists: the server block references it, and
 # nginx will not start without it. On a fresh host this is expected to be the
 # state until the issuance step in deploy/README.md has been run.
-if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+#
+# Both sites are checked, because either missing certificate stops nginx from
+# loading and the one that is present tells you nothing about the other.
+if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] \
+   && [ -f "/etc/letsencrypt/live/$DOCS_DOMAIN/fullchain.pem" ]; then
     nginx -t
     systemctl reload nginx
 else
-    echo "no certificate for $DOMAIN yet; skipping the nginx reload"
-    echo "see 'certificates' in deploy/README.md"
+    for d in "$DOMAIN" "$DOCS_DOMAIN"; do
+        if [ ! -f "/etc/letsencrypt/live/$d/fullchain.pem" ]; then
+            echo "no certificate for $d yet"
+        fi
+    done
+    echo "skipping the nginx reload; see 'certificates' in deploy/README.md"
 fi
 
 say "deploy user"
@@ -164,6 +182,11 @@ install -d -o deploy -g deploy -m 700 /home/deploy/.ssh
 # this script as the cause.
 install -d -o deploy -g deploy /var/www/playground
 chown -R deploy:deploy /var/www/playground
+
+# The documentation site's root, on the same terms. It is written by the same
+# deploy account, from the ghul-dev repository's own workflow.
+install -d -o deploy -g deploy /var/www/ghul-dev
+chown -R deploy:deploy /var/www/ghul-dev
 # Present only once the application has been cloned; a fresh host gets it
 # after this script, so do not fail when it is not there yet.
 if [ -d /opt/ghul-playground ]; then
@@ -242,7 +265,7 @@ passwd -l root > /dev/null
 say "done"
 
 echo "still to do by hand, if this is a fresh host:"
-echo "  - issue the certificate            (see deploy/README.md)"
+echo "  - issue both certificates          (see deploy/README.md)"
 echo "  - write /opt/ghul-playground/.env  (origins; tokens optional, mode 600)"
 echo "  - set the netcup firewall policy   (see deploy/README.md)"
 echo "  - install the deploy SSH key       (see deploy/README.md)"

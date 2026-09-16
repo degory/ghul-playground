@@ -40,11 +40,35 @@ the GoatCounter container. All three are bound to loopback and never face the
 internet themselves. The containers come from `compose.yaml` in the repository
 root.
 
+It also serves the documentation site, `ghul.dev` and `www.ghul.dev`, from
+`/var/www/ghul-dev`. That site used to be on GitHub Pages, and it is here for
+one reason: the playground runs the .NET runtime on a worker thread so that a
+program can block reading a line of input, which needs a `SharedArrayBuffer`,
+which needs the page to be cross-origin isolated. Isolation is granted by two
+response headers, Pages sends no custom headers at all, and a cross-origin frame
+is isolated only when the document framing it already is - so an embedded
+playground on Pages could never be isolated, whatever this host sent.
+
+The two sites share nothing but the host: separate roots, separate server
+blocks, separate certificates, and the documentation site is deployed by the
+`ghul-dev` repository's own workflow rather than by this one. What they do share
+is a failure: an outage now takes out both, where before it left the
+documentation up. That is less of a change than it sounds, since the site
+already depends on this host for the embedded playground and for the analytics,
+but it is the reason to leave the Pages workflow in place with no `cname` - it
+costs nothing and leaves a readable copy of the site at its `github.io` address
+when the host is gone.
+
 ## the things host-setup.sh does not do
 
 **Certificates.** Let's Encrypt rate-limits issuance, so a provisioning script
 that re-issues every time it runs will eventually lock the host out of renewal.
 Issue once, by hand, after DNS points at the host.
+
+There are two, one per site, and the documentation site's covers both of its
+names. Take the `A` and `AAAA` records for `ghul.dev` and `www.ghul.dev` off the
+GitHub Pages addresses and on to this host before issuing, or validation fails
+against a host that is not this one.
 
 **On a host that has never had a certificate, `--webroot` cannot work**, and the
 reason is circular: the port 80 server block that serves
@@ -56,7 +80,13 @@ missing. So nginx is running, port 80 answers, and the challenge path 404s. Use
 ```sh
 sudo systemctl stop nginx
 sudo certbot certonly --standalone -d playground.ghul.dev
+sudo certbot certonly --standalone -d ghul.dev -d www.ghul.dev
 ```
+
+The second is named `ghul.dev`, after its first name, which is the path
+`nginx/ghul.dev.conf` expects under `/etc/letsencrypt/live/`. Adding a name to
+an existing certificate later changes nothing about that path, so the config
+does not have to follow.
 
 `--standalone` then leaves two files uncreated that `--nginx` would have written
 and that the site config includes, so nginx fails to start afterwards on a
@@ -289,9 +319,11 @@ any change to the nginx roots.
 A dedicated `deploy` account, not the interactive one. The services run in
 containers that drop to an unprivileged user, and nginx runs as `www-data`, so
 nothing is hosted as `deploy` either - it exists only to deploy. It has exactly
-what a deploy needs and no sudo: it owns `/opt/ghul-playground` and
-`/var/www/playground`, and it is in the `docker` group so it can rebuild the
-services. The clone is an anonymous HTTPS checkout of a public repository, so it
+what a deploy needs and no sudo: it owns `/opt/ghul-playground`,
+`/var/www/playground` and `/var/www/ghul-dev`, and it is in the `docker` group
+so it can rebuild the services. The documentation site's workflow logs in as the
+same account with the same key, so adding it needed no new credential on this
+host. The clone is an anonymous HTTPS checkout of a public repository, so it
 pulls without a GitHub credential. `host-setup.sh` creates the account and the
 ownership; CI logs in as it.
 
