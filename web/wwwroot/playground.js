@@ -253,8 +253,14 @@ export async function createPlayground({
                     label: typeof hint.label === 'string'
                         ? hint.label
                         : (hint.label ?? []).map(part => part.value).join(''),
+                    // A markdown tooltip carries the signature in a fenced
+                    // code block, which Monaco renders in the editor's font
+                    // and colourizes only when the tooltip is a markdown
+                    // string rather than flattened text.
                     tooltip: typeof hint.tooltip === 'object'
-                        ? hint.tooltip.value
+                        ? (hint.tooltip.kind === 'markdown'
+                            ? { value: hint.tooltip.value }
+                            : hint.tooltip.value)
                         : hint.tooltip,
                     paddingLeft: hint.paddingLeft,
                     paddingRight: hint.paddingRight
