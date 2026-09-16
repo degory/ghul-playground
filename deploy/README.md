@@ -44,17 +44,38 @@ root.
 
 **Certificates.** Let's Encrypt rate-limits issuance, so a provisioning script
 that re-issues every time it runs will eventually lock the host out of renewal.
-Issue once, by hand, after DNS points at the host and nginx is serving port 80:
+Issue once, by hand, after DNS points at the host.
+
+**On a host that has never had a certificate, `--webroot` cannot work**, and the
+reason is circular: the port 80 server block that serves
+`/.well-known/acme-challenge/` lives in the site config, and nginx refuses to
+load that config at all while the certificate the HTTPS block references is
+missing. So nginx is running, port 80 answers, and the challenge path 404s. Use
+`--standalone`, which binds port 80 itself:
 
 ```sh
-sudo certbot certonly --webroot -w /var/www/certbot -d playground.ghul.dev
-sudo systemctl reload nginx
+sudo systemctl stop nginx
+sudo certbot certonly --standalone -d playground.ghul.dev
 ```
 
-Webroot rather than the nginx authenticator, and the challenge path is served
-directly from the port 80 server block rather than redirected, so renewal does
-not depend on anything in the HTTPS block. Renewal is certbot's own systemd
-timer and needs no cron entry.
+`--standalone` then leaves two files uncreated that `--nginx` would have written
+and that the site config includes, so nginx fails to start afterwards on a
+missing-file error that reads as unrelated. Both ship inside the already
+installed `python3-certbot-nginx`:
+
+```sh
+sudo install -m 644 /usr/lib/python3/dist-packages/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf \
+    /etc/letsencrypt/options-ssl-nginx.conf
+sudo install -m 644 /usr/lib/python3/dist-packages/certbot/ssl-dhparams.pem \
+    /etc/letsencrypt/ssl-dhparams.pem
+sudo nginx -t && sudo systemctl start nginx
+```
+
+**Renewal is a different case and does use webroot**, which is why the challenge
+path is served directly from the port 80 block rather than redirected: once a
+certificate exists the site config loads, so renewal does not depend on anything
+in the HTTPS block and does not need nginx stopped. Renewal is certbot's own
+systemd timer and needs no cron entry.
 
 **The analytics exclusion list and the GoatCounter site.**
 `/etc/nginx/analytics-exclude.conf` is an optional list of networks whose visits
@@ -155,6 +176,15 @@ replies travelling back to nginx match the DROP and the site goes down. That is
 why `host-setup.sh` removes and re-adds those three rather than checking whether
 each is present.
 
+**These rules are IPv4 only, and that is currently correct rather than an
+oversight.** They are `iptables` rules matching an IPv4 subnet, with nothing
+equivalent in `ip6tables` - which is sound only because docker's IPv6 is off, so
+the containers have no IPv6 address to reach anything from. The host itself does
+have working IPv6, and the provider firewall covers both families, so this is the
+one layer that does not. Enabling docker IPv6 would silently hand the containers
+the egress these rules exist to remove; if that ever happens, the `DOCKER-USER`
+and `INPUT` rules need `ip6tables` counterparts in the same change.
+
 **Re-run `host-setup.sh` after recreating the docker network.** The subnet is
 pinned in `compose.yaml` precisely so these rules keep matching, but a rule that
 has been flushed is invisible: everything works, and the containers quietly have
@@ -186,6 +216,33 @@ the schema - `-automigrate` runs pending migrations on first start, which is the
 point the old database stops being readable by the old binary.
 `GOATCOUNTER_VERSION` in `goatcounter/Dockerfile` is the pin, and moving it is
 the whole upgrade.
+
+Moving it to another host, which is also how to take that copy. **Stop the
+container first**: the database is SQLite in WAL mode, so a running instance has
+its recent writes in a `-wal` file beside the database rather than in it, and
+copying the three files live is copying a torn database. A clean stop
+checkpoints the lot into one file.
+
+```sh
+# on the old host
+sudo docker compose stop goatcounter
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data -v /tmp:/out \
+    alpine tar -C /data -czf /out/gc.tgz .
+
+# on the new one, whose volume the first deploy will have created empty
+sudo docker compose stop goatcounter
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data alpine sh -c "rm -rf /data/*"
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data -v /tmp:/in \
+    alpine tar -C /data -xzf /in/gc.tgz
+sudo docker run --rm -v ghul-playground_goatcounter-data:/data alpine chown -R 1000:1000 /data
+sudo docker compose start goatcounter
+```
+
+Going through a container rather than `/var/lib/docker/volumes/...` keeps this
+independent of where docker stores volumes, and needs no root beyond docker
+itself. The site row travels with the database, so a host that receives one does
+**not** then need the site created below - and should not have it, since a second
+site with the same `cname` is not what records the hits.
 
 **The database starts empty and holds no site**, so a fresh instance serves
 nothing until one is created:
