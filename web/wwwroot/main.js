@@ -6,6 +6,7 @@ import { requestedProgram, loadProgram } from './collections.js'
 import * as files from './files.js'
 
 const runButton = document.getElementById('run');
+const runLabel = document.getElementById('run-label');
 const inputRow = document.getElementById('input-row');
 const stdin = document.getElementById('stdin');
 const status = document.getElementById('status');
@@ -376,9 +377,20 @@ const playground = await createPlayground({
             : 'ready';
         compiler.title = COMPILER_TITLE[compiler.dataset.state];
 
-        // Re-enable once the run has finished, however it finished.
-        runButton.disabled = BUSY.has(state);
-        runButton.toggleAttribute('data-busy', BUSY.has(state));
+        // Once a program is actually running the button is how it is stopped,
+        // so it stays live through that state alone - compiling and starting
+        // the runtime have nothing to interrupt yet.
+        const running = state === 'running';
+
+        runButton.disabled = BUSY.has(state) && !running;
+        runButton.toggleAttribute('data-busy', BUSY.has(state) && !running);
+        runButton.toggleAttribute('data-stop', running);
+
+        runLabel.textContent = running ? 'Stop' : 'Run';
+        runButton.title = running
+            ? 'Stop the program. A program waiting for input is told there is none left; '
+              + 'one that is busy can only be stopped by reloading the page'
+            : 'Compile and run (Ctrl+Enter)';
 
         // Follow the run: its output while it runs, its problems when it will
         // not compile. Somebody watching the button should not also have to

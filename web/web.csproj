@@ -66,9 +66,13 @@
        fresh checkout that skipped it produces a site with no editor and no
        error. Deploying that over a working one with a deleting rsync removes
        the editor from the live site, which is how this was found. -->
-  <Target Name="EnsureMonacoIsStaged" BeforeTargets="PrepareForPublish">
+  <!-- Before a plain build as well as before a publish. `dotnet run` does not
+       publish, so without this the dev server comes up serving a site with no
+       editor and no error, and everything downstream fails in ways that look
+       like whatever you were working on. -->
+  <Target Name="EnsureMonacoIsStaged" BeforeTargets="PrepareForPublish;Build">
     <Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/vs/loader.js')"
-           Text="Monaco is not staged into web/wwwroot/vs. Run 'npm install' at the repository root before publishing." />
+           Text="Monaco is not staged into web/wwwroot/vs. Run 'npm install' at the repository root first." />
   </Target>
 
 </Project>

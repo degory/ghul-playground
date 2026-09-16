@@ -182,6 +182,21 @@ chrome.on('error', e => {
     // runtime that will not start looks like a run that never finishes.
     check('the page is cross-origin isolated', await ev(`self.crossOriginIsolated`));
 
+    // Visibility rather than the hidden attribute. A style rule of its own
+    // outranks the user agent's [hidden] rule, so the box can carry the
+    // attribute and still be on screen - which it was, permanently, and no
+    // check that asked the attribute could see it.
+    const boxShowing = () => ev(`(() => { const r = document.getElementById('input-row');
+                 return Boolean(r) && r.offsetParent !== null; })()`);
+
+    // Asked separately, because boxShowing() is also false when the box is not
+    // there at all - so on its own it would pass against a build that has no
+    // input row, which is the one build where it means nothing.
+    check('the input row exists',
+        await ev(`Boolean(document.getElementById('input-row'))`));
+
+    check('no box before a program has asked for a line', !(await boxShowing()));
+
     const reading = [
         'use IO.Std.write_line;', 'use IO.Std.read_line;', '', 'entry() is',
         '    write_line("what is your name?");', '', '    let name = read_line();', '',
@@ -194,11 +209,17 @@ chrome.on('error', e => {
 
     let asked = false;
     for (let i = 0; i < 180; i++) {
-        asked = await ev(`!document.getElementById('input-row').hidden`);
+        asked = await boxShowing();
         if (asked) break;
         await sleep(500);
     }
     check('a program that reads asks for a line', asked);
+
+    // Mid-run, so this is the state the button is actually in while something
+    // is running rather than what it settles back to afterwards.
+    check('the button offers to stop while the program runs',
+        (await ev(`document.getElementById('run-label').textContent`)) === 'Stop'
+        && !(await ev(`document.getElementById('run').disabled`)));
 
     // The prompt has to be readable before anything is typed, which is only
     // possible if output reaches the page while the program is still running.
@@ -223,8 +244,13 @@ chrome.on('error', e => {
     // A line of its own, so this is the echo rather than the greeting that
     // also contains the word.
     check('what was typed is echoed into the transcript', /^world$/m.test(answered));
-    check('the box goes away once the run has finished',
-        await ev(`document.getElementById('input-row').hidden`));
+    check('the box goes away once the run has finished', !(await boxShowing()));
+
+    // The button is how a program is stopped while it runs, so it has to stay
+    // live through that state rather than being disabled with the rest.
+    check('the run button offers to stop a running program, and returns to Run after',
+        (await ev(`document.getElementById('run-label').textContent`)) === 'Run'
+        && !(await ev(`document.getElementById('run').hasAttribute('data-stop')`)));
 
     // A program that draws: the picture has to survive being written to the
     // wasm filesystem, read back by the host, and carried to the page as a
