@@ -39,6 +39,29 @@ The browser fetches the .NET runtime on the first run, not at page load. A
 documentation page can embed several editors, and downloading the runtime for
 each one on every visit would be several megabytes per page.
 
+## running a program
+
+The program runs on a worker thread, not on the browser's main thread, and that
+is load-bearing rather than a tuning choice. `Console.ReadLine` is synchronous:
+it cannot suspend and hand control back. A program that reads a line therefore
+blocks the thread it is on until somebody types one, and if that thread were
+the main thread the page could not collect the keystroke, so the program would
+wait for something that could never arrive. The same fact makes output live:
+the main thread is free to repaint while the program runs, where a synchronous
+call across it shows nothing until the run has finished.
+
+Two consequences follow. The page has to be cross-origin isolated, because
+threading makes the wasm heap a `SharedArrayBuffer` - which is why both this
+site and the documentation site that frames it send the isolation headers, and
+why the documentation site moved off GitHub Pages, which cannot send them. And
+nothing the page calls can reach a blocked thread, so the line cannot be
+delivered by calling in: everything crossing that boundary crosses through
+shared memory, described in `runner/src/channel.ghul`.
+
+A program that reads and is never answered waits indefinitely. That is visible
+rather than fatal - the page stays responsive, and Ctrl+D in the input box ends
+the stream - where before the same program froze the tab.
+
 ## sessions
 
 Each editor gets one WebSocket, one private workspace directory, and one

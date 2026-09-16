@@ -35,6 +35,12 @@ on `127.0.0.1:5091`. Then:
 npm run web                 # http://127.0.0.1:5080
 ```
 
+That runs a Release build, and has to: with threading enabled a Debug build's
+runtime aborts on startup with `mono_wasm_start_deputy_thread_async() failed`,
+so the page loads and nothing ever runs on it. Nothing is lost by it here - the
+only C# is the interop shim, and the dev server sends the cross-origin
+isolation headers either way.
+
 Open <http://127.0.0.1:5080>. Edit the program and press **Compile and run**,
 or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.
 
@@ -53,6 +59,29 @@ which is the debounce.
 Not implemented: go to definition, references, rename, formatting and signature
 help. The language server offers all of them, so they are wiring rather than
 work.
+
+## reading input
+
+A program can read a line. `IO.Std.read_line` blocks until somebody types one
+into the box that appears below the output, and what they type is echoed into
+the transcript where a terminal would have echoed it. The box appears because
+the program asked for a line and goes away when it stops asking, so a program
+that never reads never shows one. Ctrl+D says there is no more input, which is
+what a program reading until the stream ends is waiting for.
+
+Output appears as it is written rather than when the run finishes, which is the
+same mechanism seen from the other side.
+
+Both need the page to be cross-origin isolated, because the runtime runs on a
+worker thread and its heap is a `SharedArrayBuffer`. `dotnet run` sends the two
+headers that grant that by itself; a deployed site needs them from its server,
+and so does any site embedding the playground, since a frame is isolated only
+when the page framing it is. [docs/design.md](docs/design.md) covers why it has
+to be a worker thread at all.
+
+An embedded playground has no box: it is part of this page's chrome, and an
+embedding page has to offer its own. Until one does, a read there is answered
+with end of input rather than left waiting.
 
 ## drawing
 

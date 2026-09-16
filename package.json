@@ -7,7 +7,7 @@
   "scripts": {
     "postinstall": "node scripts/stage-monaco.js",
     "compile-service": "node compile-service/server.js",
-    "web": "dotnet run --project web",
+    "web": "dotnet run --project web -c Release",
     "analyse-service": "node analyse-service/server.js"
   },
   "dependencies": {

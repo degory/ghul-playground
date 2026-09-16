@@ -10,6 +10,24 @@
          roots are pinned to the reference set the compile service advertises,
          publishing untrimmed is the only correct option. -->
     <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- The runtime runs on a worker thread, which is what lets a program
+         block reading a line: Console.ReadLine is synchronous, and the
+         browser's main thread cannot both block and collect the keystroke.
+         It also means the page repaints while a program runs, so output
+         appears as it is written rather than all at once at the end.
+
+         The page must be cross-origin isolated for this to start at all,
+         because the wasm heap becomes a SharedArrayBuffer. nginx sends the
+         headers that grant that, for this site and for the documentation site
+         that frames it - a frame is isolated only when its framer is.
+
+         Building it needs the multithreaded runtime pack, which comes with the
+         wasm-tools workload rather than with the SDK. Without it the build
+         succeeds and the runtime aborts at startup with
+         mono_wasm_start_deputy_thread_async() failed. -->
+    <WasmEnableThreads>true</WasmEnableThreads>
+
   </PropertyGroup>
 
   <!-- The template fingerprints every *.js. Monaco ships an AMD loader that

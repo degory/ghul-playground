@@ -377,6 +377,41 @@
        a reader who pressed run is already looking at, out of the chrome, and
        above the pane rather than inside it, so a long program's output cannot
        scroll it away. */
+    /* A line for the running program to read, across the foot of the pane. It
+       is part of the output rather than beside it, so it reads as the place
+       the transcript is being written to. */
+    #input-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex: none;
+      padding: 0.35rem 0.75rem;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    #input-row label {
+      font-family: var(--mono);
+      color: var(--accent);
+      user-select: none;
+    }
+
+    #stdin {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--fg);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      padding: 0.15rem 0;
+    }
+
+    #stdin::placeholder {
+      color: var(--muted);
+    }
+
     #run-cost {
       margin-left: auto;
       padding-right: 0.4rem;
@@ -388,7 +423,8 @@
     /* Collapsing leaves the tab row standing, so the problem count still says
        there is something in the pane worth opening. */
     #pane[data-collapsed] { height: auto; }
-    #pane[data-collapsed] > pre { display: none; }
+    #pane[data-collapsed] > pre,
+    #pane[data-collapsed] > form { display: none; }
 
     #pane-toggle { min-width: 1.5rem; padding: 0 0.35rem; color: var(--fg-muted); }
     #pane-toggle:hover { color: var(--fg); }
@@ -693,6 +729,16 @@
 
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
       <pre id="output" role="tabpanel" hidden><span class="empty">Run the program to see its output here.</span></pre>
+
+      <!-- Shown only while a program is actually blocked reading a line, which
+           it asks for itself: a box that were always there would invite typing
+           at a program that will never read it. -->
+      <form id="input-row" hidden>
+        <label for="stdin">&gt;</label>
+        <input id="stdin" type="text" autocomplete="off" autocapitalize="off"
+               spellcheck="false" aria-label="Input for the running program"
+               placeholder="this program is waiting for a line - type one and press Enter">
+      </form>
     </div>
 
     <!-- Over the editor and the pane rather than inside either. A picture

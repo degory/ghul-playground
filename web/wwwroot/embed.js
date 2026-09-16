@@ -29,6 +29,12 @@ const CHANNEL = 'ghul-playground';
 
 // The parent's origin, learned from the first message it sends. Replies go
 // only there, never to '*'.
+// Whether the embedding page has ever answered a request for input. It cannot
+// be asked in advance - an older page that knows nothing about this would not
+// reply - so it is learned from the first answer, and a program reading before
+// then gets end of stream.
+let acceptsInput = false;
+
 let parentOrigin = null;
 
 function post(type, payload = {}) {
@@ -61,6 +67,21 @@ window.addEventListener('message', async event => {
 
     const message = event.data;
 
+    // An embedding page declaring it will supply lines, which it does by
+    // answering an 'input-wanted' with an 'input' of its own. Until it has
+    // said so once, a read ends the stream rather than waiting.
+    if (message.type === 'input') {
+        acceptsInput = true;
+
+        if (typeof message.line === 'string') {
+            playground?.sendInput(message.line);
+        } else {
+            playground?.endInput();
+        }
+
+        return;
+    }
+
     if (message.type === 'init') {
         if (playground) {
             playground.setSource(message.source ?? DEFAULT_SOURCE);
@@ -75,6 +96,25 @@ window.addEventListener('message', async event => {
             theme: message.theme ?? 'vs',
 
             onOutput: text => post('output', { text }),
+
+            // A program that reads a line has nowhere to read it from here:
+            // the box is part of the standalone page's chrome, and an
+            // embedding page has to offer its own. Until one does, the honest
+            // answer is that there is no more input, which a program sees as
+            // the end of the stream and can act on - where waiting for a line
+            // nothing will ever send would hang it with nothing on the page to
+            // say why.
+            //
+            // The parent is told, so a page that does want to offer a box can
+            // say so by answering with an 'input' message; the handler below
+            // takes the line. Ignoring it is what leaves end-of-stream.
+            onInput: wanted => {
+                if (!wanted) return;
+
+                post('input-wanted');
+
+                if (!acceptsInput) playground.endInput();
+            },
             // The pictures a drawing program produced, as data URLs. The
             // marker naming each one is taken out of the text, so a parent
             // that ignores this message shows the program's words and drops

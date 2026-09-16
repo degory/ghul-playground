@@ -1,0 +1,167 @@
+namespace Playground is
+    use IO;
+
+    // What the program's own standard output and input are while it runs.
+    //
+    // Output goes two places at once. The channel carries it to the page as it
+    // is written, which is what makes a program that pauses between lines
+    // readable; the capture is what the run finally answers with, and is what
+    // the image markers are collected out of. Neither can replace the other:
+    // the capture arrives too late to watch, and the channel is a byte count
+    // rather than text the runner can re-read.
+    class CONSOLE_OUT: TextWriter is
+        _channel: CHANNEL;
+        _captured: StringWriter;
+
+        init(channel: CHANNEL, captured: StringWriter) is
+            _channel = channel;
+            _captured = captured;
+        si
+
+        encoding: System.Text.Encoding => System.Text.Encoding.utf8;
+
+        // All three matter. TextWriter.Write(char) is an empty virtual, so
+        // anything routed through it is silently dropped rather than failing -
+        // and write_line puts its line terminator through the buffer form,
+        // which is why output arrived as one unbroken run without it.
+        write(value: char) is
+            _emit("{value}");
+        si
+
+        write(buffer: char[], index: int, count: int) is
+            _emit(string(buffer, index, count));
+        si
+
+        // The line terminator reaches the writer as a char array rather than
+        // as text, so a writer that only handled strings would run every line
+        // into the next one. Handled here rather than relying on the array
+        // form to carry it.
+        write_line() is
+            _emit("\n");
+        si
+
+        write_line(value: string?) is
+            _emit("{value ?? ""}\n");
+        si
+
+        write(value: string?) is
+            if value? then
+                _emit(value);
+            fi
+        si
+
+        _emit(text: string) is
+            _captured.write(text);
+            _channel.write(text);
+        si
+    si
+
+    // Standard input, which is a person typing into the page.
+    //
+    // Reading blocks the thread until they have typed something, which is
+    // exactly what a console does and exactly what the browser's main thread
+    // could never do - see CHANNEL for why that thread is not this one.
+    class CONSOLE_IN: TextReader is
+        _channel: CHANNEL;
+
+        // What was typed is written back out, where a terminal would have
+        // echoed it as the keys were pressed. Without this the transcript is
+        // the program's half of a conversation with the answers missing, and
+        // the run's final output - which is what a reader scrolls back through
+        // once it has finished - loses them for good.
+        _echo: TextWriter;
+
+        // What read and peek hand out a character at a time. A console reads a
+        // whole line whatever it was asked for, because that is when the
+        // person pressed return.
+        _pending: string?;
+        _at: int;
+
+        init(channel: CHANNEL, echo: TextWriter) is
+            _channel = channel;
+            _echo = echo;
+            _pending = null;
+            _at = 0;
+        si
+
+        read_line() -> string? is
+            // Whatever is left of a line already read stands first: a read()
+            // followed by a read_line() should finish the line, not skip it.
+            let pending = _pending;
+
+            if pending? then
+                let rest = pending[_at..<0];
+
+                _pending = null;
+                _at = 0;
+
+                return rest;
+            fi
+
+            _read_line()
+        si
+
+        _read_line() -> string? is
+            let line = _channel.read_line();
+
+            if line? then
+                _echo.write_line(line);
+            fi
+
+            line
+        si
+
+        read() -> int is
+            let pending = _fill();
+
+            if !pending? then
+                return -1;
+            fi
+
+            let c = pending[_at];
+
+            _at = _at + 1;
+
+            if _at >= pending.length then
+                _pending = null;
+                _at = 0;
+            fi
+
+            cast int(c)
+        si
+
+        peek() -> int is
+            let pending = _fill();
+
+            if !pending? then
+                return -1;
+            fi
+
+            cast int(pending[_at])
+        si
+
+        // The terminator is put back on, because a reader taking characters
+        // one at a time is entitled to see where the line ended - read_line is
+        // the form that strips it.
+        _fill() -> string? is
+            let pending = _pending;
+
+            if pending? then
+                return pending;
+            fi
+
+            let line = _read_line();
+
+            if !line? then
+                return null;
+            fi
+
+            let filled = "{line}\n";
+
+            _pending = filled;
+            _at = 0;
+
+            filled
+        si
+    si
+si
