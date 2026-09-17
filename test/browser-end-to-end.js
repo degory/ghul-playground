@@ -246,6 +246,68 @@ chrome.on('error', e => {
     check('what was typed is echoed into the transcript', /^world$/m.test(answered));
     check('the box goes away once the run has finished', !(await boxShowing()));
 
+    // Following the output. A program printing more than the pane holds, and
+    // then asking for a line: the box appearing takes its height off the pane,
+    // so a build that decides whether to follow by measuring the pane when the
+    // text arrives reads as scrolled up from that moment on and never follows
+    // again. The board games are exactly this shape.
+    const long = [
+        'use IO.Std.write_line;', 'use IO.Std.read_line;', '', 'entry() is',
+        '    for i in 1::200 do', '        write_line("line {i}");', '    od', '',
+        '    write_line("what is your name?");', '', '    let name = read_line();', '',
+        '    write_line("hello, {name ?? "nobody"}");', 'si', ''
+    ].join('\n');
+
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(long)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let longAsked = false;
+    for (let i = 0; i < 180; i++) {
+        longAsked = await boxShowing();
+        if (longAsked) break;
+        await sleep(500);
+    }
+    check('a long program that reads asks for a line', longAsked);
+
+    const pane = () => ev(`(() => { const o = document.getElementById('output');
+                 return { top: o.scrollTop, height: o.clientHeight, total: o.scrollHeight }; })()`);
+
+    // Asked first, because every check below passes for free on a pane whose
+    // content fits - which is the one case where following means nothing.
+    const asking = await pane();
+    check('the output overflows the pane', asking.total > asking.height,
+        JSON.stringify(asking));
+
+    check('the pane follows the output up to the prompt',
+        asking.top + asking.height >= asking.total - 4, JSON.stringify(asking));
+
+    // Scrolled away from the tail on purpose, and then answered, so that more
+    // output arrives while the reader is somewhere else. Following is for a
+    // reader at the bottom, not a rule that drags one back from what they went
+    // to look at.
+    await ev(`(() => { const o = document.getElementById('output');
+                 o.scrollTop = 0; return true; })()`);
+    await sleep(200);
+
+    await ev(`(() => {
+        document.getElementById('stdin').value = 'world';
+        document.getElementById('input-row')
+            .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        return true;
+    })()`);
+
+    let longAnswered = '';
+    for (let i = 0; i < 180; i++) {
+        longAnswered = await ev(`document.getElementById('output').innerText`);
+        if (longAnswered.includes('hello, world')) break;
+        await sleep(500);
+    }
+    check('the long program read the typed line', longAnswered.includes('hello, world'));
+
+    const parked = await pane();
+    check('output arriving does not drag a scrolled-up reader back',
+        parked.top < 4, JSON.stringify(parked));
     // The button is how a program is stopped while it runs, so it has to stay
     // live through that state rather than being disabled with the rest.
     check('the run button offers to stop a running program, and returns to Run after',
