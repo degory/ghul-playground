@@ -246,11 +246,104 @@ chrome.on('error', e => {
     check('what was typed is echoed into the transcript', /^world$/m.test(answered));
     check('the box goes away once the run has finished', !(await boxShowing()));
 
+    // Following the output. A program printing more than the pane holds, and
+    // then asking for a line: the box appearing takes its height off the pane,
+    // so a build that decides whether to follow by measuring the pane when the
+    // text arrives reads as scrolled up from that moment on and never follows
+    // again. The board games are exactly this shape.
+    const long = [
+        'use IO.Std.write_line;', 'use IO.Std.read_line;', '', 'entry() is',
+        '    for i in 1::200 do', '        write_line("line {i}");', '    od', '',
+        '    write_line("what is your name?");', '', '    let name = read_line();', '',
+        '    write_line("hello, {name ?? "nobody"}");', 'si', ''
+    ].join('\n');
+
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(long)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let longAsked = false;
+    for (let i = 0; i < 180; i++) {
+        longAsked = await boxShowing();
+        if (longAsked) break;
+        await sleep(500);
+    }
+    check('a long program that reads asks for a line', longAsked);
+
+    const pane = () => ev(`(() => { const o = document.getElementById('output');
+                 return { top: o.scrollTop, height: o.clientHeight, total: o.scrollHeight }; })()`);
+
+    // Asked first, because every check below passes for free on a pane whose
+    // content fits - which is the one case where following means nothing.
+    const asking = await pane();
+    check('the output overflows the pane', asking.total > asking.height,
+        JSON.stringify(asking));
+
+    check('the pane follows the output up to the prompt',
+        asking.top + asking.height >= asking.total - 4, JSON.stringify(asking));
+
+    // Scrolled away from the tail on purpose, and then answered, so that more
+    // output arrives while the reader is somewhere else. Following is for a
+    // reader at the bottom, not a rule that drags one back from what they went
+    // to look at.
+    await ev(`(() => { const o = document.getElementById('output');
+                 o.scrollTop = 0; return true; })()`);
+    await sleep(200);
+
+    await ev(`(() => {
+        document.getElementById('stdin').value = 'world';
+        document.getElementById('input-row')
+            .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        return true;
+    })()`);
+
+    let longAnswered = '';
+    for (let i = 0; i < 180; i++) {
+        longAnswered = await ev(`document.getElementById('output').innerText`);
+        if (longAnswered.includes('hello, world')) break;
+        await sleep(500);
+    }
+    check('the long program read the typed line', longAnswered.includes('hello, world'));
+
+    const parked = await pane();
+    check('output arriving does not drag a scrolled-up reader back',
+        parked.top < 4, JSON.stringify(parked));
     // The button is how a program is stopped while it runs, so it has to stay
     // live through that state rather than being disabled with the rest.
     check('the run button offers to stop a running program, and returns to Run after',
         (await ev(`document.getElementById('run-label').textContent`)) === 'Run'
         && !(await ev(`document.getElementById('run').hasAttribute('data-stop')`)));
+
+    // Stop, clicked rather than merely looked at. The button showing the right
+    // word proves nothing about what pressing it does: it went a whole round
+    // saying Stop while still being wired to run the program again.
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(reading)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let waiting = false;
+    for (let i = 0; i < 180; i++) {
+        waiting = await boxShowing();
+        if (waiting) break;
+        await sleep(500);
+    }
+    check('the program is waiting again', waiting);
+
+    await ev(`document.getElementById('run').click(); true`);
+
+    let stopped = '';
+    for (let i = 0; i < 60; i++) {
+        stopped = await ev(`document.getElementById('run-label').textContent`);
+        if (stopped === 'Run') break;
+        await sleep(500);
+    }
+    check('stopping ends the program rather than starting another', stopped === 'Run',
+        await ev(`document.getElementById('status').textContent`));
+
+    // Ending the input is what a waiting program is told, so it runs on to
+    // whatever it does with no more input rather than being cut off.
+    check('the stopped program saw the end of its input',
+        (await ev(`document.getElementById('output').innerText`)).includes('hello, nobody'));
 
     // A program that draws: the picture has to survive being written to the
     // wasm filesystem, read back by the host, and carried to the page as a

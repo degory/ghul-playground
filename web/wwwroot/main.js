@@ -322,6 +322,25 @@ function forgetProvenance() {
     document.title = currentName ? `${currentName} - ghūl playground` : 'ghūl playground';
 }
 
+// Whether the output pane is showing its own tail, and so whether new output
+// should be scrolled into view - the way a terminal follows its own output,
+// while a reader who has scrolled up to look at something is left where they
+// are. It is tracked from the reader's own scrolling rather than measured when
+// text arrives, because the input box appearing takes its height off the pane
+// and moves the tail out of view without the reader having touched anything;
+// measured at that moment the pane reads as scrolled up, and would stay that
+// way for the rest of the run.
+let followingOutput = true;
+
+outputPane.addEventListener('scroll', () => {
+    followingOutput =
+        outputPane.scrollTop + outputPane.clientHeight >= outputPane.scrollHeight - 4;
+});
+
+const followOutput = () => {
+    if (followingOutput) outputPane.scrollTop = outputPane.scrollHeight;
+};
+
 const initialSource = program?.source ?? savedSource;
 
 const playground = await createPlayground({
@@ -330,8 +349,12 @@ const playground = await createPlayground({
     ...(initialSource ? { source: initialSource } : {}),
 
     onOutput: text => {
+        if (!text) followingOutput = true;
+
         outputPane.textContent = text;
         if (!text) outputPane.innerHTML = '<span class="empty">The program produced no output.</span>';
+
+        followOutput();
     },
 
     // Shown when the program asks and taken away the moment it stops asking,
@@ -346,6 +369,10 @@ const playground = await createPlayground({
         // not asked for and then hidden.
         showTab(outputPane);
         stdin.focus();
+
+        // The row takes its height off the pane, and focusing the box can
+        // scroll an ancestor, so the tail has to be brought back after both.
+        followOutput();
     },
 
     onImages: showImages,
@@ -454,7 +481,24 @@ if (await playground.tokenRequired() && !playground.hasToken()) {
     await playground.askForToken();
 }
 
-runButton.addEventListener('click', () => playground.run());
+const isRunning = () => runButton.hasAttribute('data-stop');
+
+runButton.addEventListener('click', () => {
+    if (!isRunning()) {
+        playground.run();
+        return;
+    }
+
+    // Ending the input is enough for a program that is waiting for a line, and
+    // leaves its transcript on screen. Nothing else can interrupt managed code
+    // on another thread, so for a program that is busy the only way to stop it
+    // is to take the runtime away, which means reloading - and the page comes
+    // back with nothing running, which is the state that was asked for. The
+    // editor's content is saved as it is typed, so that much survives.
+    if (playground.stop()) return;
+
+    location.reload();
+});
 
 // Enter sends the line. The box is cleared rather than left holding it,
 // because what was typed reappears in the output a moment later - the program
@@ -484,7 +528,7 @@ stdin.addEventListener('keydown', event => {
 });
 
 playground.editor.addCommand(
-    monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => playground.run());
+    monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { if (!isRunning()) playground.run(); });
 
 // --- saving and copying ----------------------------------------------------
 
