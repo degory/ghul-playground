@@ -347,6 +347,7 @@ const playground = await createPlayground({
     container: document.getElementById('editor'),
     theme: darkMode.matches ? 'vs-dark' : 'vs',
     ...(initialSource ? { source: initialSource } : {}),
+    files: program?.files ?? [],
 
     onOutput: text => {
         if (!text) followingOutput = true;

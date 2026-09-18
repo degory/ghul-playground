@@ -136,6 +136,11 @@ reader's browser, so nothing about the solutions is built into the site. A
 solution carrying a `playground-unsupported` file is still loaded, with the
 reason it cannot run shown in the output pane.
 
+A solution that reads files names them in a `playground-files` file beside its
+source, one path per line relative to that directory. The page fetches each
+one and writes it into the runtime's in-memory filesystem before every run, in
+the working directory under its own name, which is where the program opens it.
+
 Collections live in `web/wwwroot/collections.js`, each under its own path
 prefix. A new one needs an entry there and a matching `location` in the nginx
 configuration, which serves the entry page for every path under the prefix.

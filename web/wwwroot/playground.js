@@ -149,7 +149,9 @@ function loadRuntime() {
                 return { control, output, input };
             };
 
-            loaded = { exports, views };
+            // The runtime's filesystem, where a program's data files are put
+            // for it to open.
+            loaded = { exports, views, fs: api.Module.FS };
 
             return loaded;
         })();
@@ -171,10 +173,23 @@ function readOutput(output, from, to) {
     return text;
 }
 
+// Written before every run rather than once, so a program that changes one of
+// its inputs is handed the original again next time, as it would be run from
+// a fresh checkout. Each goes in the working directory, which is where a bare
+// name like unixdict.txt is looked for.
+function writeFiles(fs, files) {
+    const directory = fs.cwd().replace(/\/$/, '');
+
+    for (const { name, bytes } of files) {
+        fs.writeFile(`${directory}/${name}`, bytes);
+    }
+}
+
 export async function createPlayground({
     container,
     source = DEFAULT_SOURCE,
     theme = 'vs',
+    files = [],
     onOutput = () => { },
     onInput = () => { },
     onImages = () => { },
@@ -447,7 +462,9 @@ export async function createPlayground({
 
             onStatus('starting runtime');
 
-            const { exports, views } = await loadRuntime();
+            const { exports, views, fs } = await loadRuntime();
+
+            writeFiles(fs, files);
 
             onStatus('running');
 
