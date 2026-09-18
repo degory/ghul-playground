@@ -638,6 +638,65 @@ chrome.on('error', e => {
 
     await cmd('Fetch.disable');
 
+    // Cells of an interactive session, compiled by the service one at a time
+    // against the cells before them and run in the page's runtime. Each cell's
+    // `use` lines are written out here, where a session would generate them:
+    // cell 2 redefines cell 1's function and adds to its list, cell 3 reads
+    // both and has to see the newer function and the longer list. Cell 4
+    // throws, and cell 5 shows the session is still there after it.
+    const COMPILE = process.env.COMPILE ?? (new URL(BASE).hostname === '127.0.0.1'
+        ? 'http://127.0.0.1:5090/compile'
+        : new URL('/compile', BASE).toString());
+
+    const cells = [
+        'use default\nlet names mut = LIST[string]()\n' +
+            'greeting(who: string) -> string => "hello {who}"\n' +
+            'names.add("first")\ngreeting("cell 1")\n',
+        'use default\nuse cell1.names\n' +
+            'greeting(who: string) -> string => "goodbye {who}"\n' +
+            'names.add("second")\n',
+        'use default\nuse cell1.names\nuse cell2.greeting\n' +
+            'write_line("{greeting("cell 3")}, {names.count} names")\n' +
+            'names.count\n',
+        'use default\nthrow System.InvalidOperationException("from cell 4")\n',
+        'use default\nuse cell1.names\nnames.add("fifth")\nnames.count\n'
+    ];
+
+    const session = JSON.parse(await ev(`(async () => {
+        const { runCell } = await import('./playground.js');
+        const headers = { 'content-type': 'application/json' };
+        const token = ${JSON.stringify(TOKEN ?? null)};
+        if (token) headers.authorization = 'Bearer ' + token;
+        const earlier = [];
+        const results = [];
+        for (const [index, source] of ${JSON.stringify(cells)}.entries()) {
+            const submission = 'cell' + (index + 1);
+            const compiled = await (await fetch(${JSON.stringify(COMPILE)}, {
+                method: 'POST', headers,
+                body: JSON.stringify({ source, submission, references: earlier })
+            })).json();
+            if (!compiled.ok) {
+                results.push({ compiled: false, diagnostics: compiled.diagnostics, error: compiled.error });
+                break;
+            }
+            earlier.push({ submission, assembly: compiled.assembly });
+            results.push(await runCell(compiled.assembly, submission));
+        }
+        return JSON.stringify(results);
+    })()`) ?? '[]');
+
+    check('a cell answers with its final value', session[0]?.value === 'hello cell 1',
+        JSON.stringify(session[0]));
+    check('a later cell sees the redefinition and the shared list',
+        session[2]?.text === 'goodbye cell 3, 2 names\n' && session[2]?.value === '2',
+        JSON.stringify(session[2]));
+    check('a cell ending on a statement has no value',
+        session[1] !== undefined && !('value' in session[1]), JSON.stringify(session[1]));
+    check('a cell that throws reports it',
+        (session[3]?.error ?? '').includes('from cell 4'), JSON.stringify(session[3]));
+    check('and the session carries on after it', session[4]?.value === '3',
+        JSON.stringify(session[4]));
+
     chrome.kill();
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');

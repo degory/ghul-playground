@@ -8,17 +8,27 @@
 //   POST /compile  {"source": "..."}
 //     -> {"ok": bool, "diagnostics": [...], "assembly": "<base64>"|null}
 //
+// or, for one cell of an interactive session, compiled as a library whose
+// namespace is `submission` against the assemblies of the cells before it:
+//
+//   POST /compile  {"source": "...", "submission": "cell3",
+//                   "references": [{"submission": "cell1", "assembly": "<base64>"},
+//                                  ...]}
+//     -> the same reply, the assembly being the cell's
+//
 // The assembly is returned to the browser, which runs it. The service never
 // executes what it compiles.
 
 const http = require('http');
 const { execFile } = require('child_process');
-const { mkdtemp, writeFile, readFile, rm } = require('fs/promises');
+const { mkdtemp, mkdir, writeFile, readFile, rm } = require('fs/promises');
 const { tmpdir } = require('os');
 const path = require('path');
 
 const { resolveCompiler, resolveReferencePaths } = require('../shared/toolchain');
-const { MAX_SOURCE_BYTES } = require('../shared/limits');
+const {
+    MAX_SOURCE_BYTES, MAX_REFERENCES, MAX_REFERENCE_BYTES, MAX_REQUEST_BYTES
+} = require('../shared/limits');
 const origins = require('../shared/origins');
 const tokens = require('../shared/tokens');
 
@@ -127,12 +137,120 @@ async function withSlot(work) {
     }
 }
 
-async function compile(source) {
+// --- what a request may ask for -------------------------------------------
+
+class BadRequest extends Error {
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
+
+// A submission name becomes the cell's namespace, its assembly's name and a
+// file name, so it is held to what is safe as all three.
+const SUBMISSION = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+
+// Checked in full before anything is written: a request over a limit costs a
+// parse and nothing else.
+function parseRequest(body) {
+    let request;
+
+    try {
+        request = JSON.parse(body);
+    } catch {
+        throw new BadRequest(400, 'the request is not JSON');
+    }
+
+    const source = request?.source ?? '';
+
+    if (typeof source !== 'string') {
+        throw new BadRequest(400, 'source must be a string');
+    }
+
+    if (Buffer.byteLength(source, 'utf8') > MAX_SOURCE_BYTES) {
+        throw new BadRequest(413,
+            `a program here is limited to ${Math.floor(MAX_SOURCE_BYTES / 1024)} KB`);
+    }
+
+    const submission = request.submission;
+
+    if (submission === undefined) {
+        if (request.references !== undefined) {
+            throw new BadRequest(400, 'references are only accepted with a submission');
+        }
+
+        return { source, submission: null, references: [] };
+    }
+
+    if (typeof submission !== 'string' || !SUBMISSION.test(submission)) {
+        throw new BadRequest(400,
+            'submission must be a name of letters, digits and underscores, ' +
+            'not starting with a digit, at most 64 long');
+    }
+
+    const encoded = request.references ?? [];
+
+    if (!Array.isArray(encoded)) {
+        throw new BadRequest(400, 'references must be an array');
+    }
+
+    if (encoded.length > MAX_REFERENCES) {
+        throw new BadRequest(413,
+            `a session here is limited to ${MAX_REFERENCES} earlier cells`);
+    }
+
+    const references = [];
+    const names = new Set([submission]);
+    let total = 0;
+
+    for (const reference of encoded) {
+        const earlier = reference?.submission;
+        const assembly = reference?.assembly;
+
+        if (typeof earlier !== 'string' || !SUBMISSION.test(earlier)) {
+            throw new BadRequest(400, 'each reference must name the submission it was compiled as');
+        }
+
+        if (names.has(earlier)) {
+            throw new BadRequest(400, `submission ${earlier} is named twice`);
+        }
+
+        names.add(earlier);
+
+        if (typeof assembly !== 'string' || !assembly.length || !BASE64.test(assembly)) {
+            throw new BadRequest(400, 'each reference must carry a base64 assembly');
+        }
+
+        const bytes = Buffer.from(assembly, 'base64');
+
+        total += bytes.length;
+
+        if (total > MAX_REFERENCE_BYTES) {
+            throw new BadRequest(413,
+                `a session's earlier cells are limited to ` +
+                `${Math.floor(MAX_REFERENCE_BYTES / 1024)} KB between them`);
+        }
+
+        references.push({ submission: earlier, bytes });
+    }
+
+    return { source, submission, references };
+}
+
+// A whole program becomes an executable. A cell becomes a library named after
+// its submission, since the name of its assembly is what the cells after it
+// refer to it by.
+async function compile({ source, submission, references: cells }) {
     const { compiler, references } = await getToolchain();
     const directory = await mkdtemp(path.join(tmpdir(), 'ghul-playground-'));
 
+    const name = submission ?? 'main';
+    const output = submission ? `${submission}.dll` : 'main.exe';
+
     try {
-        await writeFile(path.join(directory, 'main.ghul'), source, 'utf8');
+        await writeFile(path.join(directory, `${name}.ghul`), source, 'utf8');
 
         const args = [compiler];
 
@@ -140,7 +258,26 @@ async function compile(source) {
             args.push('-a', reference);
         }
 
-        args.push(path.join(directory, 'main.ghul'));
+        if (submission) {
+            args.push('--library', '--submission', submission, '-o', output);
+
+            // Each earlier cell is written under the name it was compiled as,
+            // because the compiler records a reference by its file name, and
+            // that is the name the runtime then looks the cell up by. A
+            // directory of their own keeps them apart from this cell's files.
+            const earlier = path.join(directory, 'earlier');
+
+            await mkdir(earlier);
+
+            for (const { submission: cell, bytes } of cells) {
+                const file = path.join(earlier, `${cell}.dll`);
+
+                await writeFile(file, bytes);
+                args.push('--reference', file);
+            }
+        }
+
+        args.push(path.join(directory, `${name}.ghul`));
 
         const { error, stdout, stderr } = await runCompiler(args, directory);
         const diagnostics = parseDiagnostics(`${stderr}\n${stdout}`);
@@ -159,7 +296,7 @@ async function compile(source) {
             return { ok: false, diagnostics, assembly: null };
         }
 
-        const assembly = (await readFile(path.join(directory, 'main.exe'))).toString('base64');
+        const assembly = (await readFile(path.join(directory, output))).toString('base64');
 
         return { ok: true, diagnostics, assembly };
     } finally {
@@ -182,7 +319,8 @@ async function checkHealth() {
         // Through the gate like any other compile, so the check cannot add load
         // to an already saturated service, and so saturation is reported rather
         // than hidden.
-        const result = await withSlot(() => compile(HEALTH_SOURCE));
+        const result = await withSlot(() =>
+            compile({ source: HEALTH_SOURCE, submission: null, references: [] }));
 
         health = { at: Date.now(), ok: result.ok, error: result.ok ? null : 'compile failed' };
     } catch (e) {
@@ -227,7 +365,9 @@ http.createServer((request, response) => {
                 ok: state.ok,
                 error: state.error ?? undefined,
                 tokensRequired: tokens.required,
-                maxSourceBytes: MAX_SOURCE_BYTES
+                maxSourceBytes: MAX_SOURCE_BYTES,
+                maxReferences: MAX_REFERENCES,
+                maxReferenceBytes: MAX_REFERENCE_BYTES
             }));
         });
         return;
@@ -266,12 +406,12 @@ http.createServer((request, response) => {
     request.on('data', chunk => {
         body += chunk;
 
-        if (body.length > MAX_SOURCE_BYTES) {
+        if (body.length > MAX_REQUEST_BYTES) {
             aborted = true;
             response.writeHead(413, { 'content-type': 'application/json' });
             response.end(JSON.stringify({
                 ok: false, diagnostics: [], assembly: null,
-                error: `a program here is limited to ${Math.floor(MAX_SOURCE_BYTES / 1024)} KB`
+                error: `a request here is limited to ${Math.floor(MAX_REQUEST_BYTES / 1024)} KB`
             }));
             request.destroy();
         }
@@ -281,14 +421,14 @@ http.createServer((request, response) => {
         if (aborted) return;
 
         try {
-            const source = JSON.parse(body).source ?? '';
+            const compilation = parseRequest(body);
 
             const result = await withSlot(() => {
                 // The wait may have outlasted the client. Compiling for a
                 // socket that has gone would spend a slot on nobody.
                 if (clientGone) return null;
 
-                return compile(source);
+                return compile(compilation);
             });
 
             if (result === null) return;
@@ -296,6 +436,14 @@ http.createServer((request, response) => {
             response.writeHead(200, { 'content-type': 'application/json' });
             response.end(JSON.stringify(result));
         } catch (e) {
+            if (e instanceof BadRequest) {
+                response.writeHead(e.status, { 'content-type': 'application/json' });
+                response.end(JSON.stringify({
+                    ok: false, diagnostics: [], assembly: null, error: e.message
+                }));
+                return;
+            }
+
             if (e instanceof Busy) {
                 response.writeHead(503, {
                     'content-type': 'application/json',
@@ -320,6 +468,8 @@ http.createServer((request, response) => {
     console.log(`compile service on http://${HOST}:${PORT}`);
     console.log(`at most ${MAX_CONCURRENT} compile(s) at once, ${MAX_QUEUED} queued, ` +
         `${COMPILE_TIMEOUT_MS} ms each, ${MAX_SOURCE_BYTES} bytes of source`);
+    console.log(`a cell may reference ${MAX_REFERENCES} earlier cells, ` +
+        `${MAX_REFERENCE_BYTES} bytes of them`);
     console.log(tokens.describe());
     console.log(origins.describe());
 });

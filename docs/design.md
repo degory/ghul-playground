@@ -71,6 +71,25 @@ A program that reads and is never answered waits indefinitely. That is visible
 rather than fatal - the page stays responsive, and Ctrl+D in the input box ends
 the stream - where before the same program froze the tab.
 
+## interactive sessions
+
+A session of a REPL is a series of cells, each compiled on its own as a small
+library in its own namespace, against the assemblies of the cells before it.
+The compile service stays stateless: the page holds the cells, and posts the
+new cell's source together with the earlier cells' assemblies and the names
+they were compiled as. It compiles them and never runs them, exactly as for a
+whole program.
+
+In the page, `runCell` in `web/wwwroot/playground.js` hands a compiled cell to
+`Playground.RUNNER.run_cell`, which loads it into the one load context every
+cell of the session shares and runs its top-level statements. The answer
+carries what the cell wrote and the value of its final expression. The runtime
+cannot unload an assembly, so a fresh session is a fresh worker.
+
+Deciding what a cell's names resolve to - which earlier cell last defined each
+one - is not done here, and not in JavaScript. It belongs to the session core
+shared with the terminal REPL, so that the rule cannot drift between the two.
+
 ## sessions
 
 Each editor gets one WebSocket, one private workspace directory, and one
@@ -96,10 +115,12 @@ is sending.
 
 The compile service runs a fixed number of compiles at once and queues a few
 more behind them. Past the queue it answers 503. Each compile gets ten seconds
-and 32 KB of source. The compile cap is what keeps the container inside its
-memory limit: a compile peaks near 200 MB, and without the cap thirty
-simultaneous requests were enough to hit the limit, at which point the kernel
-killed compilers and every request in flight failed.
+and 32 KB of source. A cell of an interactive session may also bring up to
+128 earlier cells, 1 MB of them in all, where a cell weighs a few kilobytes.
+The compile cap is what keeps the container inside its memory limit: a
+compile peaks near 200 MB, and without the cap thirty simultaneous requests
+were enough to hit the limit, at which point the kernel killed compilers and
+every request in flight failed.
 
 The compiler is single threaded, so the cap is a count of cores as much as a
 concurrency limit, and a host with more of them serves more clients at once

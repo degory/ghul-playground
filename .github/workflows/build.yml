@@ -259,6 +259,30 @@ jobs:
 
           test "$good" = 200 && test "$bad" = 403 && test "$none" = 200
 
+      # Session cells reach the compiler with names and assemblies the page
+      # chose, so the checks on both are what stand between a request and the
+      # service's disk. Small limits, so real cells reach them.
+      - name: Check the compile service's handling of session cells
+        env:
+          GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
+          GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_RASTER_DLL: ${{ steps.toolchain.outputs.raster }}
+        run: |
+          PORT=5096 MAX_REFERENCES=2 MAX_REFERENCE_BYTES=8192 node compile-service/server.js &
+          service=$!
+
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:5096/health && break
+            sleep 1
+          done
+
+          result=0
+          COMPILE_URL=http://127.0.0.1:5096/compile node test/cell-requests.js || result=$?
+
+          kill $service
+
+          exit $result
+
   # The examples on ghul.dev are what a reader pastes in first, and the service
   # compiles against a deliberately short reference list rather than the
   # compiler's usual set - so an example can build everywhere else and fail

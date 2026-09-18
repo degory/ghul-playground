@@ -161,6 +161,23 @@ function loadRuntime() {
     return runtime;
 }
 
+// Runs one cell of an interactive session: `assembly` is the compile service's
+// reply for a `submission` request, base64 as it arrived. Every cell run this
+// way goes into the same session, which lasts as long as the runtime does.
+// Which cells to compile against, and what a cell's names resolve to, are the
+// session core's business, not this function's.
+//
+// Answers `{text, value?, error?}` - see Playground.RUNNER.run_cell.
+export async function runCell(assembly, submission) {
+    const { exports, views } = await loadRuntime();
+    const { control } = views();
+
+    Atomics.store(control, OUTPUT_WRITTEN, 0);
+    Atomics.store(control, OUTPUT_TRUNCATED, 0);
+
+    return JSON.parse(await exports.GhulRunner.RunCell(assembly, submission));
+}
+
 // The buffers carry UTF-16, which is what a JavaScript string already is, so
 // there is nothing to decode - but a very long run cannot go through apply() in
 // one call without overflowing the argument stack.

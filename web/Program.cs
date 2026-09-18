@@ -30,6 +30,7 @@ partial class GhulRunner
         Assembly.Load("runner").GetType("Playground.RUNNER")!;
 
     private static readonly MethodInfo Runner = RunnerType.GetMethod("run")!;
+    private static readonly MethodInfo CellRunner = RunnerType.GetMethod("run_cell")!;
     private static readonly MethodInfo Opener = RunnerType.GetMethod("open_channel")!;
 
     // The address of the channel's control block, which is how the page
@@ -63,6 +64,23 @@ partial class GhulRunner
         {
             // The runner answers for anything the program did. Reaching here
             // means the host itself failed, so there is no JSON to give back.
+            return $"{{\"text\":\"host error: {e.GetType().Name}\"}}";
+        }
+    });
+
+    // One step of an interactive session: the cell's assembly, and the
+    // namespace it was compiled into with `--submission`. Runs on a pool thread
+    // for the same reasons Run does; see Playground.RUNNER.run_cell for what
+    // comes back.
+    [JSExport]
+    internal static Task<string> RunCell(string base64, string submission) => Task.Run(() =>
+    {
+        try
+        {
+            return (string)CellRunner.Invoke(null, new object[] { base64, submission })!;
+        }
+        catch (Exception e)
+        {
             return $"{{\"text\":\"host error: {e.GetType().Name}\"}}";
         }
     });

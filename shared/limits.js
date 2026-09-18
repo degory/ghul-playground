@@ -13,4 +13,19 @@
 
 const MAX_SOURCE_BYTES = Number(process.env.MAX_SOURCE_BYTES ?? 32 * 1024);
 
-module.exports = { MAX_SOURCE_BYTES };
+// One cell of an interactive session is compiled against the assemblies of the
+// cells before it, which the page holds and posts with each request. A cell
+// assembly weighs about 3 KB, so these allow a session of 128 cells averaging
+// 8 KB each: far longer and heavier than anyone types into a REPL, while still
+// bounding what one request can make the service decode and write to disk.
+const MAX_REFERENCES = Number(process.env.MAX_REFERENCES ?? 128);
+const MAX_REFERENCE_BYTES = Number(process.env.MAX_REFERENCE_BYTES ?? 1024 * 1024);
+
+// The most a request body can hold: the source, the references as base64
+// (four characters for every three bytes), and the JSON around them.
+const MAX_REQUEST_BYTES =
+    MAX_SOURCE_BYTES + Math.ceil(MAX_REFERENCE_BYTES / 3) * 4 + 16 * 1024;
+
+module.exports = {
+    MAX_SOURCE_BYTES, MAX_REFERENCES, MAX_REFERENCE_BYTES, MAX_REQUEST_BYTES
+};
