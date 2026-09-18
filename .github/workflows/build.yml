@@ -109,10 +109,13 @@ jobs:
                    scripts/*.js web/wwwroot/main.js web/wwwroot/lsp.js web/wwwroot/embed.js \
                    web/wwwroot/playground.js web/wwwroot/token.js web/wwwroot/theme.js \
                    web/wwwroot/collections.js web/wwwroot/files.js \
-                   web/wwwroot/ghul-language.js; do
+                   web/wwwroot/ghul-language.js web/wwwroot/live-output.js; do
             node --check "$f" || exit 1
           done
           echo "all sources parse"
+
+      - name: Check the image-marker handling
+        run: node test/live-output.mjs
 
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release

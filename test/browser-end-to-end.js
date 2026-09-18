@@ -402,6 +402,78 @@ chrome.on('error', e => {
     check('the image marker leaves the output',
         !(await ev(`document.getElementById('output').innerText`)).includes('<<image'));
 
+    // An animation: the same name shown over and over while the program runs,
+    // each showing replacing the picture where it is. So the picture has to
+    // change while the run is still going, and it has to be the same element
+    // throughout - a pane rebuilt per frame flickers and loses its scroll.
+    const bouncing = require('fs')
+        .readFileSync(`${__dirname}/../examples/bounce.ghul`, 'utf8');
+
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(bouncing)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    for (let i = 0; i < 180; i++) {
+        if (await ev(`document.querySelectorAll('#images-grid img').length === 1
+                      && document.getElementById('run-label').textContent === 'Stop'`)) break;
+        await sleep(250);
+    }
+
+    await ev(`window.firstFrame = document.querySelector('#images-grid img'); true`);
+
+    const frames = new Set();
+    let sameElement = true;
+
+    for (let i = 0; i < 20; i++) {
+        const frame = await ev(`(() => {
+            const img = document.querySelector('#images-grid img');
+            return img ? { src: img.src, same: img === window.firstFrame,
+                           running: document.getElementById('run-label').textContent === 'Stop' } : null;
+        })()`);
+
+        if (!frame?.running) break;
+
+        frames.add(frame.src);
+        sameElement &&= frame.same;
+
+        await sleep(200);
+    }
+
+    check('an animation changes the picture while it runs', frames.size >= 3, `${frames.size} distinct frame(s)`);
+    check('each frame replaces the picture in place', sameElement);
+
+    for (let i = 0; i < 120; i++) {
+        if (await ev(`document.getElementById('run-label').textContent`) === 'Run') break;
+        await sleep(500);
+    }
+
+    const ended = await ev(`document.getElementById('output').innerText`);
+
+    check('the animation finishes with one picture and no markers',
+        ended.includes('done') && !ended.includes('<<image')
+        && await ev(`document.querySelectorAll('#images-grid img').length`) === 1,
+        JSON.stringify(ended.trim()));
+
+    // A carriage return goes back to the start of the line, as a terminal's
+    // does, which is how a text spinner draws in place.
+    const spinner = [
+        'use IO.Std.write;', '', 'entry() is',
+        '    write("working |\\r");', '    write("finished  \\n");', 'si', ''
+    ].join('\n');
+
+    await ev(`monaco.editor.getModels()[0].setValue(${JSON.stringify(spinner)}); true`);
+    await sleep(1000);
+    await ev(`document.getElementById('run').click(); true`);
+
+    let spun = '';
+    for (let i = 0; i < 120; i++) {
+        spun = await ev(`document.getElementById('output').innerText`);
+        if (spun.includes('finished')) break;
+        await sleep(500);
+    }
+    check('a carriage return overwrites the line', spun.includes('finished') && !spun.includes('working'),
+        JSON.stringify(spun));
+
     // The file menu, as far as a headless browser can be taken: the pickers
     // themselves are native dialogs with nothing to drive them, so what is
     // checked is that the menu opens, says what Save would do, and closes.

@@ -158,7 +158,28 @@ const DOWNLOAD_ICON =
     '<svg viewBox="0 0 16 16" aria-hidden="true">' +
     '<path d="M7.2 1h1.6v6.3l2.3-2.3 1.1 1.1L8 10.4 3.8 6.1l1.1-1.1 2.3 2.3V1zM2 12h12v1.6H2z" /></svg>';
 
+// The pictures on the page, by name, in the order shown. A program that
+// animates shows the same names again and again, and those are updated where
+// they are rather than laid out afresh, so the pane neither flickers nor moves.
+let shownImages = [];
+
 function showImages(list) {
+    if (list.length && list.length === shownImages.length
+        && list.every((image, at) => image.name === shownImages[at].name)) {
+        list.forEach((image, at) => {
+            const shown = shownImages[at];
+
+            if (shown.url !== image.url) {
+                shown.url = image.url;
+                shown.img.src = image.url;
+            }
+        });
+
+        return;
+    }
+
+    shownImages = [];
+
     imagesToggle.hidden = list.length === 0;
     imagesCount.textContent = list.length > 1 ? String(list.length) : '';
 
@@ -191,6 +212,10 @@ function showImages(list) {
         img.src = image.url;
         img.alt = image.name;
 
+        const shown = { name: image.name, url: image.url, img };
+
+        shownImages.push(shown);
+
         // The shelf above bounds the height, and the layout needs the width
         // that height implies. Only the decoded image knows its proportions,
         // so the figure is told once it has them.
@@ -211,7 +236,7 @@ function showImages(list) {
         download.innerHTML = DOWNLOAD_ICON;
         download.title = `Save ${image.name}`;
         download.setAttribute('aria-label', `Save ${image.name}`);
-        download.addEventListener('click', () => files.saveImage(image.url, image.name));
+        download.addEventListener('click', () => files.saveImage(shown.url, image.name));
 
         caption.append(name, download);
         figure.append(frame, caption);

@@ -17,8 +17,7 @@ const path = require('path');
 // would let a program script the hosting page, and it is the one exclusion
 // that matters to anyone but the author. `System.Net.Http` is the browser's
 // fetch, which makes every visitor's browser a network egress under our
-// origin. `System.Threading.Thread` compiles but throws at `start` on a
-// single-threaded host, so it is out for honesty rather than safety.
+// origin.
 //
 // This does NOT deny the filesystem: `System.Runtime` type-forwards the
 // `System.IO` surface and cannot be dropped, so `IO.File.read_all_text`
@@ -42,6 +41,9 @@ const REFERENCES = [
     'System.Text.Json',
     'System.Text.RegularExpressions',
     'System.Threading',
+    // The program runs on a worker thread, so Thread.sleep pauses it without
+    // stopping the page - which is how an animation paces its frames.
+    'System.Threading.Thread',
     'System.Threading.Tasks.Parallel',
     // closure of System.Text.RegularExpressions
     'System.Reflection.Emit.ILGeneration',

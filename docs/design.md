@@ -26,9 +26,18 @@ browser vulnerability, which is not something this project can add to or take
 away.
 
 That in-memory filesystem is how a drawing reaches the page. `ghul.raster`
-writes a PNG to it and prints `<<image plot.png>>`; the host reads the file
-back, sends it to the page as a data URL, and takes the line out of the output.
-See `runner/src/runner.ghul`.
+writes a PNG to it and prints `<<image plot.png>>`. The filesystem lives on the
+page's thread - the program's thread reaches it through calls the runtime
+forwards there - so the page reads the file as soon as the marker line appears
+in the output, while the program is still running, and takes the line out.
+Showing a name that is already on the page replaces that picture in place,
+which is how a program animates: draw, show, sleep, and show the same name
+again. See `web/wwwroot/live-output.js`.
+
+The runner sets `GHUL_LIVE_IMAGES=1` in the program's environment, saying that
+pictures are seen as they are shown. A program that animates takes its frame
+delay from it, so the same program run under test or on a terminal does not
+wait between frames nobody is watching.
 
 Analysing as you type and compiling on demand are different jobs. The same
 compiler binary does both, in different modes, so they are two services. The
@@ -196,7 +205,7 @@ arguments through a `JSMarshalerArgument*` buffer. ghūl can emit the attribute,
 but without the generated code the attribute does nothing.
 
 Everything else the host does is in `runner/src/runner.ghul`: loading the
-program, running it, capturing its output, and collecting the pictures it drew.
+program, running it, and capturing its output.
 
 The C# reaches it through `Assembly.Load` and `MethodInfo.Invoke` rather than by
 naming `Playground.RUNNER`, and that is not a style choice. Every assembly the

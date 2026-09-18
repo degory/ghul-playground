@@ -7,6 +7,7 @@ import { GHUL_LANGUAGE, GHUL_CONFIGURATION } from './ghul-language.js'
 import { GhulLanguageClient } from './lsp.js'
 import { getToken, setToken, askForToken } from './token.js'
 import { defineThemes, themeName } from './theme.js'
+import { LiveOutput } from './live-output.js'
 
 // Deployed, both services sit behind the same reverse proxy that serves this
 // page, so same-origin paths avoid CORS entirely. The .NET dev server does not
@@ -171,6 +172,18 @@ function readOutput(output, from, to) {
     }
 
     return text;
+}
+
+// An animation shows one name hundreds of times, and at the end of a run each
+// of those markers is read again. The file is not changing any more by then.
+function cached(readFile) {
+    const read = new Map();
+
+    return path => {
+        if (!read.has(path)) read.set(path, readFile(path));
+
+        return read.get(path);
+    };
 }
 
 // Written before every run rather than once, so a program that changes one of
@@ -484,8 +497,19 @@ export async function createPlayground({
                 Atomics.store(control, INPUT_READY, 0);
             }
 
+            // The runtime's filesystem is on this thread, so a picture can be
+            // read the moment its marker is printed. See live-output.js.
+            const readFile = path => {
+                try {
+                    return fs.readFile(path);
+                } catch {
+                    return null;
+                }
+            };
+
+            const live = new LiveOutput({ readFile });
+
             let shown = 0;
-            let live = '';
             let answered = 0;
 
             const watch = setInterval(() => {
@@ -494,10 +518,14 @@ export async function createPlayground({
                 const written = Atomics.load(control, OUTPUT_WRITTEN);
 
                 if (written > shown) {
-                    live += readOutput(output, shown, written);
+                    live.feed(readOutput(output, shown, written));
                     shown = written;
-                    onOutput(live);
+                    onOutput(live.text);
+                } else {
+                    live.feed();
                 }
+
+                if (live.takeChanged()) onImages(live.images);
 
                 // Asked for only when the program is actually waiting, so the
                 // box appears because the program wanted a line rather than
@@ -511,10 +539,12 @@ export async function createPlayground({
                 }
             }, POLL_MS);
 
-            // The host answers with the program's text and any pictures it
-            // drew, which is two outputs on one channel - see web/Program.cs.
-            // It is a promise because with threading enabled the browser's
-            // main thread cannot call a synchronous C# method at all.
+            // The host answers with everything the program wrote, which is
+            // what the page settles on once the run is over: the live output
+            // stops at a cap and lacks what the host adds itself, such as an
+            // unhandled exception. It is a promise because with threading
+            // enabled the browser's main thread cannot call a synchronous C#
+            // method at all.
             let produced;
 
             try {
@@ -528,15 +558,37 @@ export async function createPlayground({
                 }
             }
 
+            // Read again from the start rather than carried on from the live
+            // pass, so what a program that finishes before the first look
+            // shows is decided the same way as what one that ran for minutes
+            // does. Each file is read in its final state, which is what the
+            // live pass last showed.
+            const final = new LiveOutput({ readFile: cached(readFile) });
+
+            final.feed(produced.text);
+            final.finish();
+
+            let text = final.text;
+
             if (Atomics.load(views().control, OUTPUT_TRUNCATED) === 1) {
-                onOutput(`${live}\n[output stopped here: this program printed more than the playground shows]`);
+                text += '\n[output stopped here: this program printed more than the playground shows]';
             }
 
-            onOutput(produced.text);
-            onImages(produced.images.map(image => ({
-                name: image.name,
-                url: `data:image/png;base64,${image.png}`
-            })));
+            onOutput(text);
+            onImages(final.images);
+
+            // The filesystem lives as long as the tab, so what one run wrote
+            // is still there for the next. A program that shows an image it
+            // did not write this time would otherwise be shown the last run's
+            // picture.
+            for (const path of new Set([...live.paths, ...final.paths])) {
+                try {
+                    fs.unlink(path);
+                } catch {
+                    // Already gone, or never a file: the next run reads
+                    // whatever is there, as it would have anyway.
+                }
+            }
 
             onStatus('done', { compiled, ran: Math.round(performance.now() - ran) });
         } catch (e) {

@@ -4,9 +4,9 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Threading.Tasks;
 
 // The only C# in the playground, and as little of it as there can be. Loading
-// the program, running it, capturing its output and collecting the pictures it
-// drew are all in ../runner/src/runner.ghul; this exists for two reasons that
-// ghūl cannot currently cover.
+// the program, running it and capturing its output are all in
+// ../runner/src/runner.ghul; this exists for two reasons that ghūl cannot
+// currently cover.
 //
 // [JSExport] is implemented by a Roslyn source generator that emits a module
 // initializer and an unsafe JSMarshalerArgument* wrapper. ghūl can emit the
@@ -42,8 +42,8 @@ partial class GhulRunner
 
     // Bytes arrive base64-encoded rather than as a byte[] so the interop
     // surface stays to plain strings, which marshal the same way everywhere.
-    // What comes back is JSON, because a program that draws has two outputs
-    // and one channel to return them on - see the runner.
+    // What comes back is JSON, so the host's own failure can be told apart
+    // from the program's output - see the runner.
     //
     // Two things about the shape. It returns a Task because with threading
     // enabled the browser's main thread cannot call a synchronous C# method at
@@ -63,7 +63,7 @@ partial class GhulRunner
         {
             // The runner answers for anything the program did. Reaching here
             // means the host itself failed, so there is no JSON to give back.
-            return $"{{\"text\":\"host error: {e.GetType().Name}\",\"images\":[]}}";
+            return $"{{\"text\":\"host error: {e.GetType().Name}\"}}";
         }
     });
 }
