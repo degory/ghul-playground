@@ -378,6 +378,19 @@
     pre[hidden] { display: none; }
 
     .empty { color: var(--fg-muted); font-style: italic; }
+
+    #about-program[hidden] { display: none; }
+
+    #about-program {
+      flex: none;
+      margin: 0;
+      padding: 0.3rem 1rem;
+      border-top: 1px solid var(--border);
+      color: var(--fg-muted);
+      font-size: 0.75rem;
+    }
+
+    #about-program a { color: inherit; }
     .notice { color: var(--warn); }
 
     /* At the end of the tab row rather than in the header: next to the output
@@ -628,7 +641,7 @@
   <script>
     window.goatcounter = { path: function (p) { return location.host + p } }
   </script>
-  <script data-goatcounter="https://playground.ghul.dev/stats/count"
+  <script id="goatcounter" data-goatcounter="https://playground.ghul.dev/stats/count"
           async src="/stats/count.js"></script>
 </head>
 
@@ -735,6 +748,12 @@
 
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
       <pre id="output" role="tabpanel" hidden><span class="empty">Run the program to see its output here.</span></pre>
+
+      <!-- For a program opened by path: what it is and where to read more.
+           Outside the output so a long run cannot scroll it away, and only
+           under the output tab, which is where a reader who followed a link
+           is looking. -->
+      <p id="about-program" hidden></p>
 
       <!-- Shown only while a program is actually blocked reading a line, which
            it asks for itself: a box that were always there would invite typing

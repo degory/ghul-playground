@@ -132,9 +132,11 @@ The reference assemblies user code can name are listed in
 [ghul-rosetta-code](https://github.com/degory/ghul-rosetta-code) in the editor,
 and `/rosetta-code/<slug>/<NN-part>` opens one part of a task solved more than
 one way. The page fetches the source from `raw.githubusercontent.com` in the
-reader's browser, so nothing about the solutions is built into the site. A
-solution carrying a `playground-unsupported` file is still loaded, with the
-reason it cannot run shown in the output pane.
+reader's browser, so nothing about the solutions is built into the site. The
+program runs as soon as it has loaded, and a line under its output names the
+task and links to its page on ghul.dev. A solution carrying a
+`playground-unsupported` file is still loaded, with the reason it cannot run
+shown in the output pane, and is not run.
 
 A solution that reads files names them in a `playground-files` file beside its
 source, one path per line relative to that directory. The page fetches each

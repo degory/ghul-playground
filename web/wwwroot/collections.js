@@ -12,12 +12,16 @@
 const ROSETTA_CODE_ROOT = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
 const ROSETTA_CODE = `${ROSETTA_CODE_ROOT}tasks`;
 
+// Where ghul.dev describes a task, alongside the other solutions.
+const ROSETTA_EXPLORER = 'https://ghul.dev/rosetta';
+
 const COLLECTIONS = {
     // A task is tasks/<slug>/<slug>.ghul, or, for a task solved more than one
     // way, tasks/<slug>/<NN-part>/<NN-part>.ghul. A solution the playground
     // cannot run carries a playground-unsupported file giving the reason, and
     // one that reads files names them in playground-files, one path per line
-    // relative to the task's directory.
+    // relative to the task's directory. The task's own directory holds
+    // task.json, whose task field is the task's name on the wiki.
     'rosetta-code': {
         pattern: /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/([0-9]{2}(?:-[a-z0-9]+)+))?$/,
 
@@ -28,7 +32,9 @@ const COLLECTIONS = {
                 source: `${directory}/${part ?? slug}.ghul`,
                 unsupported: `${directory}/playground-unsupported`,
                 files: `${directory}/playground-files`,
-                root: ROSETTA_CODE_ROOT
+                root: ROSETTA_CODE_ROOT,
+                about: `${ROSETTA_CODE}/${slug}/task.json`,
+                page: `${ROSETTA_EXPLORER}/${slug}`
             };
         }
     }
@@ -52,7 +58,7 @@ export function requestedProgram(pathname) {
 }
 
 // The program's source, the reason it will not run here if it carries one,
-// and the files it reads. Throws with a message fit to show the reader.
+// the files it reads, and its title where the collection gives one. Throws with a message fit to show the reader.
 export async function loadProgram(request, fetchImpl = fetch) {
     if (request.error) throw new Error(request.error);
 
@@ -61,12 +67,14 @@ export async function loadProgram(request, fetchImpl = fetch) {
     let source;
     let unsupported;
     let manifest;
+    let about;
 
     try {
-        [source, unsupported, manifest] = await Promise.all([
+        [source, unsupported, manifest, about] = await Promise.all([
             get(request.source),
             get(request.unsupported),
-            get(request.files)
+            get(request.files),
+            get(request.about)
         ]);
     } catch (e) {
         throw new Error(`could not load ${request.name}: ${e.message}`);
@@ -100,7 +108,12 @@ export async function loadProgram(request, fetchImpl = fetch) {
         }
     }
 
+    // Only a label, so a task.json that is missing or unreadable costs the
+    // title and nothing else.
+    const title = about.ok ? await about.json().then(a => a.task, () => null) : null;
+
     return {
+        title: typeof title === 'string' ? title : null,
         source: await source.text(),
         unsupported: unsupported.ok ? (await unsupported.text()).trim() : null,
         files,
