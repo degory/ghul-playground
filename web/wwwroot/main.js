@@ -55,7 +55,8 @@ const COMPILER_TITLE = {
 const ANALYSER_STATE = {
     ready: ['analyser', 'The analyser is connected: errors, hovers and completions are live'],
     connecting: ['connecting', 'Connecting to the analyser ...'],
-    dormant: ['analyser idle', 'The analyser session was released after a pause. Editing reconnects it, or click to reconnect now'],
+    dormant: ['analyser idle', 'The analyser session was released after a pause or while the page was out of sight. Editing reconnects it, or click to reconnect now'],
+    refused: ['analyser limit reached', 'The analyser allows a few editors at a time from one network address, and that many are already open. This one still compiles and runs; errors as you type and hovers come back by themselves once another editor is closed'],
     disconnected: ['no analyser', 'The analyser is not reachable. Reconnecting automatically; click to try now']
 };
 
