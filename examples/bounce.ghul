@@ -1,0 +1,66 @@
+use IO.Std.write_line;
+use Raster.IMAGE;
+
+// A ball bouncing under gravity, shown as an animation: each frame is written
+// to the same file and shown under the same name, which the playground takes
+// as replacing the picture already on the page.
+//
+// The pause between frames comes from GHUL_LIVE_IMAGES, which the playground
+// sets. Run anywhere else - under test, or on a terminal - nobody is watching
+// the frames go by, so the program does not wait for them.
+
+entry() is
+    let delay = if System.Environment.get_environment_variable("GHUL_LIVE_IMAGES")? then 50 else 0 fi
+
+    let x mut = 0.1D
+    let y mut = 0.9D
+    let dx mut = 0.015D
+    let dy mut = 0.0D
+
+    let radius = 0.06D
+
+    for frame in 0..120 do
+        let image = IMAGE(240, 180)
+
+        image.view(0.0D, 0.0D, 4.0D / 3.0D, 1.0D)
+
+        image.colour(40ub, 40ub, 40ub)
+        image.stroke(2.0D)
+        image.line(0.0D, 0.01D, 4.0D / 3.0D, 0.01D)
+
+        image.colour(200ub, 40ub, 40ub)
+        image.fill(circle(x, y, radius))
+
+        image.write("bounce.png")
+        image.show("bounce.png")
+
+        dy = dy - 0.003D
+        x = x + dx
+        y = y + dy
+
+        if y < radius then
+            y = radius
+            dy = -dy * 0.9D
+        fi
+
+        if x < radius \/ x > 4.0D / 3.0D - radius then
+            dx = -dx
+        fi
+
+        System.Threading.Thread.sleep(delay)
+    od
+
+    write_line("done")
+si
+
+circle(x: double, y: double, r: double) -> Collections.List[(x: double, y: double)] is
+    let points = Collections.LIST[(x: double, y: double)]()
+
+    for i in 0..32 do
+        let a = cast double(i) * System.Math.`pi / 16.0D
+
+        points.add((x = x + r * System.Math.cos(a), y = y + r * System.Math.sin(a)))
+    od
+
+    points
+si

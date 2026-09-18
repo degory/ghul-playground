@@ -98,6 +98,16 @@ image.show("plot.png");
 
 `examples/draw.ghul` is a complete one, and is what the browser test draws.
 
+A picture appears as soon as its marker is printed, while the program is still
+running, and showing a name that is already on the page replaces that picture
+in place. That is how a program animates: draw a frame, write it, show it
+under the same name, pause, and repeat. `examples/bounce.ghul` does that, and
+takes its pause from `GHUL_LIVE_IMAGES`, which the playground sets, so the same
+program run under test or on a terminal does not wait between frames.
+
+Output also honours a carriage return, which goes back to the start of the
+line so that what follows writes over it, as a terminal does.
+
 ## opening and saving
 
 **File** opens a `.ghul` file from the reader's machine and saves back to it,
@@ -175,7 +185,7 @@ Frame to parent:
 | `height` | `{ height }` - what the content needs; the frame cannot size itself |
 | `status` | `{ state, detail }` - `compiling`, `starting runtime`, `running`, `done`, `failed`, `error` |
 | `output` | `{ text }` - what the program wrote |
-| `images` | `{ images }` - `{ name, url }` for each picture it drew, as data URLs |
+| `images` | `{ images }` - `{ name, url }` for each picture it drew, as data URLs; sent again as an animation replaces a picture, with the name unchanged |
 | `diagnostics` | `{ diagnostics }` - from the compiler |
 | `analyser` | `{ state }` - `ready`, `connecting` or `disconnected` |
 
@@ -191,6 +201,7 @@ Two harnesses, neither with dependencies of its own:
 node test/analyser-stress.js        # can broken source stop the analyser answering?
 node test/analyse-eviction.js      # does an address at its cap give up its quietest session? (see the file for the service settings)
 node test/browser-end-to-end.js     # editor, analyser, compile and run, in a real browser
+node test/live-output.mjs           # the image-marker handling on its own
 ```
 
 Both take `ANALYSE_URL` / `BASE` and `TOKEN` to run against a deployment rather
@@ -211,10 +222,11 @@ than a local one. The browser test needs a Chrome or Chromium binary and takes
 | `web/wwwroot/theme.js` | editor themes, matched to how ghul.dev renders a static example |
 | `web/wwwroot/token.js` | the access token, and asking for one |
 | `web/wwwroot/files.js` | opening and saving a `.ghul` file, and saving a drawing |
+| `web/wwwroot/live-output.js` | the program's output as the page shows it: image markers turned into pictures as they arrive |
 | `analyse-service/` | a WebSocket in front of one language server per editor |
 | `compile-service/` | compiles posted source, returns an assembly |
 | `shared/toolchain.js` | where the toolchain is, and the reference set |
-| `runner/` | the host, in ghūl: load, run, capture the output, collect the drawings |
+| `runner/` | the host, in ghūl: load, run, capture the output |
 | `examples/` | small programs used to check the host by hand |
 | `deploy/` | host setup and the nginx configuration |
 | `docs/design.md` | why it is built this way |
