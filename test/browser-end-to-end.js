@@ -12,7 +12,7 @@
 // puts it. Drives it over the DevTools protocol rather than through a test
 // framework, so it has no dependencies of its own.
 
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 
 const CHROME = process.env.CHROME
     ?? `${process.env.HOME}/.cache/ms-playwright/chromium-1140/chrome-linux/chrome`;
@@ -26,6 +26,17 @@ const log = m => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`)
 
 let failures = 0;
 
+// Chromium left running by an earlier run has init as its parent. Reported
+// rather than killed, since it could belong to something else.
+try {
+    const orphans = execFileSync('ps', ['-eo', 'ppid=,args='], { encoding: 'utf8' })
+        .split('\n')
+        .filter(line => /^\s*1\s/.test(line) && line.includes('ms-playwright/chromium'))
+        .length;
+
+    if (orphans) log(`warning: ${orphans} Chromium process(es) left by an earlier run are still running`);
+} catch { /* no ps to ask */ }
+
 function check(what, ok, detail = '') {
     if (!ok) failures++;
     log(`${ok ? 'ok  ' : 'FAIL'}  ${what}${detail ? `  ${detail}` : ''}`);
@@ -37,6 +48,18 @@ const chrome = spawn(CHROME, [
     `--user-data-dir=/tmp/ghul-playground-test-${process.pid}`,
     'about:blank'
 ], { stdio: 'ignore' });
+
+// The browser outlives this process unless it is stopped, so it is stopped
+// on every way out: the end of the run, a check that throws, a timeout's
+// signal. Node reaches its exit event after an uncaught exception too.
+process.on('exit', () => chrome.kill());
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(signal, () => {
+        log(`stopped by ${signal}`);
+        process.exit(1);
+    });
+}
 
 chrome.on('error', e => {
     console.error(`could not start ${CHROME}: ${e.message}`);
@@ -637,8 +660,6 @@ chrome.on('error', e => {
         ]), counted);
 
     await cmd('Fetch.disable');
-
-    chrome.kill();
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');
     process.exit(failures ? 1 : 0);
