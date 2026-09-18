@@ -185,9 +185,10 @@ export class GhulLanguageClient {
             this.connected = false;
             this.initialized = false;
 
-            // The service says why, or this client gave the session back
-            // itself. Anything else is a fault and is retried.
-            this.dormant = this.releasing || event.reason === 'idle';
+            // The service says why - idle, or given to another editor from
+            // the same address - or this client gave the session back itself.
+            // Anything else is a fault and is retried.
+            this.dormant = this.releasing || event.reason === 'idle' || event.reason === 'evicted';
             this.releasing = false;
 
             // Any in-flight request will never be answered now.
@@ -206,7 +207,7 @@ export class GhulLanguageClient {
             // A handshake that failed says nothing about why. Being over the
             // per-address limit is worth telling apart from the service being
             // down, because the reader can do something about it.
-            this.refused = !opened && await this.overLimit();
+            this.refused = event.reason === 'address limit' || (!opened && await this.overLimit());
 
             if (this.disposed || this.socket !== socket) return;
 
