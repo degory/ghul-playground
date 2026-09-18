@@ -31,7 +31,7 @@ WORKDIR /home/playground
 
 ARG GHUL_COMPILER_VERSION=58.14.4
 ARG GHUL_RUNTIME_VERSION=21.3.0
-ARG GHUL_RASTER_VERSION=0.5.0
+ARG GHUL_RASTER_VERSION=0.9.0
 
 RUN dotnet tool install --tool-path /home/playground/tools \
         ghul.compiler --version "${GHUL_COMPILER_VERSION}" \
