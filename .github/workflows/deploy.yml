@@ -94,6 +94,16 @@ jobs:
           echo "front end -> $code"
           test "$code" = 200
 
+          # Two Cross-Origin-Resource-Policy headers read as none, which blocks
+          # the counter on the documentation site. The nginx configuration is
+          # installed by host-setup.sh rather than by this workflow, so this
+          # warns rather than failing a deploy it could not have fixed.
+          corp=$(curl -s -A ghul-playground-deploy-check -D - -o /dev/null "https://$HOST/stats/count.js" \
+              | grep -ci '^cross-origin-resource-policy:' || true)
+          echo "count.js Cross-Origin-Resource-Policy headers -> $corp"
+          test "$corp" = 1 \
+              || echo "::warning::count.js carries $corp Cross-Origin-Resource-Policy headers; run deploy/host-setup.sh on the host"
+
           # A successful compile is what proves the toolchain the box just
           # built actually runs, not merely that a container answers. Poll it:
           # the services take a moment to come up after the swap.
