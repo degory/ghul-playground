@@ -9,12 +9,15 @@
 // cross-origin requests. raw.githubusercontent.com does, and unlike the
 // GitHub API it is not held to 60 requests an hour.
 
-const ROSETTA_CODE = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/tasks';
+const ROSETTA_CODE_ROOT = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
+const ROSETTA_CODE = `${ROSETTA_CODE_ROOT}tasks`;
 
 const COLLECTIONS = {
     // A task is tasks/<slug>/<slug>.ghul, or, for a task solved more than one
     // way, tasks/<slug>/<NN-part>/<NN-part>.ghul. A solution the playground
-    // cannot run carries a playground-unsupported file giving the reason.
+    // cannot run carries a playground-unsupported file giving the reason, and
+    // one that reads files names them in playground-files, one path per line
+    // relative to the task's directory.
     'rosetta-code': {
         pattern: /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/([0-9]{2}(?:-[a-z0-9]+)+))?$/,
 
@@ -23,7 +26,9 @@ const COLLECTIONS = {
 
             return {
                 source: `${directory}/${part ?? slug}.ghul`,
-                unsupported: `${directory}/playground-unsupported`
+                unsupported: `${directory}/playground-unsupported`,
+                files: `${directory}/playground-files`,
+                root: ROSETTA_CODE_ROOT
             };
         }
     }
@@ -46,8 +51,8 @@ export function requestedProgram(pathname) {
     return { name, ...collection.locate(id.slice(1)) };
 }
 
-// The program's source, and the reason it will not run here if it carries
-// one. Throws with a message fit to show the reader.
+// The program's source, the reason it will not run here if it carries one,
+// and the files it reads. Throws with a message fit to show the reader.
 export async function loadProgram(request, fetchImpl = fetch) {
     if (request.error) throw new Error(request.error);
 
@@ -55,9 +60,14 @@ export async function loadProgram(request, fetchImpl = fetch) {
 
     let source;
     let unsupported;
+    let manifest;
 
     try {
-        [source, unsupported] = await Promise.all([get(request.source), get(request.unsupported)]);
+        [source, unsupported, manifest] = await Promise.all([
+            get(request.source),
+            get(request.unsupported),
+            get(request.files)
+        ]);
     } catch (e) {
         throw new Error(`could not load ${request.name}: ${e.message}`);
     }
@@ -65,8 +75,54 @@ export async function loadProgram(request, fetchImpl = fetch) {
     if (source.status === 404) throw new Error(`there is no program called ${request.name}`);
     if (!source.ok) throw new Error(`could not load ${request.name}: ${source.status}`);
 
+    // A file that will not load leaves the program in the editor, with the
+    // reason shown where its output would be: the source is still worth
+    // reading, and a run would only fail on the missing file.
+    let files = [];
+    let error;
+
+    if (manifest.ok) {
+        const text = await manifest.text();
+
+        try {
+            const wanted = dataFilePaths(text, request.files, request.root);
+
+            files = await Promise.all(wanted.map(async ({ name, url }) => {
+                const response = await get(url);
+
+                if (!response.ok) throw new Error(`${name}: ${response.status}`);
+
+                return { name, bytes: new Uint8Array(await response.arrayBuffer()) };
+            }));
+        } catch (e) {
+            files = [];
+            error = `could not load the files ${request.name} reads: ${e.message}`;
+        }
+    }
+
     return {
         source: await source.text(),
-        unsupported: unsupported.ok ? (await unsupported.text()).trim() : null
+        unsupported: unsupported.ok ? (await unsupported.text()).trim() : null,
+        files,
+        ...(error ? { error } : {})
     };
+}
+
+// Where each file a manifest names is fetched from, and the name the program
+// opens it by. A path is relative to the manifest, so a file shared between
+// tasks can live once at the top of the repository; the program sees it under
+// its own last segment, beside it in the working directory, which is where a
+// task run from its own directory finds it. A path reaching outside the
+// collection's repository is refused rather than fetched.
+export function dataFilePaths(text, manifestUrl, root) {
+    return text.split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#'))
+        .map(path => {
+            const url = new URL(path, manifestUrl).toString();
+
+            if (!url.startsWith(root)) throw new Error(`${path} is outside the repository`);
+
+            return { name: url.slice(url.lastIndexOf('/') + 1), url };
+        });
 }

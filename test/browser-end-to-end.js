@@ -62,9 +62,13 @@ chrome.on('error', e => {
     let id = 0;
     const pending = new Map();
 
+    // Requests the browser has paused for the test to answer, by URL.
+    const intercepted = new Map();
+
     ws.addEventListener('message', e => {
         const m = JSON.parse(e.data);
         if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
+        if (m.method === 'Fetch.requestPaused') answerIntercepted(m.params);
         if (m.method === 'Runtime.exceptionThrown') {
             log(`page exception: ${m.params.exceptionDetails?.exception?.description
                 ?? m.params.exceptionDetails?.text}`);
@@ -77,6 +81,23 @@ chrome.on('error', e => {
         pending.set(i, res);
         ws.send(JSON.stringify({ id: i, method, params }));
     });
+
+    // Answered from the map, or as not found, with the header a cross-origin
+    // fetch needs to be allowed to read the answer.
+    function answerIntercepted({ requestId, request }) {
+        const body = intercepted.get(request.url);
+
+        ws.send(JSON.stringify({
+            id: ++id,
+            method: 'Fetch.fulfillRequest',
+            params: {
+                requestId,
+                responseCode: body === undefined ? 404 : 200,
+                responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }],
+                body: Buffer.from(body ?? '').toString('base64')
+            }
+        }));
+    }
 
     const ev = async expression => (await cmd('Runtime.evaluate',
         { expression, returnByValue: true, awaitPromise: true })).result?.result?.value;
@@ -421,6 +442,61 @@ chrome.on('error', e => {
     await ev(`monaco.editor.getModels()[0].setValue('entry() is si\\n'); true`);
     await sleep(300);
     check('replacing the buffer gives up the path', await ev(`location.pathname`) === '/');
+
+    // A program that reads files it names in playground-files. The collection
+    // is served by the test rather than fetched, so this checks the playground
+    // and not what the repository holds today. One file is reached through a
+    // path outside the task's own directory, as a shared one would be.
+    const TASKS = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
+    const reader = [
+        'use IO.Std.write_line;', '', 'entry() is',
+        '    for line in IO.File.read_all_lines("words.txt") do',
+        '        write_line("read {line}");',
+        '    od', '',
+        '    write_line(IO.File.read_all_text("notes.txt"));',
+        '    IO.File.write_all_text("notes.txt", "changed");',
+        'si', ''
+    ].join('\n');
+
+    intercepted.set(`${TASKS}tasks/reads-files/reads-files.ghul`, reader);
+    intercepted.set(`${TASKS}tasks/reads-files/playground-files`, '../../data/words.txt\nnotes.txt\n');
+    intercepted.set(`${TASKS}data/words.txt`, 'alpha\nbeta\n');
+    intercepted.set(`${TASKS}tasks/reads-files/notes.txt`, 'from the notes');
+
+    await cmd('Fetch.enable', { patterns: [{ urlPattern: `${TASKS}*` }] });
+    await cmd('Page.navigate', { url: new URL('/rosetta-code/reads-files', BASE).toString() });
+
+    let ready = false;
+    for (let i = 0; i < 120; i++) {
+        ready = await ev(`document.getElementById('compiler')?.dataset.state === 'ready'
+            && (globalThis.monaco?.editor.getModels()[0]?.getValue() ?? '').includes('words.txt')`);
+        if (ready) break;
+        await sleep(500);
+    }
+    check('a program that reads files opens by path', ready);
+
+    // Run twice: the program overwrites one of its inputs, and the second run
+    // has to be handed the original again.
+    for (const attempt of ['first', 'second']) {
+        await ev(`document.getElementById('run').click(); true`);
+
+        let read = '';
+        for (let i = 0; i < 180; i++) {
+            read = await ev(`document.getElementById('output').innerText`) ?? '';
+            if (read.includes('from the notes') || read.includes('unhandled')) break;
+            await sleep(500);
+        }
+        check(`the program reads the files it names (${attempt} run)`,
+            read.includes('read alpha') && read.includes('read beta') && read.includes('from the notes'),
+            JSON.stringify(read.trim()));
+
+        for (let i = 0; i < 60; i++) {
+            if (await ev(`document.getElementById('run-label').textContent`) === 'Run') break;
+            await sleep(500);
+        }
+    }
+
+    await cmd('Fetch.disable');
 
     chrome.kill();
 
