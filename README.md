@@ -189,6 +189,7 @@ Two harnesses, neither with dependencies of its own:
 
 ```sh
 node test/analyser-stress.js        # can broken source stop the analyser answering?
+node test/analyse-eviction.js      # does an address at its cap give up its quietest session? (see the file for the service settings)
 node test/browser-end-to-end.js     # editor, analyser, compile and run, in a real browser
 ```
 

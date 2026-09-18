@@ -101,10 +101,16 @@ the analyse service deliberately allows more sessions than it has cores.
 The analyse service caps the number of open sessions, with the idle timeout and
 lifetime above. The cap bounds memory directly.
 
+It also caps the sessions one address may hold, four by default, using the
+address nginx passes in `X-Real-IP`. An address at that cap that connects again
+takes the slot of its own session quiet longest, once that one has been quiet
+for twenty seconds; with nothing quiet enough, the connection is refused. The
+evicted editor goes dormant and reconnects when its reader next uses it.
+
 nginx adds per-address limits in `deploy/nginx/playground-limits.conf`: a
-compile rate limit and at most two sessions from one address. A proxy can only
-see addresses, so these bound one client; the service caps above bound the
-total.
+compile rate limit, and a connection limit on the analyser set above the
+service's own cap as a backstop. A proxy can only see addresses, so these bound
+one client; the service caps above bound the total.
 
 `ALLOWED_ORIGINS` lists the sites allowed to call the services from a browser.
 It is not access control, because a non-browser client can send any origin

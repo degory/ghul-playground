@@ -485,10 +485,30 @@ jobs:
             node test/browser-end-to-end.js
           }
 
+      # A second analyse service with a small per-address cap and a short
+      # quiet period, so the eviction rules can be checked in seconds without
+      # disturbing the sessions the browser test holds on the first.
+      - name: Give a quiet session's slot to a new connection from its address
+        env:
+          GHUL_COMPILER_DLL: ${{ steps.toolchain.outputs.compiler }}
+          GHUL_RUNTIME_DLL: ${{ steps.toolchain.outputs.runtime }}
+          GHUL_RASTER_DLL: ${{ steps.toolchain.outputs.raster }}
+          GHUL_LANGUAGE_SERVER: ${{ steps.language-server.outputs.command }}
+        run: |
+          PORT=5093 MAX_SESSIONS=6 POOL_SIZE=3 MAX_SESSIONS_PER_ADDRESS=2 EVICT_QUIET_MS=2000 \
+              node analyse-service/server.js > /tmp/eviction.log 2>&1 &
+
+          for _ in $(seq 1 90); do
+            curl -sf http://127.0.0.1:5093/health | grep -q '"idle":3' && break
+            sleep 2
+          done
+
+          EVICT_QUIET_MS=2000 ANALYSE_URL=ws://127.0.0.1:5093/analyse node test/analyse-eviction.js
+
       - name: Service logs
         if: failure()
         run: |
-          for log in compile analyse web; do
+          for log in compile analyse web eviction; do
             echo "=== $log ==="
             tail -50 "/tmp/$log.log" || true
           done

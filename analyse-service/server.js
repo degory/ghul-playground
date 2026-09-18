@@ -38,6 +38,16 @@ const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MS ?? 5 * 60 * 1000);
 const MAX_SESSION_MS = Number(process.env.MAX_SESSION_MS ?? 60 * 60 * 1000);
 const WARM_UP_TIMEOUT_MS = Number(process.env.WARM_UP_TIMEOUT_MS ?? 120 * 1000);
 
+// How many sessions one client address may hold. An address at the limit that
+// connects again takes the slot of its own least recently active session,
+// provided that session has been quiet for EVICT_QUIET_MS: the editor a reader
+// has just gone back to is the one they are using, and one they left is not.
+// The quiet period stops two editors in use at once, or two people behind one
+// address, taking a slot back and forth. When nothing at the address has been
+// quiet that long, the new connection is refused instead.
+const MAX_SESSIONS_PER_ADDRESS = Number(process.env.MAX_SESSIONS_PER_ADDRESS ?? 4);
+const EVICT_QUIET_MS = Number(process.env.EVICT_QUIET_MS ?? 20 * 1000);
+
 // How long a connecting client waits for the pool to produce a warm analyser
 // before it gets a cold one instead. A cold analyser still works, it is just
 // slow to first diagnostic.
@@ -180,11 +190,31 @@ function cpuSeconds(pid) {
 // getconf, so it is named here rather than hidden as a bare 100 below.
 const HERTZ = 100;
 
+// The address a session is counted against, or null when there is none to
+// count by. Behind nginx every connection comes from the proxy - through
+// Docker, from the bridge's gateway - so the only usable address is the one
+// nginx puts in X-Real-IP, which it sets rather than appends to and so cannot
+// be supplied by the client. The port is published on loopback only, so
+// nothing but nginx can reach the service to set it. Without the header every
+// reader would share one address and one cap, so a connection without it is
+// not capped per address at all.
+function clientAddress(request) {
+    return request.headers['x-real-ip'] || null;
+}
+
+// The address's own sessions, least recently active first.
+function sessionsFrom(address) {
+    return [...sessions]
+        .filter(session => session.address === address)
+        .sort((a, b) => a.lastActive - b.lastActive);
+}
+
 class Session {
-    constructor(socket, analyser) {
+    constructor(socket, analyser, address) {
         this.id = nextSessionId++;
         this.socket = socket;
         this.analyser = analyser;
+        this.address = address;
         this.closed = false;
 
         // What the analyser had already spent being warmed, so that the figure
@@ -223,6 +253,7 @@ class Session {
     }
 
     touch() {
+        this.lastActive = Date.now();
         clearTimeout(this.idleTimer);
         this.idleTimer = setTimeout(() => this.close('idle'), IDLE_TIMEOUT_MS);
     }
@@ -405,7 +436,26 @@ const wss = new WebSocketServer({
     handleProtocols: protocols => protocols.has('ghul-playground') ? 'ghul-playground' : false
 });
 
-wss.on('connection', async socket => {
+wss.on('connection', async (socket, request) => {
+    const address = clientAddress(request);
+    const mine = address ? sessionsFrom(address) : [];
+
+    if (mine.length >= MAX_SESSIONS_PER_ADDRESS) {
+        const quiet = mine.find(session =>
+            session.close && Date.now() - session.lastActive >= EVICT_QUIET_MS);
+
+        if (!quiet) {
+            log(`refusing connection: ${mine.length}/${MAX_SESSIONS_PER_ADDRESS} sessions ` +
+                'from one address, none quiet enough to give up');
+            socket.close(1013, 'address limit');
+            return;
+        }
+
+        // The client reads this reason as going dormant, like an idle close:
+        // it reconnects when its reader next does something, not on a timer.
+        quiet.close('evicted');
+    }
+
     if (sessions.size >= MAX_SESSIONS) {
         log(`refusing connection: ${sessions.size}/${MAX_SESSIONS} sessions in use`);
         socket.close(1013, 'try again later');
@@ -413,8 +463,9 @@ wss.on('connection', async socket => {
     }
 
     // Hold the slot while acquiring, so two connections arriving together
-    // cannot both pass the check above.
-    const placeholder = { closed: false };
+    // cannot both pass the checks above. It counts against the address and is
+    // never evicted, since nobody has used it yet.
+    const placeholder = { closed: false, address, lastActive: Infinity };
     sessions.add(placeholder);
 
     let analyser;
@@ -430,7 +481,7 @@ wss.on('connection', async socket => {
         return;
     }
 
-    const session = new Session(socket, analyser);
+    const session = new Session(socket, analyser, address);
     sessions.add(session);
 
     session.log(`took analyser ${analyser.id} (${analyser.warm ? 'warm' : 'cold'}), ` +
@@ -454,7 +505,8 @@ wss.on('connection', async socket => {
 
     server.listen(PORT, HOST, () => {
         log(`analyse service on ws://${HOST}:${PORT}/analyse ` +
-            `(max ${MAX_SESSIONS} sessions, pool ${POOL_SIZE}, idle ${IDLE_TIMEOUT_MS / 1000}s)`);
+            `(max ${MAX_SESSIONS} sessions, ${MAX_SESSIONS_PER_ADDRESS} per address, ` +
+            `pool ${POOL_SIZE}, idle ${IDLE_TIMEOUT_MS / 1000}s, evictable after ${EVICT_QUIET_MS / 1000}s)`);
         log(tokens.describe());
         log(origins.describe());
 
