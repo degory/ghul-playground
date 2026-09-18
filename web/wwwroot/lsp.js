@@ -31,6 +31,12 @@ const COMPLETION_KIND = {
 // a WebSocket and a query parameter would end up in access logs.
 const TOKEN_SUBPROTOCOL_PREFIX = 'ghul-playground-token.';
 
+// How long a page can be out of sight before its session is given back. Long
+// enough that glancing at another tab does not cost a reconnect, short enough
+// that a forgotten tab does not hold a session for the service's whole idle
+// timeout.
+const HIDDEN_RELEASE_MS = 30000;
+
 export class GhulLanguageClient {
     constructor(url, { onStatus, onDiagnostics, getToken } = {}) {
         this.url = url;
@@ -60,6 +66,32 @@ export class GhulLanguageClient {
         // would hold every session there is. The next thing the reader does
         // wakes it.
         this.dormant = false;
+
+        // Set while this client is closing its own socket to give the
+        // session back, so the close is read as going dormant rather than
+        // as a fault to retry.
+        this.releasing = false;
+
+        // Set when the last attempt was turned away because this address
+        // already holds as many sessions as it may. Retried on the timer,
+        // and also on the reader's next move, which is usually just after
+        // they have closed another editor.
+        this.refused = false;
+
+        this.retryTimer = null;
+        this.hiddenTimer = null;
+
+        this.onVisibility = () => {
+            clearTimeout(this.hiddenTimer);
+
+            if (document.hidden) {
+                this.hiddenTimer = setTimeout(() => this.release(), HIDDEN_RELEASE_MS);
+            } else {
+                this.wake();
+            }
+        };
+
+        document.addEventListener('visibilitychange', this.onVisibility);
     }
 
     // Whether queries are worth making. Callers use this to decide between
@@ -75,7 +107,21 @@ export class GhulLanguageClient {
 
     dispose() {
         this.disposed = true;
+        clearTimeout(this.retryTimer);
+        clearTimeout(this.hiddenTimer);
+        document.removeEventListener('visibilitychange', this.onVisibility);
         this.socket?.close();
+    }
+
+    // Gives the session back while the page is out of sight, going dormant
+    // exactly as an idle close from the service does. Coming back into view
+    // or the next thing the reader does reconnects.
+    release() {
+        if (this.disposed || !this.socket || this.socket.readyState === WebSocket.CLOSED) return;
+
+        this.releasing = true;
+        clearTimeout(this.retryTimer);
+        this.socket.close();
     }
 
     // Drop the current connection and try again now. Used after a token is
@@ -96,6 +142,17 @@ export class GhulLanguageClient {
     connect() {
         if (this.disposed) return;
 
+        // A page out of sight waits to be looked at rather than taking a
+        // session: a retry timer or a background tab would otherwise hand
+        // one to an editor nobody is using.
+        if (document.hidden) {
+            this.dormant = true;
+            this.refused = false;
+            this.onStatus('dormant');
+            return;
+        }
+
+        clearTimeout(this.retryTimer);
         this.onStatus('connecting');
 
         const token = this.getToken();
@@ -112,7 +169,11 @@ export class GhulLanguageClient {
 
         this.socket = socket;
 
+        let opened = false;
+
         socket.addEventListener('open', () => {
+            opened = true;
+            this.refused = false;
             this.connected = true;
             this.reconnectDelay = 1000;
             this.initialize();
@@ -120,12 +181,14 @@ export class GhulLanguageClient {
 
         socket.addEventListener('message', event => this.receive(JSON.parse(event.data)));
 
-        socket.addEventListener('close', event => {
+        socket.addEventListener('close', async event => {
             this.connected = false;
             this.initialized = false;
 
-            // The service says why. Anything else is a fault and is retried.
-            this.dormant = event.reason === 'idle';
+            // The service says why, or this client gave the session back
+            // itself. Anything else is a fault and is retried.
+            this.dormant = this.releasing || event.reason === 'idle';
+            this.releasing = false;
 
             // Any in-flight request will never be answered now.
             for (const resolve of this.pending.values()) resolve(null);
@@ -135,18 +198,42 @@ export class GhulLanguageClient {
             // being ready. Reporting only the ready-then-lost case leaves a
             // service that was never reachable showing "connecting" for ever,
             // which reads as a hung client rather than an absent server.
-            this.onStatus(this.dormant ? 'dormant' : 'disconnected');
+            if (this.dormant) {
+                this.onStatus('dormant');
+                return;
+            }
 
-            if (!this.dormant) this.scheduleReconnect();
+            // A handshake that failed says nothing about why. Being over the
+            // per-address limit is worth telling apart from the service being
+            // down, because the reader can do something about it.
+            this.refused = !opened && await this.overLimit();
+
+            if (this.disposed || this.socket !== socket) return;
+
+            this.onStatus(this.refused ? 'refused' : 'disconnected');
+            this.scheduleReconnect();
         });
 
         socket.addEventListener('error', () => { /* close follows */ });
     }
 
+    // The proxy answers an ordinary request to the same path with 429 when
+    // this address already holds all the connections it may, which a
+    // WebSocket handshake has no way to report.
+    async overLimit() {
+        try {
+            const response = await fetch(this.url.replace(/^ws/, 'http'), { cache: 'no-store' });
+            return response.status === 429;
+        } catch {
+            return false;
+        }
+    }
+
     scheduleReconnect() {
         if (this.disposed) return;
 
-        setTimeout(() => this.connect(), this.reconnectDelay);
+        clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => this.connect(), this.reconnectDelay);
         // Back off to a minute: a service that is down stays down for a while,
         // and a tab left open should not hammer it.
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60000);
@@ -267,9 +354,10 @@ export class GhulLanguageClient {
     // Reconnect on the reader's next move, and report that this attempt found
     // nothing rather than waiting for the socket.
     wake() {
-        if (!this.dormant) return false;
+        if (!this.dormant && !this.refused) return false;
 
         this.dormant = false;
+        this.refused = false;
         this.reconnectDelay = 1000;
         this.connect();
 

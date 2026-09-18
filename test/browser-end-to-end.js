@@ -420,6 +420,37 @@ chrome.on('error', e => {
     await sleep(300);
     check('Escape closes the file menu', await ev(`document.getElementById('file-menu').hidden`));
 
+    // A page out of sight gives its analyser session back, and takes one again
+    // when it is looked at. A headless tab is never hidden, so the page is told
+    // it is: the client reads document.hidden when the event arrives.
+    const setHidden = hidden => ev(`(() => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${hidden} });
+        document.dispatchEvent(new Event('visibilitychange'));
+        return true;
+    })()`);
+
+    const analyserState = () => ev(`document.getElementById('analyser')?.dataset.state`);
+
+    await setHidden(true);
+
+    let released = '';
+    for (let i = 0; i < 90; i++) {
+        released = await analyserState();
+        if (released === 'dormant') break;
+        await sleep(500);
+    }
+    check('a hidden page gives its analyser session back', released === 'dormant', released);
+
+    await setHidden(false);
+
+    let resumed = '';
+    for (let i = 0; i < 90; i++) {
+        resumed = await analyserState();
+        if (resumed === 'ready') break;
+        await sleep(500);
+    }
+    check('and takes one again when it is looked at', resumed === 'ready', resumed);
+
     // A program opened by path is fetched from its collection into the editor,
     // which exercises the path fallback, the <base> the page's own assets are
     // resolved against, and the cross-origin fetch.
