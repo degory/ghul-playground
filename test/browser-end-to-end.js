@@ -93,7 +93,10 @@ chrome.on('error', e => {
             params: {
                 requestId,
                 responseCode: body === undefined ? 404 : 200,
-                responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }],
+                responseHeaders: [
+                    { name: 'Access-Control-Allow-Origin', value: '*' },
+                    ...(request.url.endsWith('.js') ? [{ name: 'Content-Type', value: 'text/javascript' }] : [])
+                ],
                 body: Buffer.from(body ?? '').toString('base64')
             }
         }));
@@ -430,6 +433,19 @@ chrome.on('error', e => {
     }
     check('a program opens by path', opened.includes('Hello world!'), JSON.stringify(opened.slice(0, 60)));
 
+    let arrived = '';
+    for (let i = 0; i < 180; i++) {
+        arrived = await ev(`document.getElementById('output').innerText`) ?? '';
+        if (arrived.includes('Hello world!')) break;
+        await sleep(500);
+    }
+    check('a program opened by path runs on arrival', arrived.includes('Hello world!'), JSON.stringify(arrived.trim()));
+
+    for (let i = 0; i < 60; i++) {
+        if (await ev(`document.getElementById('run-label').textContent`) === 'Run') break;
+        await sleep(500);
+    }
+
     // The path says where the buffer came from, so editing the program leaves
     // it alone - the link still loads what it names - while replacing the
     // buffer wholesale gives it up, along with the name Save would offer.
@@ -462,8 +478,15 @@ chrome.on('error', e => {
     intercepted.set(`${TASKS}tasks/reads-files/playground-files`, '../../data/words.txt\nnotes.txt\n');
     intercepted.set(`${TASKS}data/words.txt`, 'alpha\nbeta\n');
     intercepted.set(`${TASKS}tasks/reads-files/notes.txt`, 'from the notes');
+    intercepted.set(`${TASKS}tasks/reads-files/task.json`, '{ "task": "Reads files" }');
 
-    await cmd('Fetch.enable', { patterns: [{ urlPattern: `${TASKS}*` }] });
+    // The analytics counter, replaced by one that records what it is asked
+    // to count, so the run events can be checked without a GoatCounter.
+    const COUNTER = new URL('/stats/count.js', BASE).toString();
+    intercepted.set(COUNTER,
+        'window.goatcounter.count = e => (window.counted ??= []).push(e.path);');
+
+    await cmd('Fetch.enable', { patterns: [{ urlPattern: `${TASKS}*` }, { urlPattern: COUNTER }] });
     await cmd('Page.navigate', { url: new URL('/rosetta-code/reads-files', BASE).toString() });
 
     let ready = false;
@@ -476,9 +499,10 @@ chrome.on('error', e => {
     check('a program that reads files opens by path', ready);
 
     // Run twice: the program overwrites one of its inputs, and the second run
-    // has to be handed the original again.
+    // has to be handed the original again. The first run is the one the page
+    // starts itself on arrival.
     for (const attempt of ['first', 'second']) {
-        await ev(`document.getElementById('run').click(); true`);
+        if (attempt === 'second') await ev(`document.getElementById('run').click(); true`);
 
         let read = '';
         for (let i = 0; i < 180; i++) {
@@ -495,6 +519,19 @@ chrome.on('error', e => {
             await sleep(500);
         }
     }
+
+    const about = await ev(`(() => { const a = document.getElementById('about-program');
+                 return a.offsetParent !== null ? a.innerText : null; })()`);
+    check('the program is named under its output', about?.startsWith('Reads files'), JSON.stringify(about));
+    check('and linked to its page on ghul.dev', await ev(
+        `Boolean(document.querySelector('#about-program a[href="https://ghul.dev/rosetta/reads-files"]'))`));
+
+    const counted = await ev(`JSON.stringify(window.counted ?? [])`);
+    check('the run on arrival and the one asked for are counted apart',
+        counted === JSON.stringify([
+            `${new URL(BASE).host}/run/automatic/rosetta-code/reads-files`,
+            `${new URL(BASE).host}/run/manual/rosetta-code/reads-files`
+        ]), counted);
 
     await cmd('Fetch.disable');
 

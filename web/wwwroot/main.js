@@ -104,6 +104,16 @@ function showTab(panel) {
         tab.button.setAttribute('aria-selected', String(selected));
         tab.panel.hidden = !selected;
     }
+
+    showAbout();
+}
+
+// Filled in once the program is known, and emptied when the buffer stops
+// being that program.
+const aboutProgram = document.getElementById('about-program');
+
+function showAbout() {
+    aboutProgram.hidden = outputPane.hidden || !aboutProgram.hasChildNodes();
 }
 
 for (const tab of tabs) {
@@ -320,6 +330,9 @@ function forgetProvenance() {
     history.replaceState(null, '', '/');
 
     document.title = currentName ? `${currentName} - ghūl playground` : 'ghūl playground';
+
+    aboutProgram.replaceChildren();
+    showAbout();
 }
 
 // Whether the output pane is showing its own tail, and so whether new output
@@ -482,11 +495,48 @@ if (await playground.tokenRequired() && !playground.hasToken()) {
     await playground.askForToken();
 }
 
+if (program?.source) {
+    const link = (text, href) => Object.assign(document.createElement('a'),
+        { textContent: text, href, target: '_blank', rel: 'noopener' });
+
+    aboutProgram.append(program.title ?? requested.name);
+
+    if (requested.page) aboutProgram.append(' · ', link('more about this task on ghul.dev', requested.page));
+
+    aboutProgram.append(' · ', link('take the tour', 'https://ghul.dev/expression-oriented-programming'));
+
+    showAbout();
+}
+
 const isRunning = () => runButton.hasAttribute('data-stop');
+
+// Counted as an event, so the stats can say how often a program is run and
+// whether the reader asked for it or arrived at a link that ran it for them.
+// The counter loads asynchronously and may not be there yet for a run on
+// arrival, so that one waits for it rather than going uncounted.
+function countRun(automatic) {
+    const event = {
+        path: `${location.host}/run/${automatic ? 'automatic' : 'manual'}/${provenance?.name ?? 'editor'}`,
+        title: automatic ? 'run on arrival' : 'run',
+        event: true
+    };
+
+    if (window.goatcounter?.count) {
+        window.goatcounter.count(event);
+    } else {
+        document.getElementById('goatcounter')?.addEventListener('load',
+            () => window.goatcounter?.count?.(event), { once: true });
+    }
+}
+
+function runProgram({ automatic = false } = {}) {
+    countRun(automatic);
+    playground.run();
+}
 
 runButton.addEventListener('click', () => {
     if (!isRunning()) {
-        playground.run();
+        runProgram();
         return;
     }
 
@@ -529,7 +579,14 @@ stdin.addEventListener('keydown', event => {
 });
 
 playground.editor.addCommand(
-    monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { if (!isRunning()) playground.run(); });
+    monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { if (!isRunning()) runProgram(); });
+
+// A link to a program is a request to see it run, so it runs on arrival -
+// unless it cannot run here, which the notice above already says, or a token
+// is wanted and the reader has not given one.
+if (program?.source && !notice && (playground.hasToken() || !(await playground.tokenRequired()))) {
+    runProgram({ automatic: true });
+}
 
 // --- saving and copying ----------------------------------------------------
 
