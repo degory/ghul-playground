@@ -158,7 +158,7 @@ chrome.on('error', e => {
     // Compile and run, which exercises the compile service and the wasm host.
     await ev(`(() => {
         monaco.editor.getModels()[0].setValue(
-            'use IO.Std.write_line;\\n\\nentry() is\\n    write_line("it ran");\\nsi\\n');
+            'use IO.Std.write_line;\\n\\nentry() is\\n    IO.Std.error.write_line("and complained");\\n    write_line("it ran");\\nsi\\n');
         return true;
     })()`);
     await sleep(1000);
@@ -174,6 +174,14 @@ chrome.on('error', e => {
         await sleep(500);
     }
     check('the program compiles and runs', output.includes('it ran'), JSON.stringify(output.trim()));
+
+    // Standard error goes to the same stream as standard output, so a program
+    // that writes to it is not left talking to the browser's own console,
+    // where nobody using the page would look. The program writes this line
+    // before the one above, so a run that got as far as the check above gave
+    // this one its chance to arrive too.
+    check('standard error reaches the output pane', output.includes('and complained'),
+        JSON.stringify(output.trim()));
 
     // A program that reads a line. This is the one thing on the page that
     // cannot work at all unless the runtime is on a worker thread and the page

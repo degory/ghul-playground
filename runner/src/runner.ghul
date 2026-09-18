@@ -61,6 +61,7 @@ namespace Playground is
 
             let writer = IO.StringWriter();
             let previous = IO.Std.out;
+            let previous_error = IO.Std.error;
 
             let channel = _channel;
 
@@ -68,9 +69,11 @@ namespace Playground is
                 let out = CONSOLE_OUT(channel, writer);
 
                 IO.Std.set_out(out);
+                IO.Std.set_error(out);
                 IO.Std.set_in(CONSOLE_IN(channel, out));
             else
                 IO.Std.set_out(writer);
+                IO.Std.set_error(writer);
             fi
 
             try
@@ -98,6 +101,7 @@ namespace Playground is
                 fi
             finally
                 IO.Std.set_out(previous);
+                IO.Std.set_error(previous_error);
 
                 // Set rather than put back: reading IO.Std.in is what throws
                 // in a browser, where there is no such stream to hand back,
