@@ -75,7 +75,7 @@ header :where(#file-toggle, #reset, #run, .indicator, .group button) {
 
 /* An action, so the foreground colour, at the bar's one height and size. */
 /* A labelled action with no icon of its own. */
-#file-toggle, #reset { padding: 0 0.5rem; }
+#file-toggle { padding: 0 0.5rem; }
 
 header svg { width: 15px; height: 15px; fill: currentColor; display: block; }
 
@@ -247,6 +247,16 @@ button.indicator:is([data-state="ready"], [data-state="connecting"]):hover { bac
   border-color: var(--border);
   background: var(--bg);
 }
+
+/* New session is an action too, so it has Run's outline and an icon of its
+   own; without them it reads as the session's title. */
+#reset {
+  padding: 0 0.7rem 0 0.55rem;
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+#reset svg { width: 14px; height: 14px; fill: var(--fg-muted); }
 
 /* A shade smaller than the bar's icons, so the triangle sits inside the
    button's border rather than filling it. */

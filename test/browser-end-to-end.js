@@ -818,7 +818,7 @@ chrome.on('error', e => {
 
             for (let i = 0; i < 240; i++) {
                 const done = await ev(`document.querySelectorAll('.entry').length > ${before} &&
-                    !document.getElementById('run').disabled &&
+                    !document.getElementById('run').hasAttribute('data-busy') &&
                     !document.getElementById('run').hasAttribute('data-stop')`);
 
                 if (done) break;
@@ -830,6 +830,14 @@ chrome.on('error', e => {
 
         if (replStarted) {
             const defined = await submit('let x = 41');
+
+            // Run is only offered when there is something to run.
+            const runWhenEmpty = await ev(`document.getElementById('run').disabled`);
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue('x'); return true; })()`);
+            const runWhenTyped = await ev(`document.getElementById('run').disabled`);
+
+            check('Run is greyed out while the cell is empty, and offered once something is typed',
+                runWhenEmpty === true && runWhenTyped === false, JSON.stringify({ runWhenEmpty, runWhenTyped }));
 
             // What is typed next is analysed as the next cell, against the cells
             // before it: x is only an int if the analyser has cell 1.

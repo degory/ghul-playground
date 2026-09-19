@@ -149,7 +149,8 @@ async function start() {
         // nothing to interrupt yet.
         const running = phase === 'running';
 
-        runButton.disabled = !!phase && !running;
+        // With nothing typed there is nothing to run.
+        runButton.disabled = phase ? !running : !editor.getValue().trim();
         runButton.toggleAttribute('data-busy', !!phase && !running);
         runButton.toggleAttribute('data-stop', running);
         runLabel.textContent = running ? 'Stop' : 'Run';
@@ -257,6 +258,8 @@ async function start() {
     editor.onDidChangeModelContent(() => {
         clearTimeout(analysisTimer);
         analysisTimer = setTimeout(refreshAnalysis, 300);
+
+        if (!phase) showCompiler();
     });
 
     const isInput = model => model === editor.getModel();
