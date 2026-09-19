@@ -20,10 +20,10 @@ const inputRow = document.getElementById('input-row');
 const prompt = document.getElementById('prompt');
 const hint = document.getElementById('hint');
 const status = document.getElementById('status');
-const runtimeIndicator = document.getElementById('runtime');
 const compilerIndicator = document.getElementById('compiler');
 const analyserIndicator = document.getElementById('analyser');
-const stopButton = document.getElementById('stop');
+const runButton = document.getElementById('run');
+const runLabel = document.getElementById('run-label');
 const resetButton = document.getElementById('reset');
 
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
@@ -45,12 +45,14 @@ function indicate(indicator, state, title) {
     indicator.title = title;
 }
 
+const SERVING = 'The compile service is serving sessions';
+
 // A `?repl` on the URL, which links from before sessions were on by default
 // carry, changes nothing.
 const { limits, off } = await replAvailability();
 
 if (limits) {
-    indicate(compilerIndicator, 'ready', 'The compile service is serving sessions');
+    indicate(compilerIndicator, 'ready', SERVING);
     document.getElementById('help-max-cells').textContent = String(limits.maxCells);
 } else if (off) {
     indicate(compilerIndicator, 'off', 'Interactive sessions are switched off on this server');
@@ -66,8 +68,6 @@ if (!limits) {
         : 'The compile service could not be reached. Try again in a moment.';
 
     unavailable.hidden = false;
-    stopButton.disabled = true;
-    resetButton.disabled = true;
     indicate(analyserIndicator, 'dormant', 'No session to analyse');
 } else {
     await start();
@@ -125,26 +125,42 @@ async function start() {
     editor.onDidContentSizeChange(fit);
     fit();
 
-    // Where the runtime is, for its indicator: 'idle' before the first cell
-    // and after a stop, then starting, ready, and running while a cell does.
-    let runtimeState = 'idle';
+    // The compiler indicator covers everything between pressing Run and the
+    // answer, as the playground's does: starting the runtime the cells run
+    // on, compiling, and running. `phase` is where a submission is, and
+    // `failure` why the last one did not reach the service.
+    let phase = '';
+    let starting = false;
+    let failure = null;
 
-    const RUNTIME_TITLES = {
-        idle: 'The .NET runtime the cells run on. It starts with the next cell',
-        working: 'Starting the .NET runtime, or compiling a cell',
-        ready: 'The .NET runtime is ready',
-        running: 'A cell is running. Stop ends it, and the session with it'
-    };
+    const showCompiler = () => {
+        if (starting) {
+            status.textContent = 'starting the .NET runtime ...';
+            indicate(compilerIndicator, 'working', 'Starting the .NET runtime the cells run on');
+        } else if (phase) {
+            status.textContent = `${phase} ...`;
+            indicate(compilerIndicator, 'working', phase === 'running' ? 'Running a cell' : 'Compiling a cell');
+        } else {
+            status.textContent = 'compiler';
+            indicate(compilerIndicator, failure ? 'failed' : 'ready', failure ?? SERVING);
+        }
 
-    const showRuntime = () => {
-        const state = busy ? (status.dataset.phase === 'running' ? 'running' : 'working') : runtimeState;
+        // Stop is only offered once a cell is running: before then there is
+        // nothing to interrupt yet.
+        const running = phase === 'running';
 
-        indicate(runtimeIndicator, state, RUNTIME_TITLES[state]);
+        runButton.disabled = !!phase && !running;
+        runButton.toggleAttribute('data-busy', !!phase && !running);
+        runButton.toggleAttribute('data-stop', running);
+        runLabel.textContent = running ? 'Stop' : 'Run';
+        runButton.title = running
+            ? 'Stop the cell. Code running in the browser cannot be interrupted, so the session goes with it'
+            : 'Run the cell (Shift+Enter)';
     };
 
     const onRuntimeState = state => {
-        runtimeState = state === 'starting' ? 'working' : state === 'stopped' ? 'idle' : 'ready';
-        showRuntime();
+        starting = state === 'starting';
+        showCompiler();
     };
 
     let runtime = new CellRuntime(document.body, { onState: onRuntimeState });
@@ -272,12 +288,13 @@ async function start() {
 
     const setBusy = (value, text = '') => {
         busy = value;
-        status.dataset.phase = value ? text : '';
-        status.textContent = value ? text : 'runtime';
-        stopButton.disabled = !value;
+        phase = value ? text : '';
         editor.updateOptions({ readOnly: value });
-        showRuntime();
+        showCompiler();
     };
+
+    resetButton.disabled = false;
+    showCompiler();
 
     inputRow.hidden = false;
     hint.hidden = false;
@@ -347,6 +364,7 @@ async function start() {
         if (response.status === 409) return { broken: true };
 
         if (response.status === 429 || response.status === 503) {
+            failure = 'The compile service was busy for the last cell';
             return { reply: JSON.stringify({ ok: false, error: 'the compile service is busy; run the cell again in a moment' }) };
         }
 
@@ -358,6 +376,7 @@ async function start() {
             JSON.parse(text);
             return { reply: text };
         } catch {
+            failure = `The compile service answered HTTP ${response.status} for the last cell`;
             return { reply: JSON.stringify({ ok: false, error: `the compile service answered HTTP ${response.status}` }) };
         }
     }
@@ -369,6 +388,7 @@ async function start() {
         historyAt = history.length;
 
         editor.setValue('');
+        failure = null;
 
         const result = addEntry(`[${number}]`, text);
 
@@ -446,6 +466,7 @@ async function start() {
                 resetSession();
             }
         } catch (e) {
+            failure = `The last cell did not reach the compile service: ${e.message ?? e}`;
             line(result, 'error', `${e.message ?? e}`);
         } finally {
             setPrompt();
@@ -498,7 +519,13 @@ async function start() {
         }
     });
 
-    stopButton.addEventListener('click', () => {
+    // The mouse's Shift+Enter, and Stop while a cell runs.
+    runButton.addEventListener('click', () => {
+        if (phase !== 'running') {
+            submit(editor.getValue());
+            return;
+        }
+
         generation++;
         runtime.stop();
         startAnalysis();

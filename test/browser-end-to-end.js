@@ -159,11 +159,16 @@ chrome.on('error', e => {
         const { replOffered } = await import('./playground.js');
         const offered = await replOffered();
         const link = document.getElementById('repl-link');
-        return JSON.stringify({ offered, shown: !!link && !link.hidden, href: link?.getAttribute('href') ?? null });
+        const help = document.getElementById('help-repl');
+        const helpHref = document.getElementById('help-repl-link')?.getAttribute('href') ?? null;
+        return JSON.stringify({ offered, shown: !!link && !link.hidden, href: link?.getAttribute('href') ?? null, help: !!help && !help.hidden, helpHref });
     })()`);
 
-    check('the playground links to the REPL when sessions are on',
-        (() => { const r = JSON.parse(replLink ?? '{}'); return r.shown === r.offered && (!r.shown || !!r.href); })(), replLink);
+    check('the playground links to the REPL, in its bar and its help, when sessions are on',
+        (() => {
+            const r = JSON.parse(replLink ?? '{}');
+            return r.shown === r.offered && r.help === r.offered && (!r.shown || (!!r.href && r.helpHref === r.href));
+        })(), replLink);
 
     for (let i = 0; i < 90; i++) {
         if (await ev(`document.getElementById('analyser')?.dataset.state === 'ready'`)) break;
@@ -798,19 +803,24 @@ chrome.on('error', e => {
                 status: document.getElementById('status').textContent
             }))()`));
 
-        // Typed into the input and submitted with Shift-Enter, as a reader
-        // would; answers the text of the entry it produced once the page is
-        // ready for the next.
-        const submit = async text => {
+        // Typed into the input and submitted with Shift-Enter, or with the
+        // Run button, as a reader would; answers the text of the entry it
+        // produced once the page is ready for the next.
+        const submit = async (text, { click = false } = {}) => {
             const before = await ev(`document.querySelectorAll('.entry').length`);
 
             await ev(`(() => { const e = monaco.editor.getEditors()[0]; e.setValue(${JSON.stringify(text)}); e.focus(); return true; })()`);
-            await cmd('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
-            await cmd('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+            if (click) {
+                await ev(`document.getElementById('run').click(); true`);
+            } else {
+                await cmd('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+                await cmd('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+            }
 
             for (let i = 0; i < 240; i++) {
                 const done = await ev(`document.querySelectorAll('.entry').length > ${before} &&
-                    document.getElementById('stop').disabled`);
+                    !document.getElementById('run').disabled &&
+                    !document.getElementById('run').hasAttribute('data-stop')`);
 
                 if (done) break;
                 await sleep(250);
@@ -836,14 +846,14 @@ chrome.on('error', e => {
 
             check('the input is analysed against the cells before it',
                 analysed.includes('not assignable') && !analysed.includes('not defined'), analysed);
-            const used = await submit('x + 1');
+            const used = await submit('x + 1', { click: true });
             const redefined = await submit('let x = "forty-one"');
             const reread = await submit('x');
             const failed = await submit('let y: int = "s"');
             const after = await submit('x.length');
 
             check('the REPL page accepts a definition', defined === '', JSON.stringify(defined));
-            check('a later cell uses it and shows its value', used === '42', JSON.stringify(used));
+            check('a later cell, run with the Run button, uses it and shows its value', used === '42', JSON.stringify(used));
             check('a redefinition replaces it going forward',
                 redefined === '' && reread.includes('forty-one'), JSON.stringify([redefined, reread]));
             check('a cell with an error shows the error', failed.includes('not assignable'), JSON.stringify(failed));
@@ -854,10 +864,10 @@ chrome.on('error', e => {
 
             // The top bar: its indicators, the help panel, and New session,
             // which asks before discarding the cells and does nothing if told no.
-            const indicators = await ev(`JSON.stringify(['runtime', 'compiler', 'analyser'].map(id => document.getElementById(id).dataset.state))`);
+            const indicators = await ev(`JSON.stringify([...document.querySelectorAll('header .indicator')].map(i => [i.id, i.dataset.state]))`);
 
-            check('the indicators say the runtime, compiler and analyser are ready',
-                indicators === JSON.stringify(['ready', 'ready', 'ready']), indicators);
+            check('the indicators are the compiler and the analyser, both ready',
+                indicators === JSON.stringify([['compiler', 'ready'], ['analyser', 'ready']]), indicators);
 
             await ev(`document.getElementById('help-toggle').click(); true`);
             const helpShown = await ev(`!document.getElementById('help').hidden`);

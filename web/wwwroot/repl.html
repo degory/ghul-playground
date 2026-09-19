@@ -25,10 +25,6 @@
   <style>
     /* The page's own layout; the colours, the top bar and the help panel come
        from chrome.css, shared with the playground. */
-    #stop svg { width: 12px; height: 12px; fill: var(--bad); }
-    #stop:disabled svg { fill: var(--fg-muted); }
-    #stop { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0 0.5rem; }
-
     main {
       flex: 1;
       overflow-y: auto;
@@ -88,30 +84,29 @@
 
     <span class="divider"></span>
 
-    <!-- The runtime the cells run on, and the one control that acts on it.
-         Stop is only meaningful while a cell runs, so it sits here and is
-         disabled otherwise. -->
-    <span id="runtime" class="indicator" data-state="idle"
-          title="The .NET runtime the cells run on. It starts with the first cell">
-      <span class="dot"></span>
-      <span id="status">runtime</span>
-    </span>
-
-    <button id="stop" disabled aria-label="Stop" title="Stop the running cell. The session goes with it">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
-      <span class="icon-label">Stop</span>
+    <!-- Actions on the left and status on the right, as on the playground.
+         Run submits the cell as Shift+Enter does, and becomes Stop while one
+         runs. -->
+    <button id="run" disabled title="Run the cell (Shift+Enter)">
+      <svg class="play" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13l11-6.5z" /></svg>
+      <svg class="spinner" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-dasharray="26" stroke-dashoffset="8" opacity="0.7" />
+      </svg>
+      <svg class="stop" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
+      <span id="run-label">Run</span>
     </button>
 
-    <!-- Relative to the base, which is the playground's directory wherever
-         this page is served from. -->
-    <a class="nav-link" href="./" target="_blank" rel="noopener"
-       title="The playground: write and run a whole program">playground</a>
+    <!-- Asks first when there are cells to lose. -->
+    <button id="reset" disabled title="Discard the cells so far and start again at cell 1">New session</button>
 
     <span class="spacer"></span>
 
+    <!-- The runtime has no indicator of its own: starting it shows here, and
+         a running cell shows on Run. -->
     <span id="compiler" class="indicator" data-state="working" title="Asking the compile service whether it serves sessions">
       <span class="dot"></span>
-      <span>compiler</span>
+      <span id="status">compiler</span>
     </span>
 
     <button id="analyser" class="indicator" data-state="connecting" title="Connecting to the analyser">
@@ -120,14 +115,6 @@
     </button>
 
     <div class="group">
-      <!-- Away from Stop: it ends the session, and asks first when there is
-           anything in it to lose. -->
-      <button id="reset" title="New session" aria-label="New session">
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M8 2.5a5.5 5.5 0 105.2 7.3l-1.5-.5A4 4 0 118 4a4 4 0 012.8 1.2L9 7h5V2l-1.8 1.8A5.5 5.5 0 008 2.5z" />
-        </svg>
-      </button>
-
       <button id="fullscreen" title="Full screen (F11)" aria-label="Full screen">
         <svg class="enter" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M1 1h5v1.6H2.6V6H1V1zm9 0h5v5h-1.6V2.6H10V1zM1 10h1.6v3.4H6V15H1v-5zm12.4 0H15v5h-5v-1.6h3.4V10z" />
@@ -157,9 +144,14 @@
         A cell that ends on a value shows it.
       </p>
 
+      <p>
+        This is for a line or a definition at a time. For a whole program, use the
+        <a href="./" target="_blank" rel="noopener">playground</a>.
+      </p>
+
       <h3>Running a cell</h3>
       <ul>
-        <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>, <kbd>Shift</kbd>+<kbd>Enter</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd> runs it from anywhere in the cell.</li>
+        <li><strong>Run</strong>, or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>, <kbd>Shift</kbd>+<kbd>Enter</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd> from anywhere in the cell, runs it.</li>
         <li>A line holding only <code>.</code> runs what comes before it.</li>
         <li><kbd>Enter</kbd> on its own starts a new line.</li>
         <li><kbd>Alt</kbd>+<kbd>↑</kbd> and <kbd>Alt</kbd>+<kbd>↓</kbd> bring back earlier cells.</li>
@@ -167,7 +159,7 @@
 
       <h3>Stopping and starting again</h3>
       <p>
-        <strong>Stop</strong> ends a cell that will not finish. Code running in the
+        While a cell runs, <strong>Run</strong> becomes <strong>Stop</strong>, which ends a cell that will not finish. Code running in the
         browser cannot be interrupted, so the session goes with it and the next
         cell starts a new one. <strong>New session</strong> starts one on purpose.
       </p>
