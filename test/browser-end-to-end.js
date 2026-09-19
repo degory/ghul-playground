@@ -810,7 +810,7 @@ chrome.on('error', e => {
 
             for (let i = 0; i < 240; i++) {
                 const done = await ev(`document.querySelectorAll('.entry').length > ${before} &&
-                    document.getElementById('status').textContent === ''`);
+                    document.getElementById('stop').disabled`);
 
                 if (done) break;
                 await sleep(250);
@@ -851,6 +851,36 @@ chrome.on('error', e => {
             check('the prompt numbers every submission, as the terminal does',
                 await ev(`document.getElementById('prompt').textContent`) === '[7]',
                 await ev(`document.getElementById('prompt').textContent`));
+
+            // The top bar: its indicators, the help panel, and New session,
+            // which asks before discarding the cells and does nothing if told no.
+            const indicators = await ev(`JSON.stringify(['runtime', 'compiler', 'analyser'].map(id => document.getElementById(id).dataset.state))`);
+
+            check('the indicators say the runtime, compiler and analyser are ready',
+                indicators === JSON.stringify(['ready', 'ready', 'ready']), indicators);
+
+            await ev(`document.getElementById('help-toggle').click(); true`);
+            const helpShown = await ev(`!document.getElementById('help').hidden`);
+            await cmd('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+            await cmd('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+
+            check('help opens, and Escape closes it',
+                helpShown && await ev(`document.getElementById('help').hidden`));
+
+            const declined = await ev(`(() => {
+                window.confirm = () => false;
+                document.getElementById('reset').click();
+                return document.getElementById('prompt').textContent;
+            })()`);
+
+            const accepted = await ev(`(() => {
+                window.confirm = () => true;
+                document.getElementById('reset').click();
+                return document.getElementById('prompt').textContent;
+            })()`);
+
+            check('new session asks first, and keeps the session when told no',
+                declined === '[7]' && accepted === '[1]', JSON.stringify([declined, accepted]));
         }
     }
 

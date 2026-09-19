@@ -3,6 +3,7 @@
 
 import { createPlayground, replOffered } from './playground.js'
 import { replPageUrl } from './repl-route.js'
+import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import * as files from './files.js'
 
@@ -265,47 +266,21 @@ imagesSize.addEventListener('click', () => {
 
 // --- full screen ----------------------------------------------------------
 
-// The editor is the whole page, so there is nothing to fill but the window
-// itself. F11 is the browser's own and is left alone; this is for the reader
-// on a machine where that key does something else, and for a phone, where
-// there is no key at all.
-const fullscreen = document.getElementById('fullscreen');
-
-fullscreen.addEventListener('click', () => {
-    if (document.fullscreenElement) {
-        document.exitFullscreen();
-    } else {
-        document.documentElement.requestFullscreen().catch(() => { });
-    }
-});
-
-// The browser can leave full screen without going through the button - Escape,
-// or the window manager - so the tooltip follows the document rather than the
-// last click.
-document.addEventListener('fullscreenchange', () => {
-    fullscreen.title = document.fullscreenElement ? 'Leave full screen' : 'Full screen';
-});
-
-// A browser that cannot do it should not offer it.
-if (!document.documentElement.requestFullscreen) fullscreen.hidden = true;
+setUpFullscreen(document.getElementById('fullscreen'));
 
 // --- the about panel ------------------------------------------------------
 
-const help = document.getElementById('help');
-const showHelp = show => { help.hidden = !show; };
-
-document.getElementById('help-toggle').addEventListener('click', () => showHelp(help.hidden));
-document.getElementById('help-close').addEventListener('click', () => showHelp(false));
-
-// Clicking the backdrop rather than the panel dismisses it.
-help.addEventListener('click', event => { if (event.target === help) showHelp(false); });
+const help = setUpHelp(
+    document.getElementById('help'),
+    document.getElementById('help-toggle'),
+    document.getElementById('help-close'));
 
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
 
     // Innermost first: the about panel sits over the images, which sit over
     // the editor, and Escape should dismiss one layer rather than all of them.
-    if (!help.hidden) showHelp(false);
+    if (help.open) help.close();
     else if (!imagesPane.hidden) imagesPane.hidden = true;
 });
 
