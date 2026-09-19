@@ -12,6 +12,7 @@
 
 const http = require('http');
 const net = require('net');
+const { replEntry } = require('../scripts/repl-entry');
 
 const WEB = 5080;
 const COMPILE = 5090;
@@ -31,6 +32,31 @@ function route(url, prefix) {
 
 function startNginxStandIn({ prefix = '/', port = 0 } = {}) {
     const server = http.createServer((request, response) => {
+        // The REPL's entry page, beside the playground's directory, as ghul.dev
+        // serves it: repl.html with a base naming that directory.
+        const replPath = new URL(`../repl/`, `http://x${prefix}`).pathname;
+
+        if (prefix !== '/' && request.url.split('?')[0] === replPath.slice(0, -1)) {
+            response.writeHead(301, { location: replPath + (request.url.split('?')[1] ? `?${request.url.split('?')[1]}` : '') }).end();
+            return;
+        }
+
+        if (prefix !== '/' && request.url.split('?')[0] === replPath) {
+            http.get({ host: '127.0.0.1', port: WEB, path: '/repl.html' }, answer => {
+                let html = '';
+                answer.on('data', chunk => html += chunk);
+                answer.on('end', () => {
+                    response.writeHead(200, {
+                        'content-type': 'text/html',
+                        'cross-origin-opener-policy': 'same-origin',
+                        'cross-origin-embedder-policy': 'require-corp'
+                    });
+                    response.end(replEntry(html));
+                });
+            }).on('error', () => response.writeHead(502).end());
+            return;
+        }
+
         const target = route(request.url, prefix);
 
         if (!target) {

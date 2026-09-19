@@ -58,7 +58,12 @@ it also does first-time setup, so it is not the thing to run for an nginx
 change.
 
 It also serves the documentation site, `ghul.dev` and `www.ghul.dev`, from
-`/var/www/ghul-dev`. That site used to be on GitHub Pages, and it is here for
+`/var/www/ghul-dev`. Under that site the playground is also served at `/playground/`, from
+its own directory with its services beside it under the same limit zones, and
+the REPL at `/repl/`, whose entry page (`repl-entry.html`, written at publish
+from `repl.html`) takes everything else from `../playground/`. `/stats/` is
+proxied there too, under the playground host's name so counts land in the same
+history. That site used to be on GitHub Pages, and it is here for
 one reason: the playground runs the .NET runtime on a worker thread so that a
 program can block reading a line of input, which needs a `SharedArrayBuffer`,
 which needs the page to be cross-origin isolated. Isolation is granted by two
