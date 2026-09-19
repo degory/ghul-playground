@@ -40,6 +40,15 @@ const COLLECTIONS = {
     }
 };
 
+// The collection names, which index.html's base script also lists.
+export const COLLECTION_NAMES = Object.keys(COLLECTIONS);
+
+// The page's path below the directory the playground is served from, with a
+// leading `/`: what requestedProgram reads a program's name from.
+export function pathBelowBase(pathname = location.pathname, base = new URL(document.baseURI).pathname) {
+    return pathname.startsWith(base) ? pathname.slice(base.length - 1) : pathname;
+}
+
 // What a page path asks for: null when it names no collection, so the page
 // behaves as it always has; otherwise the program's name and where to find it,
 // or a message saying why the path does not name one.

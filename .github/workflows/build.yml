@@ -117,6 +117,9 @@ jobs:
       - name: Check the image-marker handling
         run: node test/live-output.mjs
 
+      - name: Check the page works out where it is served from
+        run: node test/base-path.mjs
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 
@@ -498,6 +501,20 @@ jobs:
         env:
           CHROME: /usr/bin/google-chrome
         run: |
+          node test/browser-end-to-end.js || {
+            echo "retrying"
+            node test/browser-end-to-end.js
+          }
+
+      # The same page below /playground/, as ghul.dev serves it, through a
+      # stand-in for nginx that puts the services beside it on one origin.
+      - name: Compile and run a program in the browser below /playground/
+        env:
+          CHROME: /usr/bin/google-chrome
+          BASE: http://127.0.0.1:5081/playground/
+        run: |
+          node test/nginx-stand-in.js 5081 /playground/ &
+
           node test/browser-end-to-end.js || {
             echo "retrying"
             node test/browser-end-to-end.js

@@ -13,6 +13,7 @@
 // framework, so it has no dependencies of its own.
 
 const { spawn, execFileSync } = require('child_process');
+const { startNginxStandIn } = require('./nginx-stand-in');
 
 const CHROME = process.env.CHROME
     ?? `${process.env.HOME}/.cache/ms-playwright/chromium-1140/chrome-linux/chrome`;
@@ -134,7 +135,7 @@ chrome.on('error', e => {
     // The token lives in the playground origin's storage, which is where a
     // reader would have entered it.
     if (TOKEN) {
-        await cmd('Page.navigate', { url: new URL('/embed.html', BASE).toString() });
+        await cmd('Page.navigate', { url: new URL('embed.html', BASE).toString() });
         await sleep(4000);
         await ev(`localStorage.setItem('ghul-playground-token', ${JSON.stringify(TOKEN)}); true`);
     }
@@ -549,7 +550,7 @@ chrome.on('error', e => {
     // A program opened by path is fetched from its collection into the editor,
     // which exercises the path fallback, the <base> the page's own assets are
     // resolved against, and the cross-origin fetch.
-    await cmd('Page.navigate', { url: new URL('/rosetta-code/hello-world-text', BASE).toString() });
+    await cmd('Page.navigate', { url: new URL('rosetta-code/hello-world-text', BASE).toString() });
 
     let opened = '';
     for (let i = 0; i < 120; i++) {
@@ -579,11 +580,11 @@ chrome.on('error', e => {
         [{ range: new monaco.Range(1, 1, 1, 1), text: '// edited\\n' }]); true`);
     await sleep(300);
     check('editing a program keeps its path',
-        await ev(`location.pathname`) === '/rosetta-code/hello-world-text');
+        await ev(`location.pathname`) === new URL('rosetta-code/hello-world-text', BASE).pathname);
 
     await ev(`monaco.editor.getModels()[0].setValue('entry() is si\\n'); true`);
     await sleep(300);
-    check('replacing the buffer gives up the path', await ev(`location.pathname`) === '/');
+    check('replacing the buffer gives up the path', await ev(`location.pathname`) === new URL(BASE).pathname);
 
     // A program that reads files it names in playground-files. The collection
     // is served by the test rather than fetched, so this checks the playground
@@ -613,7 +614,7 @@ chrome.on('error', e => {
         'window.goatcounter.count = e => (window.counted ??= []).push(e.path);');
 
     await cmd('Fetch.enable', { patterns: [{ urlPattern: `${TASKS}*` }, { urlPattern: COUNTER }] });
-    await cmd('Page.navigate', { url: new URL('/rosetta-code/reads-files', BASE).toString() });
+    await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
 
     let ready = false;
     for (let i = 0; i < 120; i++) {
@@ -756,7 +757,7 @@ chrome.on('error', e => {
         // proxy stands in for nginx, so the page reaches the service by the
         // relative path it uses in production.
         const replBase = new URL(BASE).port === '5080'
-            ? `http://127.0.0.1:${(await startNginxStandIn()).address().port}/`
+            ? `http://127.0.0.1:${(await startNginxStandIn().then(server => { server.unref(); return server; })).address().port}/`
             : BASE;
 
         const replUrl = new URL('repl.html?repl', replBase).toString();
@@ -839,54 +840,3 @@ chrome.on('error', e => {
     process.exit(failures ? 1 : 0);
 })();
 
-// What nginx does for the REPL page in production, and the .NET dev host does
-// not: the cross-origin isolation headers on every response, and the compile
-// and analyse services at `/compile` and `/analyse` on the same origin.
-function startNginxStandIn() {
-    const http = require('http');
-
-    const server = http.createServer((request, response) => {
-        const port = request.url.startsWith('/compile') ? 5090 : 5080;
-
-        const upstream = http.request({
-            host: '127.0.0.1',
-            port,
-            path: request.url,
-            method: request.method,
-            headers: { ...request.headers, host: `127.0.0.1:${port}` }
-        }, answer => {
-            response.writeHead(answer.statusCode, {
-                ...answer.headers,
-                'cross-origin-opener-policy': 'same-origin',
-                'cross-origin-embedder-policy': 'require-corp'
-            });
-
-            answer.pipe(response);
-        });
-
-        upstream.on('error', () => response.writeHead(502).end());
-        request.pipe(upstream);
-    });
-
-    // The analyser's WebSocket: the upgrade request is passed on as it came,
-    // and from then on the two sockets are joined.
-    server.on('upgrade', (request, socket, head) => {
-        const upstream = require('net').connect(5091, '127.0.0.1', () => {
-            const headers = Object.entries(request.headers)
-                .map(([name, value]) => `${name}: ${name === 'host' ? '127.0.0.1:5091' : value}`)
-                .join('\r\n');
-
-            upstream.write(`${request.method} ${request.url} HTTP/1.1\r\n${headers}\r\n\r\n`);
-            upstream.write(head);
-            upstream.pipe(socket);
-            socket.pipe(upstream);
-        });
-
-        upstream.on('error', () => socket.destroy());
-        socket.on('error', () => upstream.destroy());
-    });
-
-    server.unref();
-
-    return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
-}

@@ -10,17 +10,20 @@ import { defineThemes, themeName } from './theme.js'
 import { LiveOutput } from './live-output.js'
 
 // Deployed, both services sit behind the same reverse proxy that serves this
-// page, so same-origin paths avoid CORS entirely. The .NET dev server does not
-// proxy, so a page served from it talks to them directly.
+// page, beside its files, so same-origin paths avoid CORS entirely and follow
+// the page wherever it is served from. The .NET dev server does not proxy, so a
+// page served from it talks to them directly.
 const LOCAL = location.port === '5080';
 
-const COMPILE_SERVICE = LOCAL ? 'http://127.0.0.1:5090/compile' : '/compile';
+const beside = path => new URL(path, document.baseURI).href;
+
+const COMPILE_SERVICE = LOCAL ? 'http://127.0.0.1:5090/compile' : beside('compile');
 
 const ANALYSE_SERVICE = LOCAL
     ? 'ws://127.0.0.1:5091/analyse'
-    : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/analyse`;
+    : beside('analyse').replace(/^http/, 'ws');
 
-const HEALTH_SERVICE = LOCAL ? 'http://127.0.0.1:5091/health' : '/health';
+const HEALTH_SERVICE = LOCAL ? 'http://127.0.0.1:5091/health' : beside('health');
 
 // Whether the services want a token at all, asked once. A closed service and an
 // unreachable one are different: an unreachable one is reported as not
