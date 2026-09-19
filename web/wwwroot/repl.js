@@ -407,6 +407,37 @@ async function start() {
             let prepared = await runtime.call('prepare', text);
             let answer = null;
 
+            // What the cell writes, shown as it writes it. The answer carries
+            // the whole of it again, so once the answer is in this goes and the
+            // answer is shown in its place; a cell that is stopped keeps it.
+            const live = [];
+            let liveText = null;
+
+            const showLive = (chunk, truncated) => {
+                if (!liveText) {
+                    liveText = document.createElement('div');
+                    liveText.className = 'output';
+                    result.appendChild(liveText);
+                    live.push(liveText);
+                }
+
+                if (chunk) liveText.append(chunk);
+
+                if (truncated) {
+                    line(result, 'muted', 'more output than can be shown while the cell runs; all of it is shown when it finishes');
+                    live.push(result.lastChild);
+                }
+
+                scrollToInput();
+            };
+
+            const dropLive = () => {
+                for (const node of live) node.remove();
+
+                live.length = 0;
+                liveText = null;
+            };
+
             while (prepared && !prepared.stopped && !prepared.error) {
                 const posted = await post(prepared.cells);
 
@@ -423,7 +454,9 @@ async function start() {
 
                 setBusy(true, 'running');
 
-                answer = await runtime.call('accept', posted.reply);
+                answer = await runtime.callLive('accept', showLive, posted.reply);
+
+                if (!answer.stopped) dropLive();
 
                 if (answer.accepted) {
                     const keys = JSON.parse(posted.reply).keys ?? [];

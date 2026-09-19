@@ -173,10 +173,14 @@ namespace Playground is
                 return _answer(false, lines, "", null, null);
             fi
 
+            // Captured for the answer, and carried to the page as it is written
+            // where the page has opened the channel, so a cell that runs for a
+            // while shows its output as it goes and a stopped one keeps it.
             let writer = IO.StringWriter();
             let previous = IO.Std.out;
 
-            IO.Std.set_out(writer);
+            IO.Std.set_out(
+                if let channel = RUNNER.channel then CONSOLE_OUT(channel, writer) else writer fi);
 
             let run = CELL_ENTRY.run(loaded);
 

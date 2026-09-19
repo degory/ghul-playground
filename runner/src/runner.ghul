@@ -25,6 +25,10 @@ namespace Playground is
             channel.address
         si
 
+        // The channel, once the page has opened it, for an interactive
+        // session's cells to write through as well.
+        channel: CHANNEL? static => _channel;
+
         // Set for the program to read, saying that each picture it shows is
         // on the page as soon as it is shown. A program that animates takes
         // its frame delay from this, so the same program run anywhere else -

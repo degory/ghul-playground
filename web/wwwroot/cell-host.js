@@ -4,11 +4,15 @@
 // `result` parsed from the runner's JSON:
 //
 // - `run`, args `[assembly, submission]`: runs one cell's assembly, base64 as
-//   the compile service returned it. Playground.RUNNER.run_cell's answer.
+//   the compile service returned it. Playground.RUNNER.run_cell's answer, with
+//   its output posted as it appears, as for `accept` below.
 // - `prepare`, args `[text]`: what to post to the compile service for a
 //   submission. Playground.REPL_SESSION.prepare's answer.
 // - `accept`, args `[reply]`: the compile service's reply, as text; runs the
-//   cell if it compiled. Playground.REPL_SESSION.accept's answer.
+//   cell if it compiled. Playground.REPL_SESSION.accept's answer. While the
+//   cell runs, what it writes is posted as it appears, as `{id, live: text}`,
+//   followed by `{id, live: '', truncated: true}` if it writes more than the
+//   channel holds. The answer's own text is the whole of it either way.
 // - `analysis`, args `[text]`: what to analyse for the input being typed.
 //   Playground.REPL_SESSION.analysis's answer.
 //
@@ -17,24 +21,67 @@
 // srcdoc, where `location` is about:srcdoc, so the origin is `self.origin`.
 
 import { dotnet } from './_framework/dotnet.js'
+import { OUTPUT_WRITTEN, OUTPUT_TRUNCATED, channelViews, readOutput } from './channel.js'
 
 let exports = null;
 
 async function runtime() {
     exports ??= (async () => {
         const api = await dotnet.create();
+        const assembly = await api.getAssemblyExports(api.getConfig().mainAssemblyName);
+        const address = await assembly.GhulRunner.OpenChannel();
 
-        return await api.getAssemblyExports(api.getConfig().mainAssemblyName);
+        return { runner: assembly.GhulRunner, views: channelViews(api.Module, address) };
     })();
 
     return exports;
 }
 
+// How often a running cell's output is looked for. Reading a counter out of
+// memory is cheap; what this bounds is how far behind the page can be.
+const POLL_MS = 50;
+
+// Posts what a cell writes while `work` runs. The count is reset here rather
+// than in the runner: nothing is running at this instant, so the frame and the
+// cell cannot disagree about which cell a count belongs to.
+async function streamed(id, views, work) {
+    const { control } = views();
+
+    Atomics.store(control, OUTPUT_WRITTEN, 0);
+    Atomics.store(control, OUTPUT_TRUNCATED, 0);
+
+    let shown = 0;
+    let truncated = false;
+
+    const look = () => {
+        const { control, output } = views();
+        const written = Atomics.load(control, OUTPUT_WRITTEN);
+
+        if (written > shown) {
+            window.parent.postMessage({ id, live: readOutput(output, shown, written) }, self.origin);
+            shown = written;
+        }
+
+        if (!truncated && Atomics.load(control, OUTPUT_TRUNCATED) !== 0) {
+            truncated = true;
+            window.parent.postMessage({ id, live: '', truncated: true }, self.origin);
+        }
+    };
+
+    const watch = setInterval(look, POLL_MS);
+
+    try {
+        return await work();
+    } finally {
+        clearInterval(watch);
+    }
+}
+
 const OPS = {
-    run: (runner, [assembly, submission]) => runner.RunCell(assembly, submission),
-    prepare: (runner, [text]) => runner.ReplPrepare(text),
-    accept: (runner, [reply]) => runner.ReplAccept(reply),
-    analysis: (runner, [text]) => runner.ReplAnalysis(text)
+    run: ({ runner, views }, id, [assembly, submission]) => streamed(id, views, () => runner.RunCell(assembly, submission)),
+    prepare: ({ runner }, _id, [text]) => runner.ReplPrepare(text),
+    accept: ({ runner, views }, id, [reply]) => streamed(id, views, () => runner.ReplAccept(reply)),
+    analysis: ({ runner }, _id, [text]) => runner.ReplAnalysis(text)
 };
 
 // Calls are answered one after another, in the order they arrive, since each
@@ -53,9 +100,7 @@ window.addEventListener('message', event => {
         let result;
 
         try {
-            const { GhulRunner } = await runtime();
-
-            result = JSON.parse(await OPS[op](GhulRunner, args));
+            result = JSON.parse(await OPS[op](await runtime(), id, args));
         } catch (e) {
             result = { text: '', error: `host error: ${e}` };
         }

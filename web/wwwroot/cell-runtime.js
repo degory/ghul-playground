@@ -71,6 +71,12 @@ export class CellRuntime {
 
         const waiter = this.pending.get(data.id);
 
+        // Output a running cell has written so far; the answer comes after.
+        if (typeof data.live === 'string') {
+            waiter?.onLive?.(data.live, data.truncated === true);
+            return;
+        }
+
         if (waiter) {
             this.pending.delete(data.id);
             waiter.resolve(data.result);
@@ -86,6 +92,12 @@ export class CellRuntime {
     // One of the host's operations - see cell-host.js - answering its result,
     // or `{stopped: true}` if the session is stopped before it finishes.
     async call(op, ...args) {
+        return this.callLive(op, null, ...args);
+    }
+
+    // As `call`, handing `onLive(text, truncated)` whatever a running cell
+    // writes as it writes it. See cell-host.js.
+    async callLive(op, onLive, ...args) {
         if (!this.frame) this._start();
 
         await this.ready;
@@ -96,7 +108,7 @@ export class CellRuntime {
         const id = this.nextId++;
 
         return new Promise(resolve => {
-            this.pending.set(id, { resolve });
+            this.pending.set(id, { resolve, onLive });
             this.frame.contentWindow.postMessage({ id, op, args }, location.origin);
         });
     }
