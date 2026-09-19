@@ -155,8 +155,19 @@ one and writes it into the runtime's in-memory filesystem before every run, in
 the working directory under its own name, which is where the program opens it.
 
 Collections live in `web/wwwroot/collections.js`, each under its own path
-prefix. A new one needs an entry there and a matching `location` in the nginx
-configuration, which serves the entry page for every path under the prefix.
+prefix. A new one needs an entry there, its name in the base script at the top
+of `index.html`, and a matching `location` in the nginx configuration, which
+serves the entry page for every path under the prefix.
+
+## where it is served from
+
+The same build runs at the root of a host and below a path, such as
+`/playground/` on ghul.dev. The page works out its base from its own path - cut
+at a collection prefix, so a program opened by path finds its files - and
+reaches everything, the compile and analyse services included, relative to it.
+The services are expected beside the page on the same origin, as nginx puts
+them. `test/nginx-stand-in.js` does the same locally, and CI runs the browser
+test both at the root and below `/playground/` through it.
 
 ## embedding
 
