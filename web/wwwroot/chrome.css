@@ -154,6 +154,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   border-radius: 6px;
 }
 
+/* The analyser's indicator is a button only so that a click can reconnect
+   it. While there is nothing to reconnect it behaves as the label beside it. */
+button.indicator:is([data-state="ready"], [data-state="connecting"]) { cursor: default; }
+button.indicator:is([data-state="ready"], [data-state="connecting"]):hover { background: none; }
+
 .indicator .dot {
   width: 8px;
   height: 8px;
