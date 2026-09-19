@@ -267,9 +267,38 @@ export async function createPlayground({
         semanticProvider = monaco.languages.registerDocumentSemanticTokensProvider('ghul', {
             getLegend: () => client.semanticTokensLegend,
             onDidChange: analysed.event,
-            provideDocumentSemanticTokens: () => client.semanticTokens(),
+            provideDocumentSemanticTokens: async (model, lastResultId, cancellation) => {
+                const version = model.getVersionId();
+                const tokens = await client.semanticTokens();
+
+                // An answer for text the model no longer holds is dropped
+                // rather than applied: its positions can fall past the end of
+                // a line, which the editor reports as invalid data. The
+                // refresh when the analysis lands brings the current answer.
+                if (!tokens || cancellation.isCancellationRequested || model.getVersionId() !== version) return null;
+
+                return fitsModel(model, tokens.data) ? tokens : null;
+            },
             releaseDocumentSemanticTokens: () => { }
         });
+    }
+
+    // Whether every token in the relative five-integer encoding lies within
+    // a line of the model.
+    function fitsModel(model, data) {
+        const lineCount = model.getLineCount();
+
+        let line = 0;
+        let start = 0;
+
+        for (let i = 0; i < data.length; i += 5) {
+            line += data[i];
+            start = data[i] === 0 ? start + data[i + 1] : data[i + 1];
+
+            if (line >= lineCount || start + data[i + 2] > model.getLineLength(line + 1)) return false;
+        }
+
+        return true;
     }
 
     // Which problems the page is shown. The analyser and the compile service
