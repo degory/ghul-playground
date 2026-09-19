@@ -75,7 +75,10 @@
       flex: none;
     }
 
-    header .title { font-weight: 600; margin-right: auto; }
+    header .title { font-weight: 600; }
+
+    header .nav { margin-right: auto; color: var(--accent); font-size: 0.8125rem; text-decoration: none; }
+    header .nav:hover { text-decoration: underline; }
 
     #status { color: var(--fg-muted); font-size: 0.8125rem; }
 
@@ -143,6 +146,9 @@
 <body>
   <header>
     <span class="title">ghūl REPL</span>
+    <!-- Relative to the base, which is the playground's directory wherever
+         this page is served from. -->
+    <a class="nav" href="./" title="The playground: write and run a whole program">playground</a>
     <span id="status" aria-live="polite"></span>
     <button id="stop" disabled title="Stop the running cell. The session goes with it.">Stop</button>
     <button id="reset" title="Start a new session">New session</button>
@@ -157,7 +163,7 @@
       Ctrl-, Shift- or Alt-Enter runs the cell; so does a line holding only a dot.
       Enter on its own starts a new line.
     </p>
-    <p id="unavailable" hidden>The REPL is not available here.</p>
+    <p id="unavailable" hidden></p>
   </main>
 </body>
 

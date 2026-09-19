@@ -12,7 +12,7 @@ import { defineThemes, themeName } from './theme.js'
 import { getToken } from './token.js'
 import { CellRuntime } from './cell-runtime.js'
 import { GhulLanguageClient } from './lsp.js'
-import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replRequested, replLimits } from './repl-route.js'
+import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replAvailability } from './repl-route.js'
 
 const transcript = document.getElementById('transcript');
 const inputRow = document.getElementById('input-row');
@@ -24,10 +24,18 @@ const resetButton = document.getElementById('reset');
 
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
 
-const limits = replRequested() ? await replLimits() : null;
+// A `?repl` on the URL, which links from before sessions were on by default
+// carry, changes nothing.
+const { limits, off } = await replAvailability();
 
 if (!limits) {
-    document.getElementById('unavailable').hidden = false;
+    const unavailable = document.getElementById('unavailable');
+
+    unavailable.textContent = off
+        ? 'Interactive sessions are switched off on this server at the moment.'
+        : 'The compile service could not be reached. Try again in a moment.';
+
+    unavailable.hidden = false;
     stopButton.hidden = true;
     resetButton.hidden = true;
 } else {

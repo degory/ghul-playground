@@ -474,6 +474,10 @@ const server = http.createServer((request, response) => {
             // the services do, rather than a reader discovering it by having a
             // paste silently do nothing.
             maxSourceBytes: MAX_SOURCE_BYTES,
+            // Whether this service serves interactive sessions' analysers, so a
+            // page can decide whether to offer the REPL without asking the
+            // compile service, whose cell route is rate limited.
+            repl: REPL_ENABLED,
             // So a front end can tell whether to ask for a token at all. Asking
             // for one the services do not want is worse than not asking: it
             // reads as a closed door on a service that is open.
