@@ -63,7 +63,6 @@
 
     .menu { position: relative; }
 
-    #file-toggle { padding: 0 0.5rem; }
     #file-toggle svg { width: 8px; height: 5px; opacity: 0.6; }
     #file-toggle[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
     #file-toggle[data-done] { color: var(--ok); }
@@ -103,36 +102,7 @@
 
     #file-note:empty { display: none; }
 
-
     #images-toggle[hidden] { display: none; }
-
-    #run {
-      padding: 0 0.7rem 0 0.55rem;
-      border-color: var(--border);
-      background: var(--bg);
-    }
-
-    /* A shade smaller than the bar's icons, so the triangle sits inside the
-       button's border rather than filling it. */
-    #run svg { width: 14px; height: 14px; fill: var(--ok); }
-    #run:disabled svg { fill: var(--fg-muted); }
-
-    /* Shown in place of the play triangle while a run is in flight, so the
-       button itself carries the progress rather than only the status text. */
-    #run .spinner { display: none; width: 14px; height: 14px; }
-    #run[data-busy] .spinner { display: block; animation: spin 0.9s linear infinite; }
-    #run[data-busy] .play { display: none; }
-
-    /* Once the program is actually running there is something to stop, so the
-       button becomes that instead - the spinner goes, because the square is
-       now what says a run is in flight. */
-    #run .stop { display: none; width: 12px; height: 12px; fill: var(--error); }
-    #run[data-stop] .stop { display: block; }
-    #run[data-stop] .play, #run[data-stop] .spinner { display: none; }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-
 
     /* Floats over the editor's top-right corner, where the ghul.dev examples
        put theirs, so the two surfaces agree about where copying lives. */
@@ -602,6 +572,11 @@
         a statically typed language that targets .NET. Edit the program, then
         press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> or the run button to compile and
         run it. Problems and output appear in the pane below.
+      </p>
+
+      <p id="help-repl" hidden>
+        This is for a whole program. To try a line or a definition at a time, and
+        keep what each one defined, use the <a id="help-repl-link" target="_blank" rel="noopener">REPL</a>.
       </p>
 
       <h3>While you type</h3>

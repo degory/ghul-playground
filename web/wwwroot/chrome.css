@@ -68,12 +68,15 @@ header {
   flex: none;
 }
 
-header :where(#file-toggle, #run, #stop, .indicator, .group button) {
+header :where(#file-toggle, #reset, #run, .indicator, .group button) {
   height: 1.75rem;
   font-size: 0.8125rem;
 }
 
 /* An action, so the foreground colour, at the bar's one height and size. */
+/* A labelled action with no icon of its own. */
+#file-toggle, #reset { padding: 0 0.5rem; }
+
 header .nav-link {
   display: inline-flex;
   align-items: center;
@@ -245,3 +248,31 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   header .divider { display: none; }
   .indicator > span:not(.dot) { display: none; }
 }
+
+/* Run, which becomes Stop while there is something to stop. The playground
+   runs a program with it and the REPL a cell. */
+#run {
+  padding: 0 0.7rem 0 0.55rem;
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+/* A shade smaller than the bar's icons, so the triangle sits inside the
+   button's border rather than filling it. */
+#run svg { width: 14px; height: 14px; fill: var(--ok); }
+#run:disabled svg { fill: var(--fg-muted); }
+
+/* Shown in place of the play triangle while a run is in flight, so the
+   button itself carries the progress rather than only the status text. */
+#run .spinner { display: none; width: 14px; height: 14px; }
+#run[data-busy] .spinner { display: block; animation: spin 0.9s linear infinite; }
+#run[data-busy] .play { display: none; }
+
+/* Once the program is actually running there is something to stop, so the
+   button becomes that instead - the spinner goes, because the square is
+   now what says a run is in flight. */
+#run .stop { display: none; width: 12px; height: 12px; fill: var(--bad); }
+#run[data-stop] .stop { display: block; }
+#run[data-stop] .play, #run[data-stop] .spinner { display: none; }
+
+@keyframes spin { to { transform: rotate(360deg); } }

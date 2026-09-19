@@ -759,4 +759,7 @@ replOffered().then(offered => {
 
     link.href = replPageUrl();
     link.hidden = false;
+
+    document.getElementById('help-repl-link').href = link.href;
+    document.getElementById('help-repl').hidden = false;
 });
