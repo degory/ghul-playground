@@ -617,6 +617,12 @@ chrome.on('error', e => {
     intercepted.set(COUNTER,
         'window.goatcounter.count = e => (window.counted ??= []).push(e.path);');
 
+    // The real counter has already loaded on an earlier page, and a deployed
+    // one is cacheable for a day: from the cache it would never reach the
+    // interception above.
+    await cmd('Network.enable');
+    await cmd('Network.setCacheDisabled', { cacheDisabled: true });
+
     await cmd('Fetch.enable', { patterns: [{ urlPattern: `${TASKS}*` }, { urlPattern: COUNTER }] });
     await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
 
