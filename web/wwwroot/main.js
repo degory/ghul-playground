@@ -2,7 +2,7 @@
 // is the chrome around it.
 
 import { createPlayground } from './playground.js'
-import { requestedProgram, loadProgram } from './collections.js'
+import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import * as files from './files.js'
 
 const runButton = document.getElementById('run');
@@ -321,10 +321,10 @@ const savedSource = (() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
 })();
 
-// A program named by the page's path, such as /rosetta-code/100-doors, takes
+// A program named by the page's path, such as .../rosetta-code/100-doors, takes
 // the place of the saved source. Loading it again on reload is what the link
 // promises, so edits to it are not restored over it.
-const requested = requestedProgram(location.pathname);
+const requested = requestedProgram(pathBelowBase());
 
 const program = requested
     ? await loadProgram(requested).catch(e => ({ error: e.message }))
@@ -353,7 +353,7 @@ function forgetProvenance() {
     // replaceState rather than pushState: replacing the buffer is not a
     // navigation, and a back button that returned to the program the reader
     // has just thrown away would be a trap rather than a convenience.
-    history.replaceState(null, '', '/');
+    history.replaceState(null, '', document.baseURI);
 
     document.title = currentName ? `${currentName} - ghūl playground` : 'ghūl playground';
 

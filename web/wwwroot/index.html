@@ -4,10 +4,33 @@
 <head>
   <title>ghūl playground</title>
   <meta charset="UTF-8">
-  <!-- The page is also served at paths like /rosetta-code/100-doors, and every
-       relative URL below - Monaco, the import map, main.js - is meant from the
-       root whichever path loaded it. -->
-  <base href="/">
+  <!-- Every relative URL below - Monaco, the import map, main.js, the services
+       - is meant from the directory the playground is served from: `/` on its
+       own host, `/playground/` under ghul.dev. This page is also what a path
+       naming a program serves, such as .../rosetta-code/100-doors, so the base
+       is that path cut at its collection rather than at its last `/`. The
+       collection names are collections.js's, and the two lists have to agree;
+       test/base-path.mjs checks that they do. -->
+  <script>
+    (function () {
+      var collections = ['rosetta-code'];
+      var path = location.pathname;
+      var base = path.slice(0, path.lastIndexOf('/') + 1);
+
+      for (var i = 0; i < collections.length; i++) {
+        var at = path.indexOf('/' + collections[i] + '/');
+
+        if (at >= 0) {
+          base = path.slice(0, at + 1);
+          break;
+        }
+      }
+
+      var element = document.createElement('base');
+      element.href = base;
+      document.head.appendChild(element);
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- Relative to <base>, so the icon is found whichever path served the
        page - /rosetta-code/100-doors would otherwise look for it alongside
@@ -641,7 +664,7 @@
   <script>
     window.goatcounter = { path: function (p) { return location.host + p } }
   </script>
-  <script id="goatcounter" data-goatcounter="https://playground.ghul.dev/stats/count"
+  <script id="goatcounter" data-goatcounter="/stats/count"
           async src="/stats/count.js"></script>
 </head>
 
