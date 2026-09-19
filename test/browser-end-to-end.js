@@ -777,6 +777,17 @@ chrome.on('error', e => {
             await sleep(500);
         }
 
+        const replStarted = await ev(`!document.getElementById('input-row').hidden`);
+
+        check('the REPL page starts with its query flag', replStarted,
+            await ev(`(async () => JSON.stringify({
+                probe: await fetch('http://127.0.0.1:5090/compile/cell').then(r => r.status).catch(e => String(e)),
+                isolated: self.crossOriginIsolated,
+                unavailable: !document.getElementById('unavailable').hidden,
+                monaco: typeof monaco,
+                status: document.getElementById('status').textContent
+            }))()`));
+
         // Typed into the input and submitted with Shift-Enter, as a reader
         // would; answers the text of the entry it produced once the page is
         // ready for the next.
@@ -798,22 +809,24 @@ chrome.on('error', e => {
             return await ev(`[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').innerText`);
         };
 
-        const defined = await submit('let x = 41');
-        const used = await submit('x + 1');
-        const redefined = await submit('let x = "forty-one"');
-        const reread = await submit('x');
-        const failed = await submit('let y: int = "s"');
-        const after = await submit('x.length');
+        if (replStarted) {
+            const defined = await submit('let x = 41');
+            const used = await submit('x + 1');
+            const redefined = await submit('let x = "forty-one"');
+            const reread = await submit('x');
+            const failed = await submit('let y: int = "s"');
+            const after = await submit('x.length');
 
-        check('the REPL page accepts a definition', defined === '', JSON.stringify(defined));
-        check('a later cell uses it and shows its value', used === '42', JSON.stringify(used));
-        check('a redefinition replaces it going forward',
-            redefined === '' && reread.includes('forty-one'), JSON.stringify([redefined, reread]));
-        check('a cell with an error shows the error', failed.includes('not assignable'), JSON.stringify(failed));
-        check('and the session carries on after it', after === '9', JSON.stringify(after));
-        check('the prompt numbers every submission, as the terminal does',
-            await ev(`document.getElementById('prompt').textContent`) === '[7]',
-            await ev(`document.getElementById('prompt').textContent`));
+            check('the REPL page accepts a definition', defined === '', JSON.stringify(defined));
+            check('a later cell uses it and shows its value', used === '42', JSON.stringify(used));
+            check('a redefinition replaces it going forward',
+                redefined === '' && reread.includes('forty-one'), JSON.stringify([redefined, reread]));
+            check('a cell with an error shows the error', failed.includes('not assignable'), JSON.stringify(failed));
+            check('and the session carries on after it', after === '9', JSON.stringify(after));
+            check('the prompt numbers every submission, as the terminal does',
+                await ev(`document.getElementById('prompt').textContent`) === '[7]',
+                await ev(`document.getElementById('prompt').textContent`));
+        }
     }
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');
