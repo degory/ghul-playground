@@ -41,11 +41,14 @@ GoatCounter container. All three are bound to loopback and never face the
 internet themselves. The containers come from `compose.yaml` in the repository
 root.
 
-`playground.ghul.dev`, where the playground used to be, redirects every path
-permanently to the same path under `https://ghul.dev/playground` (`/repl.html`
-to `/repl/`), but still proxies `/compile`, `/compile/cell`, `/analyse`,
-`/health` and `/stats/`: a page open or cached from before the move posts to
-those and opens WebSockets to them, and neither follows a redirect. Its
+`playground.ghul.dev`, where the playground used to be, redirects its pages
+(`/`, `/index.html`, `/embed.html`, `/rosetta-code/...`) permanently to the same
+path under `https://ghul.dev/playground`, and `/repl.html` to `/repl/`. It still
+proxies `/compile`, `/compile/cell`, `/analyse`, `/health` and `/stats/`, and still
+serves the playground's other files from `/var/www/playground`: a page open from
+before the move posts to the services, opens WebSockets to them and loads files
+later (the .NET runtime on its first run), and none of that follows a redirect
+to another origin. Its
 certificate and name are kept.
 
 The nginx files in `nginx/` are installed by hand, not by the deploy, which
