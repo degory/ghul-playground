@@ -40,10 +40,22 @@ and `/stats/` to the GoatCounter container. All three are bound to loopback and
 never face the internet themselves. The containers come from `compose.yaml` in
 the repository root.
 
-The nginx files in `nginx/` are installed by `host-setup.sh`, not by the deploy,
-which has no root. The deploy does check them: its last step runs
-`check-nginx.sh` on the host, which fails the run while the live files differ
-from the repository's and prints the commands that install them.
+The nginx files in `nginx/` are installed by hand, not by the deploy, which
+has no root. The deploy does check them: its last step runs `check-nginx.sh`
+on the host, which fails the run while the live files differ from the
+repository's. To apply them, once the deploy has pulled the change:
+
+```sh
+sudo /opt/ghul-playground/deploy/apply-nginx.sh
+```
+
+It installs only the files that differ, backs up the live ones to
+`/var/backups/ghul-playground-nginx/<timestamp>/`, and reloads nginx only if
+`nginx -t` passes; if it fails, the previous files are put back and nginx keeps
+running what it had. With nothing to change it does nothing. The files it
+covers are listed in `nginx-files.sh`. `host-setup.sh` installs them too, but
+it also does first-time setup, so it is not the thing to run for an nginx
+change.
 
 It also serves the documentation site, `ghul.dev` and `www.ghul.dev`, from
 `/var/www/ghul-dev`. That site used to be on GitHub Pages, and it is here for
