@@ -13,20 +13,50 @@ import { getToken } from './token.js'
 import { CellRuntime } from './cell-runtime.js'
 import { GhulLanguageClient } from './lsp.js'
 import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replAvailability } from './repl-route.js'
+import { setUpFullscreen, setUpHelp } from './chrome.js'
 
 const transcript = document.getElementById('transcript');
 const inputRow = document.getElementById('input-row');
 const prompt = document.getElementById('prompt');
-const help = document.getElementById('help');
+const hint = document.getElementById('hint');
 const status = document.getElementById('status');
+const runtimeIndicator = document.getElementById('runtime');
+const compilerIndicator = document.getElementById('compiler');
+const analyserIndicator = document.getElementById('analyser');
 const stopButton = document.getElementById('stop');
 const resetButton = document.getElementById('reset');
 
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
 
+setUpFullscreen(document.getElementById('fullscreen'));
+
+const help = setUpHelp(
+    document.getElementById('help'),
+    document.getElementById('help-toggle'),
+    document.getElementById('help-close'));
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && help.open) help.close();
+});
+
+// An indicator's state, and the tooltip that says what it means.
+function indicate(indicator, state, title) {
+    indicator.dataset.state = state;
+    indicator.title = title;
+}
+
 // A `?repl` on the URL, which links from before sessions were on by default
 // carry, changes nothing.
 const { limits, off } = await replAvailability();
+
+if (limits) {
+    indicate(compilerIndicator, 'ready', 'The compile service is serving sessions');
+    document.getElementById('help-max-cells').textContent = String(limits.maxCells);
+} else if (off) {
+    indicate(compilerIndicator, 'off', 'Interactive sessions are switched off on this server');
+} else {
+    indicate(compilerIndicator, 'failed', 'The compile service could not be reached');
+}
 
 if (!limits) {
     const unavailable = document.getElementById('unavailable');
@@ -36,8 +66,9 @@ if (!limits) {
         : 'The compile service could not be reached. Try again in a moment.';
 
     unavailable.hidden = false;
-    stopButton.hidden = true;
-    resetButton.hidden = true;
+    stopButton.disabled = true;
+    resetButton.disabled = true;
+    indicate(analyserIndicator, 'dormant', 'No session to analyse');
 } else {
     await start();
 }
@@ -94,7 +125,29 @@ async function start() {
     editor.onDidContentSizeChange(fit);
     fit();
 
-    let runtime = new CellRuntime();
+    // Where the runtime is, for its indicator: 'idle' before the first cell
+    // and after a stop, then starting, ready, and running while a cell does.
+    let runtimeState = 'idle';
+
+    const RUNTIME_TITLES = {
+        idle: 'The .NET runtime the cells run on. It starts with the next cell',
+        working: 'Starting the .NET runtime, or compiling a cell',
+        ready: 'The .NET runtime is ready',
+        running: 'A cell is running. Stop ends it, and the session with it'
+    };
+
+    const showRuntime = () => {
+        const state = busy ? (status.dataset.phase === 'running' ? 'running' : 'working') : runtimeState;
+
+        indicate(runtimeIndicator, state, RUNTIME_TITLES[state]);
+    };
+
+    const onRuntimeState = state => {
+        runtimeState = state === 'starting' ? 'working' : state === 'stopped' ? 'idle' : 'ready';
+        showRuntime();
+    };
+
+    let runtime = new CellRuntime(document.body, { onState: onRuntimeState });
     let number = 1;
     let busy = false;
 
@@ -117,6 +170,24 @@ async function start() {
     let added = 0;
     let analysisTimer = null;
 
+    const ANALYSER_TITLES = {
+        ready: 'Errors, hovers and completions as you type',
+        connecting: 'Connecting to the analyser',
+        dormant: 'The analyser was given back while the page was idle; it reconnects when you type',
+        refused: 'Too many editors are open from this address; cells still compile and run',
+        disconnected: 'The analyser is not reachable; cells still compile and run. Click to try again'
+    };
+
+    function showAnalyser(state) {
+        const shown = state === 'refused' ? 'disconnected' : state;
+
+        indicate(analyserIndicator, shown, ANALYSER_TITLES[state] ?? state);
+    }
+
+    analyserIndicator.addEventListener('click', () => {
+        if (analyserIndicator.dataset.state !== 'ready') analyser?.reconnect();
+    });
+
     function startAnalysis() {
         analyser?.dispose();
 
@@ -126,6 +197,7 @@ async function start() {
 
         const client = new GhulLanguageClient(ANALYSE_REPL_SERVICE, {
             getToken,
+            onStatus: showAnalyser,
             documentText: () => analysis.source,
             lineOffset: () => analysis.offset,
             // A fresh analyser has none of the cells.
@@ -200,13 +272,15 @@ async function start() {
 
     const setBusy = (value, text = '') => {
         busy = value;
-        status.textContent = text;
+        status.dataset.phase = value ? text : '';
+        status.textContent = value ? text : 'runtime';
         stopButton.disabled = !value;
         editor.updateOptions({ readOnly: value });
+        showRuntime();
     };
 
     inputRow.hidden = false;
-    help.hidden = false;
+    hint.hidden = false;
     setPrompt();
     editor.focus();
 
@@ -252,7 +326,7 @@ async function start() {
     function resetSession() {
         generation++;
         runtime.dispose();
-        runtime = new CellRuntime();
+        runtime = new CellRuntime(document.body, { onState: onRuntimeState });
         number = 1;
         setPrompt();
         startAnalysis();
@@ -431,6 +505,9 @@ async function start() {
     });
 
     resetButton.addEventListener('click', () => {
+        // Asked only when there is something to lose.
+        if (number > 1 && !confirm('Start a new session? The cells so far, and what they defined, are discarded.')) return;
+
         if (busy) runtime.stop();
 
         resetSession();

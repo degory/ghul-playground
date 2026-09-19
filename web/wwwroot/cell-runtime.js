@@ -7,8 +7,11 @@
 // cell the frame had run is gone, and the next cell starts a new session.
 
 export class CellRuntime {
-    constructor(container = document.body) {
+    // `onState` hears where the runtime is: 'starting' while the frame loads it,
+    // 'ready' once it can run a cell, and 'stopped' when the session ends.
+    constructor(container = document.body, { onState = () => { } } = {}) {
         this.container = container;
+        this.onState = onState;
         this.frame = null;
         this.ready = null;
         this.pending = new Map();
@@ -43,6 +46,8 @@ export class CellRuntime {
         this.ready = new Promise(resolve => { this._resolveReady = resolve; });
         this.frame = frame;
 
+        this.onState('starting');
+
         CellRuntime._loadHostPage().then(text => {
             // Stopped while the page was being fetched.
             if (this.frame !== frame) return;
@@ -60,6 +65,7 @@ export class CellRuntime {
 
         if (data.ready) {
             this._resolveReady();
+            this.onState('ready');
             return;
         }
 
@@ -117,6 +123,8 @@ export class CellRuntime {
         this.frame?.remove();
         this.frame = null;
         this.ready = null;
+
+        this.onState('stopped');
     }
 
     dispose() {
