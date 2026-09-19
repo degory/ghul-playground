@@ -159,6 +159,16 @@ cells and 256 KB of source between them. A session whose earlier cells no
 longer compile - the toolchain changed under it - is answered 409, and has to
 be started again.
 
+The page runs each cell with `CellRuntime` (`web/wwwroot/cell-runtime.js`), in a
+hidden frame of its own holding the .NET runtime for the session. A cell of
+definitions only has nothing to run and answers with no output. Managed code on
+another thread cannot be interrupted from the browser, so stopping a cell that
+will not finish removes the frame, and the next cell starts a new session in a
+fresh one; the page around it is untouched. The frame is written as `srcdoc`
+from `cell-host.html` rather than loaded by URL, because a document written
+that way inherits the page's origin and its cross-origin isolation, which the
+threaded runtime needs, whatever headers the server sends for the host page.
+
 ## the reference set
 
 `REFERENCES` in `shared/toolchain.js` lists the framework assemblies user code

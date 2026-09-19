@@ -445,6 +445,8 @@ jobs:
           # The language server's stderr carries the reason when an analyser
           # will not start, which the service's own log does not.
           LOG_SERVER_STDERR: 1
+          # The browser test runs the cells of an interactive session too.
+          REPL_ENABLED: 1
         run: |
           node compile-service/server.js > /tmp/compile.log 2>&1 &
           node analyse-service/server.js > /tmp/analyse.log 2>&1 &

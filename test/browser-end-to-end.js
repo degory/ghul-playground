@@ -661,6 +661,89 @@ chrome.on('error', e => {
 
     await cmd('Fetch.disable');
 
+    // Cells of an interactive session: compiled by the service against the
+    // cells before them, and run in the cell host frame, where a runaway cell
+    // is stopped by replacing the frame. Each cell's `use` lines are written
+    // out here, where a session would generate them. Skipped where the
+    // service has no session cells.
+    const COMPILE = process.env.COMPILE ?? (new URL(BASE).hostname === '127.0.0.1'
+        ? 'http://127.0.0.1:5090'
+        : new URL('.', BASE).toString().replace(/\/$/, ''));
+
+    const health = await (await fetch(`${COMPILE}/health`)).json().catch(() => ({}));
+
+    if (!health.repl) {
+        log('skip  session cells: the compile service has none');
+    } else {
+        const cells = [
+            // Definitions only, so there is nothing to run.
+            'use default\n_helper(n: int) -> int => n + 1\nclass _HIDDEN(value: int)\n' +
+                'let names = LIST[string]()\n',
+            'use default\nuse cell1._helper\nuse cell1._HIDDEN\nuse cell1.names\n' +
+                'names.add("second")\nwrite_line("{names.count} name")\n_helper(_HIDDEN(41).value)\n',
+            'use default\nthrow System.InvalidOperationException("from cell 3")\n',
+            'use default\nuse cell1.names\nnames.add("fourth")\nnames.count\n'
+        ];
+
+        const session = JSON.parse(await ev(`(async () => {
+            const { CellRuntime } = await import('./cell-runtime.js');
+            window.cellRuntime = new CellRuntime();
+            const headers = { 'content-type': 'application/json' };
+            const token = ${JSON.stringify(TOKEN ?? null)};
+            if (token) headers.authorization = 'Bearer ' + token;
+            window.compileCells = async chain => (await fetch(${JSON.stringify(COMPILE)} + '/compile/cell', {
+                method: 'POST', headers, body: JSON.stringify({ cells: chain })
+            })).json();
+            const accepted = [];
+            const results = [];
+            for (const [index, source] of ${JSON.stringify(cells)}.entries()) {
+                const cell = { name: 'cell' + (index + 1), source };
+                const compiled = await compileCells([...accepted, cell]);
+                if (!compiled.ok) {
+                    results.push({ compiled: false, reply: compiled });
+                    break;
+                }
+                accepted.push(cell);
+                results.push(await cellRuntime.run(compiled.assembly, cell.name));
+            }
+            return JSON.stringify(results);
+        })()`) ?? '[]');
+
+        check('a cell of definitions only runs as nothing',
+            session[0] !== undefined && session[0].text === '' && !('value' in session[0]) && !session[0].error,
+            JSON.stringify(session[0]));
+        check("a later cell reaches its state and underscore names",
+            session[1]?.text === '1 name\n' && session[1]?.value === '42', JSON.stringify(session[1]));
+        check('a cell that throws reports it',
+            (session[2]?.error ?? '').includes('from cell 3'), JSON.stringify(session[2]));
+        check('and the session carries on after it', session[3]?.value === '2',
+            JSON.stringify(session[3]));
+
+        // A cell that never finishes is stopped by replacing the frame: the
+        // page survives, the run answers as stopped, and the next cell starts
+        // a new session.
+        const stopped = JSON.parse(await ev(`(async () => {
+            const chain = [{ name: 'cell1', source: 'use default\\nlet spins mut = 0\\nwhile true do spins = spins + 1 od\\n' }];
+            const compiled = await compileCells(chain);
+            if (!compiled.ok) return JSON.stringify({ compiled: false, reply: compiled });
+            const running = cellRuntime.run(compiled.assembly, 'cell1');
+            await new Promise(r => setTimeout(r, 2000));
+            const busy = cellRuntime.busy;
+            cellRuntime.stop();
+            const result = await running;
+            const fresh = [{ name: 'cell1', source: 'use default\\n6 * 7\\n' }];
+            const again = await compileCells(fresh);
+            const after = await cellRuntime.run(again.assembly, 'cell1');
+            return JSON.stringify({ busy, result, after, frames: document.querySelectorAll('iframe').length });
+        })()`) ?? '{}');
+
+        check('a runaway cell is still running until stopped', stopped.busy === true, JSON.stringify(stopped));
+        check('stopping it answers as stopped', stopped.result?.stopped === true, JSON.stringify(stopped.result));
+        check('and a new session runs on a fresh frame',
+            stopped.after?.value === '42' && stopped.frames === 1, JSON.stringify(stopped));
+        check('with the page still answering', await ev(`document.getElementById('run-label').textContent`) === 'Run');
+    }
+
     log(failures ? `${failures} failure(s)` : 'all checks passed');
     process.exit(failures ? 1 : 0);
 })();
