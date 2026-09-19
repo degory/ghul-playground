@@ -45,6 +45,10 @@ function check(what, ok, detail = '') {
 
 const chrome = spawn(CHROME, [
     '--headless=new', '--no-sandbox', '--disable-gpu',
+    // For a run against a stand-in for production, such as nginx in a container
+    // answering for ghul.dev on another port: a JSON array, since a flag can
+    // hold spaces.
+    ...JSON.parse(process.env.CHROME_FLAGS ?? '[]'),
     `--remote-debugging-port=${PORT}`,
     `--user-data-dir=/tmp/ghul-playground-test-${process.pid}`,
     'about:blank'
@@ -760,7 +764,11 @@ chrome.on('error', e => {
             ? `http://127.0.0.1:${(await startNginxStandIn().then(server => { server.unref(); return server; })).address().port}/`
             : BASE;
 
-        const replUrl = new URL('repl.html?repl', replBase).toString();
+        // Below /playground/, the REPL is reached as ghul.dev serves it: its
+        // entry page at ../repl/, which takes everything else from here.
+        const replUrl = new URL(replBase).pathname.endsWith('/playground/')
+            ? new URL('../repl/?repl', replBase).toString()
+            : new URL('repl.html?repl', replBase).toString();
 
         await cmd('Page.navigate', { url: replUrl });
 

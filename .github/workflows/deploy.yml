@@ -51,7 +51,13 @@ jobs:
       - run: dotnet tool restore
 
       - name: Publish the web app
-        run: dotnet publish web -c Release -o /tmp/playground-publish
+        run: |
+          dotnet publish web -c Release -o /tmp/playground-publish
+
+          # The page ghul.dev serves at /repl/: repl.html with a base naming
+          # the playground's directory. Written from the published page so it
+          # carries the same fingerprinted names.
+          node scripts/repl-entry.js /tmp/playground-publish/wwwroot
 
       # The deploy key is the only secret here. The host and its key are
       # public facts, so they are committed rather than held as secrets.
