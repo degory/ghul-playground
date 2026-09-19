@@ -30,3 +30,8 @@ export async function replLimits() {
         return null;
     }
 }
+
+// The analyse service, asked for an interactive session's analyser.
+export const ANALYSE_REPL_SERVICE = LOCAL
+    ? 'ws://127.0.0.1:5091/analyse?repl'
+    : new URL('analyse?repl', document.baseURI).href.replace(/^http/, 'ws');

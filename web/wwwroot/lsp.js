@@ -38,11 +38,20 @@ const TOKEN_SUBPROTOCOL_PREFIX = 'ghul-playground-token.';
 const HIDDEN_RELEASE_MS = 30000;
 
 export class GhulLanguageClient {
-    constructor(url, { onStatus, onDiagnostics, getToken } = {}) {
+    // `documentText` and `lineOffset` are for an editor showing only the tail
+    // of what is analysed, as the REPL input is the last part of its cell: the
+    // text to analyse, and how many lines of it come before the editor's first.
+    // Diagnostics above the editor are dropped, and positions are moved by the
+    // offset each way. `onReady` runs whenever a fresh analyser is ready, which
+    // is after every reconnect.
+    constructor(url, { onStatus, onDiagnostics, getToken, documentText, lineOffset, onReady } = {}) {
         this.url = url;
         this.onStatus = onStatus ?? (() => { });
         this.onDiagnostics = onDiagnostics ?? (() => { });
         this.getToken = getToken ?? (() => null);
+        this.documentText = documentText ?? (() => this.model?.getValue() ?? '');
+        this.lineOffset = lineOffset ?? (() => 0);
+        this.onReady = onReady ?? (() => { });
 
         this.socket = null;
         this.connected = false;
@@ -295,12 +304,13 @@ export class GhulLanguageClient {
                 uri: DOCUMENT_URI,
                 languageId: 'ghul',
                 version: this.version,
-                text: this.model?.getValue() ?? ''
+                text: this.documentText()
             }
         }, true);
 
         this.initialized = true;
         this.onStatus('ready');
+        this.onReady();
     }
 
     // Whole-document sync. The bridge mirrors it to disk for the analyser, and
@@ -327,8 +337,20 @@ export class GhulLanguageClient {
         }
     }
 
-    publishDiagnostics(diagnostics) {
+    publishDiagnostics(all) {
         if (!this.model) return;
+
+        const offset = this.lineOffset();
+
+        const diagnostics = all
+            .filter(d => d.range.start.line >= offset)
+            .map(d => ({
+                ...d,
+                range: {
+                    start: { line: d.range.start.line - offset, character: d.range.start.character },
+                    end: { line: d.range.end.line - offset, character: d.range.end.character }
+                }
+            }));
 
         // Reported in the same shape the compile service produces, so a
         // consumer can show either without knowing which it has.
@@ -369,7 +391,7 @@ export class GhulLanguageClient {
         if (this.wake()) return null;
         const result = await this.request('textDocument/hover', {
             textDocument: { uri: DOCUMENT_URI },
-            position: { line: position.lineNumber - 1, character: position.column - 1 }
+            position: { line: position.lineNumber - 1 + this.lineOffset(), character: position.column - 1 }
         });
 
         const contents = result?.result?.contents;
@@ -427,7 +449,7 @@ export class GhulLanguageClient {
 
         const result = await this.request('textDocument/completion', {
             textDocument: { uri: DOCUMENT_URI },
-            position: { line: position.lineNumber - 1, character: position.column - 1 },
+            position: { line: position.lineNumber - 1 + this.lineOffset(), character: position.column - 1 },
             context: { triggerKind: 1 }
         });
 

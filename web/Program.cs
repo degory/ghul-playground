@@ -90,6 +90,7 @@ partial class GhulRunner
 
     private static readonly MethodInfo ReplPrepareMethod = ReplType.GetMethod("prepare")!;
     private static readonly MethodInfo ReplAcceptMethod = ReplType.GetMethod("accept")!;
+    private static readonly MethodInfo ReplAnalysisMethod = ReplType.GetMethod("analysis")!;
 
     // The interactive session, around the page's request to the compile
     // service: what to send for a submission, then what to show once the
@@ -100,6 +101,19 @@ partial class GhulRunner
         try
         {
             return (string)ReplPrepareMethod.Invoke(null, new object[] { text })!;
+        }
+        catch (Exception e)
+        {
+            return $"{{\"error\":\"host error: {e.GetType().Name}\"}}";
+        }
+    });
+
+    [JSExport]
+    internal static Task<string> ReplAnalysis(string text) => Task.Run(() =>
+    {
+        try
+        {
+            return (string)ReplAnalysisMethod.Invoke(null, new object[] { text })!;
         }
         catch (Exception e)
         {
