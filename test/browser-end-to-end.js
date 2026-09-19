@@ -909,6 +909,36 @@ chrome.on('error', e => {
 
             check('and is greyed out again in the new session',
                 await ev(`document.getElementById('reset').disabled`) === true);
+
+            // Values are written by the runtime's inspect, as the terminal REPL
+            // writes them: each shown value is the text inspect gives for it. An
+            // absent value on its own shows nothing, as in the terminal, so it
+            // is checked inside a list.
+            await submit('class PAIRING(left: int, right: bool);');
+
+            const shapes = {
+                list: '[1, 2, 3]',
+                tuple: '(1, true)',
+                record: 'PAIRING(4, false)',
+                bool: 'true',
+                absent: '(let o: int? = null; [o, 2])'
+            };
+
+            const rendered = {};
+
+            for (const [name, expression] of Object.entries(shapes)) {
+                const shown = await submit(expression);
+                const inspected = await submit(`Ghul.inspect(${expression})`);
+                rendered[name] = { shown, inspected };
+            }
+
+            check('values are shown as the runtime\'s inspect renders them',
+                Object.values(rendered).every(r => r.shown === r.inspected) &&
+                rendered.list.shown === '[1, 2, 3]' && rendered.bool.shown === 'true' &&
+                rendered.absent.shown === '[null, 2]' &&
+                rendered.record.shown.startsWith('PAIRING('),
+                JSON.stringify(rendered));
+
         }
     }
 
