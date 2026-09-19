@@ -34,11 +34,19 @@ history is gone for good. Everything else can be thrown away freely.
 
 ## what runs where
 
-nginx terminates TLS and serves `/var/www/playground`, proxying `/compile`,
-`/compile/cell`, `/analyse` and `/health` to the compile and analyse containers,
-and `/stats/` to the GoatCounter container. All three are bound to loopback and
-never face the internet themselves. The containers come from `compose.yaml` in
-the repository root.
+nginx terminates TLS. The playground is served by the ghul.dev site, at
+`/playground/` from `/var/www/playground`, with the REPL at `/repl/`; it proxies
+the compile and analyse containers under `/playground/`, and `/stats/` to the
+GoatCounter container. All three are bound to loopback and never face the
+internet themselves. The containers come from `compose.yaml` in the repository
+root.
+
+`playground.ghul.dev`, where the playground used to be, redirects every path
+permanently to the same path under `https://ghul.dev/playground` (`/repl.html`
+to `/repl/`), but still proxies `/compile`, `/compile/cell`, `/analyse`,
+`/health` and `/stats/`: a page open or cached from before the move posts to
+those and opens WebSockets to them, and neither follows a redirect. Its
+certificate and name are kept.
 
 The nginx files in `nginx/` are installed by hand, not by the deploy, which
 has no root. The deploy does check them: its last step runs `check-nginx.sh`
