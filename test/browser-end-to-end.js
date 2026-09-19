@@ -108,7 +108,8 @@ chrome.on('error', e => {
     // Answered from the map, or as not found, with the header a cross-origin
     // fetch needs to be allowed to read the answer.
     function answerIntercepted({ requestId, request }) {
-        const body = intercepted.get(request.url);
+        const entry = intercepted.get(request.url);
+        const body = typeof entry === 'object' ? entry.body : entry;
 
         ws.send(JSON.stringify({
             id: ++id,
@@ -118,7 +119,8 @@ chrome.on('error', e => {
                 responseCode: body === undefined ? 404 : 200,
                 responseHeaders: [
                     { name: 'Access-Control-Allow-Origin', value: '*' },
-                    ...(request.url.endsWith('.js') ? [{ name: 'Content-Type', value: 'text/javascript' }] : [])
+                    ...(request.url.endsWith('.js') ? [{ name: 'Content-Type', value: 'text/javascript' }] : []),
+                    ...(typeof entry === 'object' ? entry.headers : [])
                 ],
                 body: Buffer.from(body ?? '').toString('base64')
             }
@@ -750,7 +752,25 @@ chrome.on('error', e => {
         check('the REPL page is off without its query flag',
             await ev(`!document.getElementById('unavailable').hidden`));
 
-        await cmd('Page.navigate', { url: new URL('repl.html?repl', BASE).toString() });
+        // The .NET dev host sends the cross-origin isolation headers for `/`
+        // and `/_framework/` only, where nginx sends them for every page, so
+        // locally the page is served here with the headers production gives it.
+        const replUrl = new URL('repl.html?repl', BASE).toString();
+
+        if (new URL(BASE).port === '5080') {
+            intercepted.set(replUrl, {
+                body: await (await fetch(replUrl)).text(),
+                headers: [
+                    { name: 'Content-Type', value: 'text/html' },
+                    { name: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+                    { name: 'Cross-Origin-Embedder-Policy', value: 'require-corp' }
+                ]
+            });
+
+            await cmd('Fetch.enable', { patterns: [{ urlPattern: replUrl }] });
+        }
+
+        await cmd('Page.navigate', { url: replUrl });
 
         for (let i = 0; i < 60; i++) {
             if (await ev(`!document.getElementById('input-row').hidden`)) break;
