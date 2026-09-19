@@ -543,7 +543,7 @@ const isRunning = () => runButton.hasAttribute('data-stop');
 // arrival, so that one waits for it rather than going uncounted.
 function countRun(automatic) {
     const event = {
-        path: `${location.host}/run/${automatic ? 'automatic' : 'manual'}/${provenance?.name ?? 'editor'}`,
+        path: `playground-run/${automatic ? 'automatic' : 'manual'}/${provenance?.name ?? 'editor'}`,
         title: automatic ? 'run on arrival' : 'run',
         event: true
     };
