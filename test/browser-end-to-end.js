@@ -742,8 +742,118 @@ chrome.on('error', e => {
         check('and a new session runs on a fresh frame',
             stopped.after?.value === '42' && stopped.frames === 1, JSON.stringify(stopped));
         check('with the page still answering', await ev(`document.getElementById('run-label').textContent`) === 'Run');
+
+        // The REPL page, off unless asked for.
+        await cmd('Page.navigate', { url: new URL('repl.html', BASE).toString() });
+        await sleep(3000);
+
+        check('the REPL page is off without its query flag',
+            await ev(`!document.getElementById('unavailable').hidden`));
+
+        // The .NET dev host sends the cross-origin isolation headers for `/`
+        // and `/_framework/` only, where nginx sends them for every page and
+        // serves the compile service from the same origin. Locally, a small
+        // proxy stands in for nginx, so the page reaches the service by the
+        // relative path it uses in production.
+        const replBase = new URL(BASE).port === '5080'
+            ? `http://127.0.0.1:${(await startNginxStandIn()).address().port}/`
+            : BASE;
+
+        const replUrl = new URL('repl.html?repl', replBase).toString();
+
+        await cmd('Page.navigate', { url: replUrl });
+
+        for (let i = 0; i < 60; i++) {
+            if (await ev(`!document.getElementById('input-row').hidden`)) break;
+            await sleep(500);
+        }
+
+        const replStarted = await ev(`!document.getElementById('input-row').hidden`);
+
+        check('the REPL page starts with its query flag', replStarted,
+            await ev(`(async () => JSON.stringify({
+                probe: await fetch('compile/cell').then(r => r.status).catch(e => String(e)),
+                isolated: self.crossOriginIsolated,
+                unavailable: !document.getElementById('unavailable').hidden,
+                monaco: typeof monaco,
+                status: document.getElementById('status').textContent
+            }))()`));
+
+        // Typed into the input and submitted with Shift-Enter, as a reader
+        // would; answers the text of the entry it produced once the page is
+        // ready for the next.
+        const submit = async text => {
+            const before = await ev(`document.querySelectorAll('.entry').length`);
+
+            await ev(`(() => { const e = monaco.editor.getEditors()[0]; e.setValue(${JSON.stringify(text)}); e.focus(); return true; })()`);
+            await cmd('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+            await cmd('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+
+            for (let i = 0; i < 240; i++) {
+                const done = await ev(`document.querySelectorAll('.entry').length > ${before} &&
+                    document.getElementById('status').textContent === ''`);
+
+                if (done) break;
+                await sleep(250);
+            }
+
+            return await ev(`[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').innerText`);
+        };
+
+        if (replStarted) {
+            const defined = await submit('let x = 41');
+            const used = await submit('x + 1');
+            const redefined = await submit('let x = "forty-one"');
+            const reread = await submit('x');
+            const failed = await submit('let y: int = "s"');
+            const after = await submit('x.length');
+
+            check('the REPL page accepts a definition', defined === '', JSON.stringify(defined));
+            check('a later cell uses it and shows its value', used === '42', JSON.stringify(used));
+            check('a redefinition replaces it going forward',
+                redefined === '' && reread.includes('forty-one'), JSON.stringify([redefined, reread]));
+            check('a cell with an error shows the error', failed.includes('not assignable'), JSON.stringify(failed));
+            check('and the session carries on after it', after === '9', JSON.stringify(after));
+            check('the prompt numbers every submission, as the terminal does',
+                await ev(`document.getElementById('prompt').textContent`) === '[7]',
+                await ev(`document.getElementById('prompt').textContent`));
+        }
     }
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');
     process.exit(failures ? 1 : 0);
 })();
+
+// What nginx does for the REPL page in production, and the .NET dev host does
+// not: the cross-origin isolation headers on every response, and the compile
+// service at `/compile` on the same origin.
+function startNginxStandIn() {
+    const http = require('http');
+
+    const server = http.createServer((request, response) => {
+        const port = request.url.startsWith('/compile') ? 5090 : 5080;
+
+        const upstream = http.request({
+            host: '127.0.0.1',
+            port,
+            path: request.url,
+            method: request.method,
+            headers: { ...request.headers, host: `127.0.0.1:${port}` }
+        }, answer => {
+            response.writeHead(answer.statusCode, {
+                ...answer.headers,
+                'cross-origin-opener-policy': 'same-origin',
+                'cross-origin-embedder-policy': 'require-corp'
+            });
+
+            answer.pipe(response);
+        });
+
+        upstream.on('error', () => response.writeHead(502).end());
+        request.pipe(upstream);
+    });
+
+    server.unref();
+
+    return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
+}

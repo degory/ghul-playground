@@ -73,16 +73,25 @@ export class CellRuntime {
 
     // Runs a cell, answering `{text, value?, error?}`, or `{stopped: true}` if
     // the session is stopped before it finishes.
-    async run(assembly, submission) {
+    run(assembly, submission) {
+        return this.call('run', assembly, submission);
+    }
+
+    // One of the host's operations - see cell-host.js - answering its result,
+    // or `{stopped: true}` if the session is stopped before it finishes.
+    async call(op, ...args) {
         if (!this.frame) this._start();
 
         await this.ready;
+
+        // Stopped while the host was starting.
+        if (!this.frame) return { stopped: true };
 
         const id = this.nextId++;
 
         return new Promise(resolve => {
             this.pending.set(id, { resolve });
-            this.frame.contentWindow.postMessage({ id, assembly, submission }, location.origin);
+            this.frame.contentWindow.postMessage({ id, op, args }, location.origin);
         });
     }
 
@@ -99,6 +108,12 @@ export class CellRuntime {
         }
 
         this.pending.clear();
+
+        // A call waiting for the host to start sees the frame gone and answers
+        // as stopped.
+        this._resolveReady?.();
+        this._resolveReady = null;
+
         this.frame?.remove();
         this.frame = null;
         this.ready = null;
