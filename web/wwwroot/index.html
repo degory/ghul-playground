@@ -53,150 +53,11 @@
       src: url('https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/woff2/FiraCode-VF.woff2') format('woff2');
     }
   </style>
+  <link rel="stylesheet" href="chrome.css">
   <link rel="stylesheet" href="vs/editor/editor.main.css">
   <script src="vs/loader.js"></script>
   <script type='module' src="main#[.{fingerprint}].js"></script>
   <style>
-    /* Light is the default and dark follows the reader's system setting, the
-       same way ghul.dev does. The editor theme is switched to match in main.js:
-       chrome and editor have to move together or the page looks broken. */
-    :root {
-      color-scheme: light dark;
-
-      --bg: #ffffff;
-      --bg-raised: #f6f7f9;
-      --fg: #1f2328;
-      --fg-muted: #656d76;
-      --border: #d8dde3;
-      --accent: #0969da;
-      --ok: #1a7f37;
-      --warn: #9a6700;
-      --bad: #cf222e;
-      --shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-      --mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #1e1e1e;
-        --bg-raised: #252526;
-        --fg: #e6edf3;
-        --fg-muted: #9198a1;
-        --border: #3c3c3c;
-        --accent: #4daafc;
-        --ok: #3fb950;
-        --warn: #d29922;
-        --bad: #f85149;
-        --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-      }
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg);
-      color: var(--fg);
-    }
-
-    /* --- the top bar ---
-
-       Two registers and one geometry. An action - File, Run - carries the
-       foreground colour; an indicator or a secondary icon carries the muted one
-       and brightens on hover. Weight is left to the wordmark, which is the only
-       thing in the bar that should be asking for attention. Everything in the row
-       is one height and one text size, so the bar has a single rhythm whatever
-       sits in it. */
-
-    header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0.6rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-raised);
-      flex: none;
-    }
-
-    header :where(#file-toggle, #run, .indicator, .group button) {
-      height: 1.75rem;
-      font-size: 0.8125rem;
-    }
-
-    /* An action, so the foreground colour, at the bar's one height and size. */
-    header .nav-link {
-      display: inline-flex;
-      align-items: center;
-      height: 1.75rem;
-      padding: 0 0.5rem;
-      font-size: 0.8125rem;
-      color: var(--fg);
-      text-decoration: none;
-      border-radius: 4px;
-    }
-
-    header .nav-link:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
-    header .nav-link[hidden] { display: none; }
-
-    header svg { width: 15px; height: 15px; fill: currentColor; display: block; }
-
-    /* Square, so an icon on its own has the same hit area as its neighbours
-       rather than a short wide slab around a small glyph - and wider only when
-       it has a count to carry. */
-    .group button { min-width: 1.75rem; padding: 0 0.35rem; gap: 0.3rem; }
-
-    /* Tight, because these are one toolbar rather than three loose controls
-       sharing the bar's spacing with the indicators beside them. */
-    .group { display: flex; align-items: center; gap: 0.125rem; margin-right: -0.25rem; }
-
-    .group button { color: var(--fg-muted); }
-    .group button:hover:not(:disabled) { color: var(--fg); }
-
-    .wordmark {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin: 0;
-      white-space: nowrap;
-    }
-
-    .wordmark span { color: var(--fg-muted); font-weight: 400; }
-
-    /* Reads as the page's name rather than as a link, so it is not underlined
-       and takes the colours around it. */
-    .wordmark a { color: inherit; text-decoration: none; }
-    .wordmark a:hover { color: var(--accent); }
-    .wordmark a:hover span { color: inherit; }
-
-    /* Separates the name from the controls, so the gap between them does not
-       have to be wide enough to say it on its own. */
-    .divider {
-      width: 1px;
-      height: 1.25rem;
-      background: var(--border);
-      flex: none;
-    }
-
-    button {
-      font: inherit;
-      color: inherit;
-      background: none;
-      border: 1px solid transparent;
-      border-radius: 6px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.4rem;
-    }
-
-    button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
-    button:disabled { cursor: default; opacity: 0.45; }
-    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
     /* --- the file menu --- */
 
@@ -242,9 +103,6 @@
 
     #file-note:empty { display: none; }
 
-    #fullscreen .exit { display: none; }
-    :root:fullscreen #fullscreen .enter { display: none; }
-    :root:fullscreen #fullscreen .exit { display: block; }
 
     #images-toggle[hidden] { display: none; }
 
@@ -274,44 +132,7 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .spacer { margin-left: auto; }
 
-    /* The two service indicators. A dot carries the state at a glance and the
-       tooltip explains it, which is the part a first-time reader needs. One
-       shape for both, so the pair reads as a pair - including the transparent
-       border, which is what every button in the bar is sized with and what the
-       compiler span would otherwise be two pixels short of. */
-    .indicator {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0 0.4rem;
-      color: var(--fg-muted);
-      white-space: nowrap;
-      border: 1px solid transparent;
-      border-radius: 6px;
-    }
-
-    .indicator .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--fg-muted);
-      flex: none;
-    }
-
-    #compiler[data-state="ready"] .dot,
-    #analyser[data-state="ready"] .dot { background: var(--ok); }
-
-    #compiler[data-state="working"] .dot,
-    #analyser[data-state="connecting"] .dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
-
-    #compiler[data-state="failed"] .dot,
-    #analyser[data-state="disconnected"] .dot { background: var(--bad); }
-
-    #analyser[data-state="dormant"] .dot { background: var(--fg-muted); }
-
-    @keyframes pulse { 50% { opacity: 0.25; } }
 
     /* Floats over the editor's top-right corner, where the ghul.dev examples
        put theirs, so the two surfaces agree about where copying lives. */
@@ -609,49 +430,6 @@
     #images-grid figcaption button { padding: 0.15rem 0.4rem; color: inherit; }
     #images-grid figcaption svg { width: 13px; height: 13px; fill: currentColor; display: block; }
 
-    /* --- the about panel --- */
-
-    #help {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.35);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem;
-      /* Above the images overlay and the file menu both: it is the topmost
-         thing on the page whenever it is open. */
-      z-index: 30;
-    }
-
-    #help[hidden] { display: none; }
-
-    #help article {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      box-shadow: var(--shadow);
-      max-width: 34rem;
-      max-height: 100%;
-      overflow: auto;
-      padding: 1.25rem 1.5rem 1.5rem;
-    }
-
-    #help h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
-    #help h3 { margin: 1.25rem 0 0.4rem; font-size: 0.9rem; }
-    #help p, #help li { line-height: 1.55; color: var(--fg); margin: 0.5rem 0; }
-    #help ul { margin: 0.5rem 0; padding-left: 1.2rem; }
-    #help a { color: var(--accent); }
-    #help code, kbd {
-      font-family: var(--mono);
-      font-size: 0.85em;
-      background: color-mix(in srgb, var(--fg) 8%, transparent);
-      padding: 0.1em 0.35em;
-      border-radius: 4px;
-    }
-
-    #help footer { margin-top: 1.25rem; display: flex; justify-content: flex-end; }
-    #help footer button { border-color: var(--border); padding: 0.35rem 0.9rem; }
   </style>
 
   <!-- Analytics, self-hosted on this same origin under /stats.

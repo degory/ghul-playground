@@ -18,85 +18,16 @@
       src: url('https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/woff2/FiraCode-VF.woff2') format('woff2');
     }
   </style>
+  <link rel="stylesheet" href="chrome.css">
   <link rel="stylesheet" href="vs/editor/editor.main.css">
   <script src="vs/loader.js"></script>
   <script type='module' src="repl#[.{fingerprint}].js"></script>
   <style>
-    /* The playground page's palette, so the two read as one site. */
-    :root {
-      color-scheme: light dark;
-
-      --bg: #ffffff;
-      --bg-raised: #f6f7f9;
-      --fg: #1f2328;
-      --fg-muted: #656d76;
-      --border: #d8dde3;
-      --accent: #0969da;
-      --ok: #1a7f37;
-      --warn: #9a6700;
-      --bad: #cf222e;
-      --mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #1e1e1e;
-        --bg-raised: #252526;
-        --fg: #e6edf3;
-        --fg-muted: #9198a1;
-        --border: #3c3c3c;
-        --accent: #4daafc;
-        --ok: #3fb950;
-        --warn: #d29922;
-        --bad: #f85149;
-      }
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg);
-      color: var(--fg);
-    }
-
-    header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0.6rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-raised);
-      flex: none;
-    }
-
-    header .title { font-weight: 600; }
-
-    header .nav { margin-right: auto; color: var(--accent); font-size: 0.8125rem; text-decoration: none; }
-    header .nav:hover { text-decoration: underline; }
-
-    #status { color: var(--fg-muted); font-size: 0.8125rem; }
-
-    button {
-      font: inherit;
-      font-size: 0.8125rem;
-      height: 1.75rem;
-      padding: 0 0.6rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--bg);
-      color: var(--fg);
-      cursor: pointer;
-    }
-
-    button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
-    button:disabled { cursor: default; opacity: 0.45; }
-    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* The page's own layout; the colours, the top bar and the help panel come
+       from chrome.css, shared with the playground. */
+    #stop svg { width: 12px; height: 12px; fill: var(--bad); }
+    #stop:disabled svg { fill: var(--fg-muted); }
+    #stop { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0 0.5rem; }
 
     main {
       flex: 1;
@@ -137,29 +68,133 @@
 
     #input { min-height: 1.5rem; border-left: 2px solid var(--accent); }
 
-    #help { margin: 0.4rem 0 0 3.5rem; color: var(--fg-muted); font-size: 0.8125rem; }
+    #hint { margin: 0.4rem 0 0 3.5rem; color: var(--fg-muted); font-size: 0.8125rem; }
 
     #unavailable { padding: 2rem 1rem; color: var(--fg-muted); }
+
+    @media (max-width: 640px) {
+      main { padding: 0.5rem 0.5rem 1rem; }
+      .entry .input, #input-row { grid-template-columns: 2.5rem 1fr; }
+      .entry .result, #hint { margin-left: 2.5rem; }
+    }
   </style>
 </head>
 
 <body>
   <header>
-    <span class="title">ghūl REPL</span>
+    <!-- A new tab, as on the playground: the session holds work that would
+         be lost with the page. -->
+    <h1 class="wordmark"><a href="https://ghul.dev" target="_blank" rel="noopener">ghūl <span>REPL</span></a></h1>
+
+    <span class="divider"></span>
+
+    <!-- The runtime the cells run on, and the one control that acts on it.
+         Stop is only meaningful while a cell runs, so it sits here and is
+         disabled otherwise. -->
+    <span id="runtime" class="indicator" data-state="idle"
+          title="The .NET runtime the cells run on. It starts with the first cell">
+      <span class="dot"></span>
+      <span id="status">runtime</span>
+    </span>
+
+    <button id="stop" disabled aria-label="Stop" title="Stop the running cell. The session goes with it">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
+      <span class="icon-label">Stop</span>
+    </button>
+
     <!-- Relative to the base, which is the playground's directory wherever
          this page is served from. -->
-    <a class="nav" href="./" title="The playground: write and run a whole program">playground</a>
-    <span id="status" aria-live="polite"></span>
-    <button id="stop" disabled title="Stop the running cell. The session goes with it.">Stop</button>
-    <button id="reset" title="Start a new session">New session</button>
+    <a class="nav-link" href="./" target="_blank" rel="noopener"
+       title="The playground: write and run a whole program">playground</a>
+
+    <span class="spacer"></span>
+
+    <span id="compiler" class="indicator" data-state="working" title="Asking the compile service whether it serves sessions">
+      <span class="dot"></span>
+      <span>compiler</span>
+    </span>
+
+    <button id="analyser" class="indicator" data-state="connecting" title="Connecting to the analyser">
+      <span class="dot"></span>
+      <span>analyser</span>
+    </button>
+
+    <div class="group">
+      <!-- Away from Stop: it ends the session, and asks first when there is
+           anything in it to lose. -->
+      <button id="reset" title="New session" aria-label="New session">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 2.5a5.5 5.5 0 105.2 7.3l-1.5-.5A4 4 0 118 4a4 4 0 012.8 1.2L9 7h5V2l-1.8 1.8A5.5 5.5 0 008 2.5z" />
+        </svg>
+      </button>
+
+      <button id="fullscreen" title="Full screen (F11)" aria-label="Full screen">
+        <svg class="enter" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1 1h5v1.6H2.6V6H1V1zm9 0h5v5h-1.6V2.6H10V1zM1 10h1.6v3.4H6V15H1v-5zm12.4 0H15v5h-5v-1.6h3.4V10z" />
+        </svg>
+        <svg class="exit" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 1v5H1V4.4h3.4V1H6zm4 0h1.6v3.4H15V6h-5V1zM1 10h5v5H4.4v-3.4H1V10zm9 0h5v1.6h-3.4V15H10v-5z" />
+        </svg>
+      </button>
+
+      <button id="help-toggle" title="What is this?" aria-label="What is this?">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.9" fill="none" stroke="currentColor" stroke-width="1.2" />
+          <path d="M8.9 12.3H7.1v-1.8h1.8v1.8zm1.2-4.7c-.5.4-.8.8-.9 1.2l-.1.5H7.4l.1-.7c.1-.6.4-1.2 1.1-1.7.6-.5.9-.8.9-1.3 0-.6-.4-1-1.2-1-.6 0-1.2.2-1.6.5l-.5-1.4A4.2 4.2 0 018.5 3c1.8 0 2.7 1 2.7 2.2 0 1-.6 1.7-1.1 2.1z" />
+        </svg>
+      </button>
+    </div>
   </header>
+
+  <div id="help" hidden>
+    <article role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <h2 id="help-title">What is this?</h2>
+
+      <p>
+        An interactive session for <a href="https://ghul.dev" target="_blank" rel="noopener">ghūl</a>.
+        Type a cell and run it: it is compiled on the server and runs in your
+        browser, and whatever it defines stays available to the cells after it.
+        A cell that ends on a value shows it.
+      </p>
+
+      <h3>Running a cell</h3>
+      <ul>
+        <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>, <kbd>Shift</kbd>+<kbd>Enter</kbd> or <kbd>Alt</kbd>+<kbd>Enter</kbd> runs it from anywhere in the cell.</li>
+        <li>A line holding only <code>.</code> runs what comes before it.</li>
+        <li><kbd>Enter</kbd> on its own starts a new line.</li>
+        <li><kbd>Alt</kbd>+<kbd>↑</kbd> and <kbd>Alt</kbd>+<kbd>↓</kbd> bring back earlier cells.</li>
+      </ul>
+
+      <h3>Stopping and starting again</h3>
+      <p>
+        <strong>Stop</strong> ends a cell that will not finish. Code running in the
+        browser cannot be interrupted, so the session goes with it and the next
+        cell starts a new one. <strong>New session</strong> starts one on purpose.
+      </p>
+
+      <h3>Limits</h3>
+      <p>
+        A session holds <span id="help-max-cells">50</span> cells; when it is full,
+        the next cell starts a new session. Cells are compiled on a shared server,
+        so it limits how many one address can compile a minute.
+      </p>
+
+      <h3>While you type</h3>
+      <p>
+        Errors, hovers and completions come from the same analyser the playground
+        uses, and know what the earlier cells defined.
+      </p>
+
+      <footer><button id="help-close">Close</button></footer>
+    </article>
+  </div>
 
   <main id="transcript">
     <div id="input-row" hidden>
       <span class="prompt" id="prompt"></span>
       <div id="input"></div>
     </div>
-    <p id="help" hidden>
+    <p id="hint" hidden>
       Ctrl-, Shift- or Alt-Enter runs the cell; so does a line holding only a dot.
       Enter on its own starts a new line.
     </p>
