@@ -125,3 +125,13 @@ jobs:
 
           echo "compile service never produced an assembly" >&2
           exit 1
+
+      # The deploy updates the checkout on the host but has no root to install
+      # nginx files with, so a change to deploy/nginx/ reaches production only
+      # when somebody installs it. Until then this fails the run, naming the
+      # files and the commands that install them. It comes after the services
+      # are swapped and checked, so a deploy that does not touch nginx still
+      # lands.
+      - name: Check the host runs the repository's nginx configuration
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$HOST" /opt/ghul-playground/deploy/check-nginx.sh

@@ -119,6 +119,8 @@ if [ ! -f /etc/nginx/analytics-exclude.conf ]; then
     install -m 644 "$here/nginx/analytics-exclude.conf.example" /etc/nginx/analytics-exclude.conf
 fi
 
+# check-nginx.sh, which every deploy runs, compares these same files, so a
+# file added here belongs in its list too.
 install -m 644 "$here/nginx/playground-limits.conf" /etc/nginx/conf.d/playground-limits.conf
 install -m 644 "$here/nginx/reject-unknown-hosts.conf" /etc/nginx/conf.d/reject-unknown-hosts.conf
 install -m 644 "$here/nginx/$DOMAIN.conf" "/etc/nginx/sites-available/$DOMAIN"
