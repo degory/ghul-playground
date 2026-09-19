@@ -9,6 +9,9 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   DOTNET_NOLOGO: 1
   HOST: playground.ghul.dev
+  # Where the playground is served, which the checks after the deploy ask.
+  # HOST is the machine the deploy reaches over ssh, which keeps its name.
+  SITE: https://ghul.dev/playground/
   DEPLOY_USER: deploy
 
 # One deploy at a time. A push that lands while one is running waits its turn
@@ -96,19 +99,25 @@ jobs:
       # them to ci-access.log rather than the main access log.
       - name: Check the box came back
         run: |
-          code=$(curl -s -A ghul-playground-deploy-check -o /dev/null -w '%{http_code}' "https://$HOST/")
+          code=$(curl -s -A ghul-playground-deploy-check -o /dev/null -w '%{http_code}' "$SITE")
           echo "front end -> $code"
           test "$code" = 200
 
+          # The old host redirects its pages here now, and keeps serving the
+          # services and files that pages open from before the move still use.
+          old=$(curl -s -A ghul-playground-deploy-check -o /dev/null -w '%{http_code} %{redirect_url}' "https://$HOST/")
+          echo "old host -> $old"
+          test "$old" = "301 $SITE"
+
           # Two Cross-Origin-Resource-Policy headers read as none, which blocks
           # the counter on the documentation site. The nginx configuration is
-          # installed by host-setup.sh rather than by this workflow, so this
+          # installed by apply-nginx.sh rather than by this workflow, so this
           # warns rather than failing a deploy it could not have fixed.
-          corp=$(curl -s -A ghul-playground-deploy-check -D - -o /dev/null "https://$HOST/stats/count.js" \
+          corp=$(curl -s -A ghul-playground-deploy-check -D - -o /dev/null "https://ghul.dev/stats/count.js" \
               | grep -ci '^cross-origin-resource-policy:' || true)
           echo "count.js Cross-Origin-Resource-Policy headers -> $corp"
           test "$corp" = 1 \
-              || echo "::warning::count.js carries $corp Cross-Origin-Resource-Policy headers; run deploy/host-setup.sh on the host"
+              || echo "::warning::count.js carries $corp Cross-Origin-Resource-Policy headers; run deploy/apply-nginx.sh on the host"
 
           # A successful compile is what proves the toolchain the box just
           # built actually runs, not merely that a container answers. Poll it:
@@ -116,7 +125,7 @@ jobs:
           source='{"source":"use IO.Std.write_line;\n\nentry() is\n    write_line(\"ok\");\nsi\n"}'
 
           for _ in $(seq 1 30); do
-            if curl -sf -A ghul-playground-deploy-check -X POST "https://$HOST/compile" \
+            if curl -sf -A ghul-playground-deploy-check -X POST "${SITE}compile" \
                 -H 'content-type: application/json' \
                 -d "$source" \
                 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
