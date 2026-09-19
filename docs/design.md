@@ -140,6 +140,13 @@ the cells before it, and runs each in the page as a program is run. It is off
 unless the compile service has `REPL_ENABLED=1`; unset, `/compile/cell` does
 not exist.
 
+The REPL page (`repl.html`, and `/repl/` on ghul.dev) offers a session whenever
+`GET compile/cell` answers, and says whether sessions are switched off or the
+service cannot be reached when it does not. The playground page links to it
+when the analyse service's `/health` reports `repl: true`, which it does under
+the same setting; asking there costs nothing, where `/compile/cell` is rate
+limited. `REPL_ENABLED` is the one switch.
+
 The page holds the session. Each request posts the source of every cell the
 session has accepted, in order, with the new cell last, so only source ever
 reaches the service, as for a whole program. The reply is the new cell's

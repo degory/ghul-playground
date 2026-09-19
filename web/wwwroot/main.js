@@ -1,7 +1,8 @@
 // The standalone playground page. All the behaviour is in playground.js; this
 // is the chrome around it.
 
-import { createPlayground } from './playground.js'
+import { createPlayground, replOffered } from './playground.js'
+import { replPageUrl } from './repl-route.js'
 import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import * as files from './files.js'
 
@@ -773,4 +774,14 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
 
     if (key === 's') saveFile(); else openFile();
+});
+
+// A link to the REPL, offered only when the back end serves sessions.
+replOffered().then(offered => {
+    const link = document.getElementById('repl-link');
+
+    if (!offered || !link) return;
+
+    link.href = replPageUrl();
+    link.hidden = false;
 });
