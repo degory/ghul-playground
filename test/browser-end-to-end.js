@@ -811,7 +811,7 @@ chrome.on('error', e => {
 
             for (let i = 0; i < 120; i++) {
                 analysed = await ev(`JSON.stringify(monaco.editor.getModelMarkers({ owner: 'ghul-analyse' }).map(m => m.message))`);
-                if (analysed !== '[]') break;
+                if (analysed?.includes('not assignable')) break;
                 await sleep(250);
             }
 
@@ -841,7 +841,7 @@ chrome.on('error', e => {
 
 // What nginx does for the REPL page in production, and the .NET dev host does
 // not: the cross-origin isolation headers on every response, and the compile
-// service at `/compile` on the same origin.
+// and analyse services at `/compile` and `/analyse` on the same origin.
 function startNginxStandIn() {
     const http = require('http');
 
@@ -866,6 +866,24 @@ function startNginxStandIn() {
 
         upstream.on('error', () => response.writeHead(502).end());
         request.pipe(upstream);
+    });
+
+    // The analyser's WebSocket: the upgrade request is passed on as it came,
+    // and from then on the two sockets are joined.
+    server.on('upgrade', (request, socket, head) => {
+        const upstream = require('net').connect(5091, '127.0.0.1', () => {
+            const headers = Object.entries(request.headers)
+                .map(([name, value]) => `${name}: ${name === 'host' ? '127.0.0.1:5091' : value}`)
+                .join('\r\n');
+
+            upstream.write(`${request.method} ${request.url} HTTP/1.1\r\n${headers}\r\n\r\n`);
+            upstream.write(head);
+            upstream.pipe(socket);
+            socket.pipe(upstream);
+        });
+
+        upstream.on('error', () => socket.destroy());
+        socket.on('error', () => upstream.destroy());
     });
 
     server.unref();

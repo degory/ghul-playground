@@ -35,9 +35,10 @@ const CLIENT_CAPABILITIES = {
 // Warming needs a document that actually exercises the compiler. An empty file
 // parses trivially and would leave most of the work for the first real edit.
 const WARM_UP_SOURCE = `use IO.Std.write_line;
+use Ghul.Pipes;
 
 entry() is
-    let warm = [1, 2, 3] | .map(n => n * n) | .collect_list();
+    let warm = [1, 2, 3] |> map(n => n * n) |> collect_list();
 
     write_line("{warm.count}");
 si
