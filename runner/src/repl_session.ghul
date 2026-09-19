@@ -34,6 +34,7 @@ namespace Playground is
         _pending: CELL_REQUEST? static;
         _pending_text: string static;
         _dropped: Collections.LIST[string] static;
+        _display: CELL_DISPLAY static;
 
         init() static is
             _core = REPL_CORE();
@@ -41,6 +42,11 @@ namespace Playground is
             _assemblies = Collections.MAP[string, System.Reflection.Assembly]();
             _pending_text = "";
             _dropped = Collections.LIST[string]();
+
+            // Values are written by the runtime's own inspect, as the terminal
+            // REPL writes them. There is one runtime in the process, so this is it.
+            _display = CELL_DISPLAY();
+            _display.use_runtime((typeof Ghul.DISPLAY_STATE).assembly);
         si
 
         // `{"name", "number", "cells": [{name, source}, ...]}`: the new
@@ -177,7 +183,7 @@ namespace Playground is
             IO.Std.out.flush();
             IO.Std.set_out(previous);
 
-            let value = if run.error? then null else CELL_DISPLAY().format(run.value) fi;
+            let value = if run.error? then null else _display.format(run.value) fi;
 
             return _answer(true, lines, writer.to_string(), value, run.error);
         si
