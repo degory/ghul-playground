@@ -154,6 +154,17 @@ chrome.on('error', e => {
         await ev(`document.getElementById('compiler')?.dataset.state === 'ready'`),
         await ev(`document.getElementById('status')?.innerText`));
 
+    // The REPL link shows exactly when the back end serves sessions.
+    const replLink = await ev(`(async () => {
+        const { replOffered } = await import('./playground.js');
+        const offered = await replOffered();
+        const link = document.getElementById('repl-link');
+        return JSON.stringify({ offered, shown: !!link && !link.hidden, href: link?.getAttribute('href') ?? null });
+    })()`);
+
+    check('the playground links to the REPL when sessions are on',
+        (() => { const r = JSON.parse(replLink ?? '{}'); return r.shown === r.offered && (!r.shown || !!r.href); })(), replLink);
+
     for (let i = 0; i < 90; i++) {
         if (await ev(`document.getElementById('analyser')?.dataset.state === 'ready'`)) break;
         await sleep(500);
@@ -754,13 +765,6 @@ chrome.on('error', e => {
             stopped.after?.value === '42' && stopped.frames === 1, JSON.stringify(stopped));
         check('with the page still answering', await ev(`document.getElementById('run-label').textContent`) === 'Run');
 
-        // The REPL page, off unless asked for.
-        await cmd('Page.navigate', { url: new URL('repl.html', BASE).toString() });
-        await sleep(3000);
-
-        check('the REPL page is off without its query flag',
-            await ev(`!document.getElementById('unavailable').hidden`));
-
         // The .NET dev host sends the cross-origin isolation headers for `/`
         // and `/_framework/` only, where nginx sends them for every page and
         // serves the compile service from the same origin. Locally, a small
@@ -773,8 +777,8 @@ chrome.on('error', e => {
         // Below /playground/, the REPL is reached as ghul.dev serves it: its
         // entry page at ../repl/, which takes everything else from here.
         const replUrl = new URL(replBase).pathname.endsWith('/playground/')
-            ? new URL('../repl/?repl', replBase).toString()
-            : new URL('repl.html?repl', replBase).toString();
+            ? new URL('../repl/', replBase).toString()
+            : new URL('repl.html', replBase).toString();
 
         await cmd('Page.navigate', { url: replUrl });
 
@@ -785,7 +789,7 @@ chrome.on('error', e => {
 
         const replStarted = await ev(`!document.getElementById('input-row').hidden`);
 
-        check('the REPL page starts with its query flag', replStarted,
+        check('the REPL page starts, with no flag on its URL', replStarted,
             await ev(`(async () => JSON.stringify({
                 probe: await fetch('compile/cell').then(r => r.status).catch(e => String(e)),
                 isolated: self.crossOriginIsolated,

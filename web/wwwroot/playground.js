@@ -41,6 +41,10 @@ function serviceState() {
     return health;
 }
 
+// Whether the back end serves interactive sessions, as the analyse service
+// reports it: false when it does not say, or cannot be reached.
+export const replOffered = () => serviceState().then(state => state.repl === true);
+
 const tokenRequired = () => serviceState().then(state => state.tokensRequired !== false);
 
 // The services cap how large a program they will take. The editor enforces the
