@@ -35,10 +35,15 @@ history is gone for good. Everything else can be thrown away freely.
 ## what runs where
 
 nginx terminates TLS and serves `/var/www/playground`, proxying `/compile`,
-`/analyse` and `/health` to the compile and analyse containers, and `/stats/` to
-the GoatCounter container. All three are bound to loopback and never face the
-internet themselves. The containers come from `compose.yaml` in the repository
-root.
+`/compile/cell`, `/analyse` and `/health` to the compile and analyse containers,
+and `/stats/` to the GoatCounter container. All three are bound to loopback and
+never face the internet themselves. The containers come from `compose.yaml` in
+the repository root.
+
+The nginx files in `nginx/` are installed by `host-setup.sh`, not by the deploy,
+which has no root. The deploy does check them: its last step runs
+`check-nginx.sh` on the host, which fails the run while the live files differ
+from the repository's and prints the commands that install them.
 
 It also serves the documentation site, `ghul.dev` and `www.ghul.dev`, from
 `/var/www/ghul-dev`. That site used to be on GitHub Pages, and it is here for
