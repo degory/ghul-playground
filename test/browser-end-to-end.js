@@ -742,6 +742,58 @@ chrome.on('error', e => {
         check('and a new session runs on a fresh frame',
             stopped.after?.value === '42' && stopped.frames === 1, JSON.stringify(stopped));
         check('with the page still answering', await ev(`document.getElementById('run-label').textContent`) === 'Run');
+
+        // The REPL page, off unless asked for.
+        await cmd('Page.navigate', { url: new URL('repl.html', BASE).toString() });
+        await sleep(3000);
+
+        check('the REPL page is off without its query flag',
+            await ev(`!document.getElementById('unavailable').hidden`));
+
+        await cmd('Page.navigate', { url: new URL('repl.html?repl', BASE).toString() });
+
+        for (let i = 0; i < 60; i++) {
+            if (await ev(`!document.getElementById('input-row').hidden`)) break;
+            await sleep(500);
+        }
+
+        // Typed into the input and submitted with Shift-Enter, as a reader
+        // would; answers the text of the entry it produced once the page is
+        // ready for the next.
+        const submit = async text => {
+            const before = await ev(`document.querySelectorAll('.entry').length`);
+
+            await ev(`(() => { const e = monaco.editor.getEditors()[0]; e.setValue(${JSON.stringify(text)}); e.focus(); return true; })()`);
+            await cmd('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+            await cmd('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+
+            for (let i = 0; i < 240; i++) {
+                const done = await ev(`document.querySelectorAll('.entry').length > ${before} &&
+                    document.getElementById('status').textContent === ''`);
+
+                if (done) break;
+                await sleep(250);
+            }
+
+            return await ev(`[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').innerText`);
+        };
+
+        const defined = await submit('let x = 41');
+        const used = await submit('x + 1');
+        const redefined = await submit('let x = "forty-one"');
+        const reread = await submit('x');
+        const failed = await submit('let y: int = "s"');
+        const after = await submit('x.length');
+
+        check('the REPL page accepts a definition', defined === '', JSON.stringify(defined));
+        check('a later cell uses it and shows its value', used === '42', JSON.stringify(used));
+        check('a redefinition replaces it going forward',
+            redefined === '' && reread.includes('forty-one'), JSON.stringify([redefined, reread]));
+        check('a cell with an error shows the error', failed.includes('not assignable'), JSON.stringify(failed));
+        check('and the session carries on after it', after === '9', JSON.stringify(after));
+        check('the prompt numbers every submission, as the terminal does',
+            await ev(`document.getElementById('prompt').textContent`) === '[7]',
+            await ev(`document.getElementById('prompt').textContent`));
     }
 
     log(failures ? `${failures} failure(s)` : 'all checks passed');

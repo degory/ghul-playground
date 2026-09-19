@@ -80,7 +80,18 @@ const ENABLED = {
         check('with REPL_ENABLED unset the endpoint does not exist', disabled.status === 404,
             String(disabled.status));
 
+        const disabledProbe = await fetch(`http://127.0.0.1:5186/compile/cell`);
+
+        check('and asking whether sessions are on answers that they are not', disabledProbe.status === 404,
+            String(disabledProbe.status));
+
         await startService(5187, ENABLED);
+
+        const probe = await fetch(`http://127.0.0.1:5187/compile/cell`);
+        const probed = probe.ok ? await probe.json() : null;
+
+        check('with it set, asking answers the limits', probed?.maxCells === Number(ENABLED.MAX_CELLS),
+            JSON.stringify(probed));
 
         const one = { name: 'cell1', source: 'use default\nlet x = 41\n' };
         const two = { name: 'cell2', source: 'use default\nuse cell1.x\nx + 1\n' };
