@@ -29,7 +29,7 @@ WORKDIR /home/playground
 
 ARG GHUL_COMPILER_VERSION=61.0.3
 ARG GHUL_RUNTIME_VERSION=21.11.0
-ARG GHUL_RASTER_VERSION=0.9.2
+ARG GHUL_RASTER_VERSION=0.10.0
 
 # Installing as a tool seeds the package cache, which is where the service
 # finds the compiler dll; it does not need to be on PATH, because each

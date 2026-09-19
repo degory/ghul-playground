@@ -1085,6 +1085,131 @@ chrome.on('error', e => {
                 shownThenStopped.startsWith('[["display","shown"]') && shownThenStopped.includes('stopped'),
                 shownThenStopped);
 
+            // Pictures: a value that offers one through Ghul.Renderable is
+            // shown as an image, decoded, with its text as the alternative.
+            const pictured = `(async () => {
+                const nodes = [...[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').children];
+                await Promise.all(nodes.flatMap(n => [...n.querySelectorAll('img')]).map(i => i.decode().catch(() => null)));
+                return JSON.stringify(nodes.map(n => {
+                    const image = n.querySelector('img');
+                    return image
+                        ? [n.className, 'img', image.naturalWidth, image.src.slice(0, 22), image.alt.slice(0, 12)]
+                        : [n.className, n.textContent.slice(0, 80)];
+                }));
+            })()`;
+
+            await submit('Raster.IMAGE(40, 20)');
+            const asValue = JSON.parse(await ev(pictured));
+
+            check('a raster image a cell ends on is shown as a picture',
+                asValue.length === 1 && asValue[0][0] === 'value' && asValue[0][1] === 'img' && asValue[0][2] === 40 &&
+                asValue[0][3] === 'data:image/png;base64,' && asValue[0][4].startsWith('IMAGE('),
+                JSON.stringify(asValue));
+
+            await submit('IO.Std.write_line("a"); display(Raster.IMAGE(10, 10)); IO.Std.write_line("b");');
+            const inOrder = JSON.parse(await ev(pictured));
+
+            check('display shows a picture in its place among what the cell writes',
+                inOrder.length === 3 && inOrder[0][1] === 'a\n' && inOrder[1][1] === 'img' && inOrder[1][2] === 10 && inOrder[2][1] === 'b',
+                JSON.stringify(inOrder));
+
+            await submit('display(Raster.IMAGE(10, 10), "plot"); update_display(Raster.IMAGE(30, 10), "plot");');
+            const swapped = JSON.parse(await ev(pictured));
+
+            check('update_display swaps one picture for another in place',
+                swapped.length === 1 && swapped[0][1] === 'img' && swapped[0][2] === 30, JSON.stringify(swapped));
+
+            await submit([
+                'class MARKUP: Ghul.Renderable is',
+                '    init() is si',
+                '    representations() -> Collections.Iterable[(mime: string, content: ubyte[])] pure =>',
+                '        [(mime = "text/html", content = System.Text.Encoding.utf8.get_bytes("<img src=x onerror=alert(1)>"))]',
+                '    to_string() -> string => "markup as text"',
+                'si'
+            ].join('\n'));
+            await submit('display(MARKUP())');
+            const markup = JSON.parse(await ev(pictured));
+
+            check('a value offering only markup is shown as its text',
+                markup.length === 1 && markup[0][0] === 'display' && markup[0][1] !== 'img', JSON.stringify(markup));
+
+            await submit([
+                'class HUGE: Ghul.Renderable is',
+                '    init() is si',
+                '    representations() -> Collections.Iterable[(mime: string, content: ubyte[])] pure =>',
+                '        [(mime = "image/png", content = cast ubyte[](System.Array.create_instance(typeof ubyte, 5_000_000)))]',
+                '    to_string() -> string => "huge"',
+                'si'
+            ].join('\n'));
+            await submit('display(HUGE())');
+            const huge = JSON.parse(await ev(pictured));
+
+            check('a picture over 4 MB falls back to the text, with a note',
+                huge.length === 1 && huge[0][1] !== 'img' && huge[0][1].includes('MB'), JSON.stringify(huge));
+
+            // A picture too large for the live view: said to be coming while
+            // the cell runs, and shown whole once it finishes.
+            const made = await submit([
+                'let bytes = Collections.LIST[ubyte]();',
+                'let seed mut = 1L;',
+                'for i in 0..120000 do seed = seed * 6364136223846793005L + 1442695040888963407L; bytes.add(cast ubyte(seed >> 56)); od',
+                'let noise = Raster.IMAGE.from_rgb(200, 200, bytes.to_array());'
+            ].join('\n'));
+
+            if (made) log(`making the noise picture said: ${made}`);
+
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue(${JSON.stringify(
+                'display(noise); System.Threading.Thread.sleep(3000); IO.Std.write_line("after");')}); return true; })()`);
+            await ev(`document.getElementById('run').click(); true`);
+
+            let pendingPicture = null;
+
+            for (let i = 0; i < 200; i++) {
+                const now = await ev(`JSON.stringify({ running: document.getElementById('run').hasAttribute('data-stop'), text: ${lastResult} })`);
+                const { running, text } = JSON.parse(now);
+
+                if (running && text.includes('when the cell finishes')) {
+                    pendingPicture = text;
+                    break;
+                }
+
+                await sleep(100);
+            }
+
+            for (let i = 0; i < 200; i++) {
+                if (await ev(`!document.getElementById('run').hasAttribute('data-busy') && !document.getElementById('run').hasAttribute('data-stop')`)) break;
+                await sleep(150);
+            }
+
+            const arrived = JSON.parse(await ev(pictured));
+
+            check('a picture too large for the live view is said to be coming, and shown once the cell finishes',
+                pendingPicture !== null && arrived.length === 2 && arrived[0][1] === 'img' && arrived[0][2] === 200 && arrived[1][1] === 'after',
+                JSON.stringify({ pendingPicture, arrived }));
+
+            // Stopped mid-cell, a picture already shown stays.
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue(${JSON.stringify(
+                'display(Raster.IMAGE(12, 12)); let k mut = 0; while true do k = k + 1; od')}); return true; })()`);
+            await ev(`document.getElementById('run').click(); true`);
+
+            for (let i = 0; i < 200; i++) {
+                if (await ev(`document.getElementById('run').hasAttribute('data-stop') && [...document.querySelectorAll('.entry')].at(-1).querySelector('img') !== null`)) break;
+                await sleep(100);
+            }
+
+            await ev(`document.getElementById('run').click(); true`);
+
+            for (let i = 0; i < 100; i++) {
+                if (await ev(`!document.getElementById('run').hasAttribute('data-stop')`)) break;
+                await sleep(100);
+            }
+
+            const pictureStopped = JSON.parse(await ev(pictured));
+
+            check('stopping a cell keeps a picture it had displayed',
+                pictureStopped[0]?.[1] === 'img' && pictureStopped[0]?.[2] === 12 && JSON.stringify(pictureStopped).includes('stopped'),
+                JSON.stringify(pictureStopped));
+
         }
     }
 

@@ -6,18 +6,25 @@ namespace Playground is
     // the cell produced them. A record is OPEN, a JSON object, then CLOSE:
     //
     //     {"kind": "show" | "update", "id": string | null,
-    //      "parts": [{"mime": "text/plain", "content": string}]}
+    //      "parts": [{"mime": "text/plain", "content": string}, picture?]}
     //
-    // The parts leave room for other representations of the same value beside
-    // its text. JSON escapes every control character inside a string, so
-    // neither marker can appear within a record, and the console writer
-    // replaces them in anything the cell prints itself.
+    // The text is always there. A value that offers a picture of itself adds
+    // it after, as PICTURE writes it. JSON escapes every control character
+    // inside a string, so neither marker can appear within a record, and the
+    // console writer replaces them in anything the cell prints itself.
     class DISPLAY_RECORDS: Ghul.DisplaySink is
         OPEN: string static => "{cast char(1)}";
         CLOSE: string static => "{cast char(2)}";
 
         // What the console writer puts in place of a marker the cell prints.
         REPLACEMENT: string static => "{cast char(65533)}";
+
+        // The largest record sent to the page while the cell runs. A picture
+        // can be several times the whole of what the live channel holds, and a
+        // record that does not fit would end the live view of everything after
+        // it; past this the live record says the picture is coming instead,
+        // and the answer carries it in full.
+        LIVE_CHARS: int static => 64 * 1024;
 
         _out: CONSOLE_OUT;
 
@@ -26,14 +33,24 @@ namespace Playground is
         si
 
         show(value: object?, id: string?) is
-            _out.record(_record("show", id, value));
+            _write("show", id, value);
         si
 
         update(value: object?, id: string) is
-            _out.record(_record("update", id, value));
+            _write("update", id, value);
         si
 
-        _record(kind: string, id: string?, value: object?) -> string static is
+        _write(kind: string, id: string?, value: object?) is
+            let text = Ghul.inspect(value);
+            let picture = PICTURE.of(value);
+            let whole = _record(kind, id, text, picture, false);
+
+            _out.record(
+                whole,
+                if whole.length > LIVE_CHARS then _record(kind, id, text, picture, true) else whole fi);
+        si
+
+        _record(kind: string, id: string?, text: string, picture: PICTURE?, deferred: bool) -> string static is
             let buffer = IO.MemoryStream();
             let json = Utf8JsonWriter(buffer, _);
 
@@ -49,8 +66,11 @@ namespace Playground is
             json.write_start_array("parts");
             json.write_start_object();
             json.write_string("mime", "text/plain");
-            json.write_string("content", Ghul.inspect(value));
+            json.write_string("content", text);
             json.write_end_object();
+
+            picture?.write(json, deferred);
+
             json.write_end_array();
             json.write_end_object();
             json.flush();
