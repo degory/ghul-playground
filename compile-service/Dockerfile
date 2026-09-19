@@ -29,9 +29,9 @@ RUN useradd --create-home --shell /usr/sbin/nologin playground
 USER playground
 WORKDIR /home/playground
 
-ARG GHUL_COMPILER_VERSION=59.9.4
-ARG GHUL_RUNTIME_VERSION=21.3.2
-ARG GHUL_RASTER_VERSION=0.9.0
+ARG GHUL_COMPILER_VERSION=60.1.0
+ARG GHUL_RUNTIME_VERSION=21.4.0
+ARG GHUL_RASTER_VERSION=0.9.1
 
 RUN dotnet tool install --tool-path /home/playground/tools \
         ghul.compiler --version "${GHUL_COMPILER_VERSION}" \
@@ -47,7 +47,7 @@ ENV GHUL_COMPILER_DLL=/home/playground/tools/.store/ghul.compiler/${GHUL_COMPILE
     GHUL_RASTER_DLL=/home/playground/.nuget/packages/ghul.raster/${GHUL_RASTER_VERSION}/lib/net10.0/ghul-raster.dll
 
 COPY --chown=playground:playground shared /home/playground/service/shared
-COPY --chown=playground:playground compile-service/server.js /home/playground/service/compile-service/server.js
+COPY --chown=playground:playground compile-service/server.js compile-service/cells.js /home/playground/service/compile-service/
 
 # The compiler writes its output next to the source, so the service needs a
 # writable scratch directory. compose.yaml mounts a tmpfs there, which is why

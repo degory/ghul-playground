@@ -63,6 +63,14 @@ services:
       MAX_CONCURRENT_COMPILES: "6"
       MAX_QUEUED_COMPILES: "12"
       COMPILE_TIMEOUT_MS: "10000"
+      # The cells of an interactive session: off unless REPL_ENABLED is 1 in
+      # the environment, in which case /compile/cell exists at all. Its cache
+      # of built cell assemblies has a tmpfs of its own below.
+      REPL_ENABLED: "${REPL_ENABLED:-}"
+      MAX_CELLS: "50"
+      MAX_CHAIN_BYTES: "262144"
+      CELL_CACHE_DIR: "/cells"
+      CELL_CACHE_BYTES: "67108864"
 
     # Bound to loopback: these sit behind a reverse proxy that terminates TLS,
     # rather than facing the internet themselves.
@@ -72,6 +80,8 @@ services:
     # The compiler writes its output next to the source it was given.
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+      # Room for the 64 MB cell cache, with headroom for writes in flight.
+      - /cells:rw,noexec,nosuid,size=72m,mode=1777
 
     # A compile of a single file peaks under 200 MB measured; the cap is here so
     # a runaway allocation fails rather than taking the host down.
