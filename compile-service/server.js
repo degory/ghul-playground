@@ -293,6 +293,20 @@ http.createServer((request, response) => {
         return;
     }
 
+    // How the REPL page asks whether sessions are on here, from the same path
+    // it will post to: the page's own `/health` is the analyse service's, and
+    // this answer has to come from the service that decides.
+    if (request.method === 'GET' && request.url.startsWith('/compile/cell')) {
+        if (!REPL_ENABLED) {
+            response.writeHead(404).end('not found');
+            return;
+        }
+
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ maxCells: MAX_CELLS, maxChainBytes: MAX_CHAIN_BYTES }));
+        return;
+    }
+
     const isCell = request.method === 'POST' && request.url.startsWith('/compile/cell');
 
     // Off unless enabled, and off means absent rather than refused.

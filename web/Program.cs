@@ -84,4 +84,41 @@ partial class GhulRunner
             return $"{{\"text\":\"host error: {e.GetType().Name}\"}}";
         }
     });
+
+    private static readonly Type ReplType =
+        Assembly.Load("runner").GetType("Playground.REPL_SESSION")!;
+
+    private static readonly MethodInfo ReplPrepareMethod = ReplType.GetMethod("prepare")!;
+    private static readonly MethodInfo ReplAcceptMethod = ReplType.GetMethod("accept")!;
+
+    // The interactive session, around the page's request to the compile
+    // service: what to send for a submission, then what to show once the
+    // reply is in. See Playground.REPL_SESSION.
+    [JSExport]
+    internal static Task<string> ReplPrepare(string text) => Task.Run(() =>
+    {
+        try
+        {
+            return (string)ReplPrepareMethod.Invoke(null, new object[] { text })!;
+        }
+        catch (Exception e)
+        {
+            return $"{{\"error\":\"host error: {e.GetType().Name}\"}}";
+        }
+    });
+
+    [JSExport]
+    internal static Task<string> ReplAccept(string reply) => Task.Run(() =>
+    {
+        try
+        {
+            return (string)ReplAcceptMethod.Invoke(null, new object[] { reply })!;
+        }
+        catch (Exception e)
+        {
+            var inner = e.InnerException ?? e;
+
+            return $"{{\"accepted\":false,\"diagnostics\":[\"host error: {inner.GetType().Name}\"],\"text\":\"\"}}";
+        }
+    });
 }
