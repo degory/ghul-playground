@@ -77,20 +77,6 @@ header :where(#file-toggle, #reset, #run, .indicator, .group button) {
 /* A labelled action with no icon of its own. */
 #file-toggle, #reset { padding: 0 0.5rem; }
 
-header .nav-link {
-  display: inline-flex;
-  align-items: center;
-  height: 1.75rem;
-  padding: 0 0.5rem;
-  font-size: 0.8125rem;
-  color: var(--fg);
-  text-decoration: none;
-  border-radius: 4px;
-}
-
-header .nav-link:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
-header .nav-link[hidden] { display: none; }
-
 header svg { width: 15px; height: 15px; fill: currentColor; display: block; }
 
 /* Square, so an icon on its own has the same hit area as its neighbours
@@ -167,6 +153,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   border: 1px solid transparent;
   border-radius: 6px;
 }
+
+/* The analyser's indicator is a button only so that a click can reconnect
+   it. While there is nothing to reconnect it behaves as the label beside it. */
+button.indicator:is([data-state="ready"], [data-state="connecting"]) { cursor: default; }
+button.indicator:is([data-state="ready"], [data-state="connecting"]):hover { background: none; }
 
 .indicator .dot {
   width: 8px;
