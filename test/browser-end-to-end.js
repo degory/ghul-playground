@@ -829,7 +829,15 @@ chrome.on('error', e => {
         };
 
         if (replStarted) {
+            // Nothing to discard before the first cell.
+            const resetBefore = await ev(`document.getElementById('reset').disabled`);
+
             const defined = await submit('let x = 41');
+            const resetAfter = await ev(`document.getElementById('reset').disabled`);
+
+            check('New session is offered once there is a cell to discard',
+                resetBefore === true && resetAfter === false, JSON.stringify({ resetBefore, resetAfter }));
+
 
             // Run is only offered when there is something to run.
             const runWhenEmpty = await ev(`document.getElementById('run').disabled`);
@@ -898,6 +906,9 @@ chrome.on('error', e => {
 
             check('new session asks first, and keeps the session when told no',
                 declined === '[7]' && accepted === '[1]', JSON.stringify([declined, accepted]));
+
+            check('and is greyed out again in the new session',
+                await ev(`document.getElementById('reset').disabled`) === true);
         }
     }
 

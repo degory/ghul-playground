@@ -151,6 +151,9 @@ async function start() {
 
         // With nothing typed there is nothing to run.
         runButton.disabled = phase ? !running : !editor.getValue().trim();
+
+        // Nothing to discard before the first cell, except a cell still under way.
+        resetButton.disabled = !phase && number === 1;
         runButton.toggleAttribute('data-busy', !!phase && !running);
         runButton.toggleAttribute('data-stop', running);
         runLabel.textContent = running ? 'Stop' : 'Run';
@@ -164,9 +167,9 @@ async function start() {
         showCompiler();
     };
 
-    let runtime = new CellRuntime(document.body, { onState: onRuntimeState });
     let number = 1;
     let busy = false;
+    let runtime = new CellRuntime(document.body, { onState: onRuntimeState });
 
     // Counts sessions, so a reply that arrives after its session was stopped
     // is recognised and dropped rather than handed to the next one.
@@ -296,7 +299,6 @@ async function start() {
         showCompiler();
     };
 
-    resetButton.disabled = false;
     showCompiler();
 
     inputRow.hidden = false;
@@ -350,6 +352,7 @@ async function start() {
         number = 1;
         setPrompt();
         startAnalysis();
+        showCompiler();
     }
 
     async function post(cells) {
