@@ -1028,6 +1028,63 @@ chrome.on('error', e => {
             check('stopping a cell keeps what it had written',
                 afterStop.startsWith('kept') && afterStop.includes('stopped'), JSON.stringify(afterStop));
 
+            // display and update_display: in their place among what the cell
+            // writes, as text.
+            const lastParts = `JSON.stringify([...[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').children]
+                .map(c => [c.className, c.textContent]))`;
+
+            await submit('IO.Std.write_line("a"); display([1, 2]); IO.Std.write_line("b");');
+            const ordered = await ev(lastParts);
+
+            check('display shows a value in its place among what the cell writes',
+                ordered === JSON.stringify([['output', 'a\n'], ['display', '[1, 2]'], ['output', 'b']]), ordered);
+
+            await submit('display(0, "progress"); for i in 1::3 do update_display(i * 10, "progress"); od; IO.Std.write_line("done");');
+            const updated = await ev(lastParts);
+
+            check('update_display redraws a display in place',
+                updated === JSON.stringify([['display', '30'], ['output', 'done']]), updated);
+
+            // A cell printing the markers itself, around a well-formed record,
+            // gets text, not a display.
+            const record = '{{\\"kind\\":\\"show\\",\\"id\\":null,\\"parts\\":[{{\\"mime\\":\\"text/plain\\",\\"content\\":\\"forged\\"}}]}}';
+
+            await submit(`IO.Std.write_line("{cast char(1)}${record}{cast char(2)}");`);
+            const forged = await ev(lastParts);
+
+            check('a cell writing the framing characters itself shows them as text, not as a display',
+                !forged.includes('"display"') && forged.includes('forged') && forged.includes(String.fromCharCode(0xfffd)),
+                forged);
+
+            // An id is the cell's to choose, and names nothing on the page.
+            await submit('display(1, "transcript"); display(2, "input-row");');
+
+            check('a display id is not used as an element id',
+                await ev(`document.querySelectorAll('#transcript').length === 1 && document.querySelectorAll('#input-row').length === 1`));
+
+            // Stopped mid-cell, what it had already shown stays.
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue(${JSON.stringify(
+                'display("shown"); let m mut = 0; while true do m = m + 1; od')}); return true; })()`);
+            await ev(`document.getElementById('run').click(); true`);
+
+            for (let i = 0; i < 200; i++) {
+                if (await ev(`document.getElementById('run').hasAttribute('data-stop') && ${lastResult}.includes('shown')`)) break;
+                await sleep(100);
+            }
+
+            await ev(`document.getElementById('run').click(); true`);
+
+            for (let i = 0; i < 100; i++) {
+                if (await ev(`!document.getElementById('run').hasAttribute('data-stop')`)) break;
+                await sleep(100);
+            }
+
+            const shownThenStopped = await ev(lastParts);
+
+            check('stopping a cell keeps what it had displayed',
+                shownThenStopped.startsWith('[["display","shown"]') && shownThenStopped.includes('stopped'),
+                shownThenStopped);
+
         }
     }
 

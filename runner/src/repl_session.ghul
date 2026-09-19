@@ -38,6 +38,12 @@ namespace Playground is
 
         init() static is
             _core = REPL_CORE();
+
+            // In every cell, as the terminal REPL has them, until a cell
+            // defines one of its own.
+            _core.bind("display", "use Ghul.display");
+            _core.bind("update_display", "use Ghul.update_display");
+
             _context = SESSION();
             _assemblies = Collections.MAP[string, System.Reflection.Assembly]();
             _pending_text = "";
@@ -179,10 +185,29 @@ namespace Playground is
             let writer = IO.StringWriter();
             let previous = IO.Std.out;
 
-            IO.Std.set_out(
-                if let channel = RUNNER.channel then CONSOLE_OUT(channel, writer) else writer fi);
+            // What display shows goes into the same stream, in its place
+            // among what the cell writes. Installed for this cell alone, so a
+            // cell that replaced it takes its replacement with it.
+            let sink: DISPLAY_RECORDS? mut = null;
+
+            if let channel = RUNNER.channel then
+                let out = CONSOLE_OUT(channel, writer, true);
+
+                IO.Std.set_out(out);
+
+                let records = DISPLAY_RECORDS(out);
+
+                Ghul.DISPLAY_SINKS.install(records);
+                sink = records;
+            else
+                IO.Std.set_out(writer);
+            fi
 
             let run = CELL_ENTRY.run(loaded);
+
+            if let installed = sink then
+                Ghul.DISPLAY_SINKS.remove(installed);
+            fi
 
             IO.Std.out.flush();
             IO.Std.set_out(previous);

@@ -14,6 +14,7 @@ import { CellRuntime } from './cell-runtime.js'
 import { GhulLanguageClient } from './lsp.js'
 import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replAvailability } from './repl-route.js'
 import { setUpFullscreen, setUpHelp } from './chrome.js'
+import { CellOutput } from './cell-output.js'
 
 const transcript = document.getElementById('transcript');
 const inputRow = document.getElementById('input-row');
@@ -407,35 +408,28 @@ async function start() {
             let prepared = await runtime.call('prepare', text);
             let answer = null;
 
-            // What the cell writes, shown as it writes it. The answer carries
-            // the whole of it again, so once the answer is in this goes and the
-            // answer is shown in its place; a cell that is stopped keeps it.
-            const live = [];
-            let liveText = null;
+            // What the cell writes and displays, shown as it happens. The
+            // answer carries the whole of it again, so once the answer is in
+            // this goes and the answer is shown in its place; a cell that is
+            // stopped keeps it.
+            const live = new CellOutput(result);
+            let truncatedNote = null;
 
             const showLive = (chunk, truncated) => {
-                if (!liveText) {
-                    liveText = document.createElement('div');
-                    liveText.className = 'output';
-                    result.appendChild(liveText);
-                    live.push(liveText);
-                }
+                live.feed(chunk);
 
-                if (chunk) liveText.append(chunk);
-
-                if (truncated) {
+                if (truncated && !truncatedNote) {
                     line(result, 'muted', 'more output than can be shown while the cell runs; all of it is shown when it finishes');
-                    live.push(result.lastChild);
+                    truncatedNote = result.lastChild;
                 }
 
                 scrollToInput();
             };
 
             const dropLive = () => {
-                for (const node of live) node.remove();
-
-                live.length = 0;
-                liveText = null;
+                live.clear();
+                truncatedNote?.remove();
+                truncatedNote = null;
             };
 
             while (prepared && !prepared.stopped && !prepared.error) {
@@ -494,7 +488,7 @@ async function start() {
                 line(result, kind, d);
             }
 
-            if (answer.text) line(result, 'output', answer.text.replace(/\n$/, ''));
+            if (answer.text) new CellOutput(result).feed(answer.text.replace(/\n$/, ''));
             if (answer.value != null) line(result, 'value', answer.value);
             if (answer.error) line(result, 'error', answer.error);
 

@@ -1,0 +1,61 @@
+namespace Playground is
+    use System.Text.Json.Utf8JsonWriter;
+
+    // What a cell shows with display and update_display, carried to the page
+    // in the same stream as what it writes, so the two arrive in the order
+    // the cell produced them. A record is OPEN, a JSON object, then CLOSE:
+    //
+    //     {"kind": "show" | "update", "id": string | null,
+    //      "parts": [{"mime": "text/plain", "content": string}]}
+    //
+    // The parts leave room for other representations of the same value beside
+    // its text. JSON escapes every control character inside a string, so
+    // neither marker can appear within a record, and the console writer
+    // replaces them in anything the cell prints itself.
+    class DISPLAY_RECORDS: Ghul.DisplaySink is
+        OPEN: string static => "{cast char(1)}";
+        CLOSE: string static => "{cast char(2)}";
+
+        // What the console writer puts in place of a marker the cell prints.
+        REPLACEMENT: string static => "{cast char(65533)}";
+
+        _out: CONSOLE_OUT;
+
+        init(out: CONSOLE_OUT) is
+            _out = out;
+        si
+
+        show(value: object?, id: string?) is
+            _out.record(_record("show", id, value));
+        si
+
+        update(value: object?, id: string) is
+            _out.record(_record("update", id, value));
+        si
+
+        _record(kind: string, id: string?, value: object?) -> string static is
+            let buffer = IO.MemoryStream();
+            let json = Utf8JsonWriter(buffer, _);
+
+            json.write_start_object();
+            json.write_string("kind", kind);
+
+            if id? then
+                json.write_string("id", id);
+            else
+                json.write_null("id");
+            fi
+
+            json.write_start_array("parts");
+            json.write_start_object();
+            json.write_string("mime", "text/plain");
+            json.write_string("content", Ghul.inspect(value));
+            json.write_end_object();
+            json.write_end_array();
+            json.write_end_object();
+            json.flush();
+
+            return "{OPEN}{System.Text.Encoding.utf8.get_string(buffer.to_array())}{CLOSE}";
+        si
+    si
+si

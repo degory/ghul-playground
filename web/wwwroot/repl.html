@@ -51,6 +51,7 @@
     }
 
     .result .value { color: var(--accent); }
+    .result .display { color: var(--accent); }
     .result .diagnostic { color: var(--bad); }
     .result .diagnostic.warn, .result .note { color: var(--warn); }
     .result .error { color: var(--bad); }
@@ -159,6 +160,14 @@
         <li><kbd>Enter</kbd> on its own starts a new line.</li>
         <li><kbd>Alt</kbd>+<kbd>↑</kbd> and <kbd>Alt</kbd>+<kbd>↓</kbd> bring back earlier cells.</li>
       </ul>
+
+      <h3>Showing a value as the cell runs</h3>
+      <p>
+        <code>display(value)</code> shows a value where the cell has got to, rather
+        than only the value it ends on. <code>display(value, "name")</code> shows it
+        under a name, and <code>update_display(value, "name")</code> redraws it in place,
+        so a long-running cell can report its progress on one line.
+      </p>
 
       <h3>Stopping and starting again</h3>
       <p>
