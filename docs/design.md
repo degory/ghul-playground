@@ -169,6 +169,19 @@ from `cell-host.html` rather than loaded by URL, because a document written
 that way inherits the page's origin and its cross-origin isolation, which the
 threaded runtime needs, whatever headers the server sends for the host page.
 
+The input is analysed as the next cell would be compiled: the session's
+prelude, then what has been typed, which the page gets from the frame. A
+connection to `/analyse?repl` gets an analyser of its own, started in
+submission mode, and is refused unless the analyse service also has
+`REPL_ENABLED=1`. The earlier cells reach it by cache key: the page sends
+`playground/addCells` with the key and name of each cell the compile service
+answered for, and the analyse service copies the cached assembly into the
+analyser's workspace under the cell's name and adds it to the reference set.
+The cache is a volume the compile service writes and the analyse service
+mounts read-only, and a key the cache does not hold is refused. The page
+shifts positions by the prelude's length each way, and leaves semantic tokens
+and inlay hints off the input, since those would cover the prelude too.
+
 ## the reference set
 
 `REFERENCES` in `shared/toolchain.js` lists the framework assemblies user code
