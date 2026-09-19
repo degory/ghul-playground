@@ -383,10 +383,12 @@ separate trails.
 
 ## deploying
 
-Merging to `main` deploys. The `deploy` workflow publishes the web app, copies
-`wwwroot` to `/var/www/playground`, then pulls the new `main` on the box and
-rebuilds and swaps both services, and finally checks the site answers and that
-the freshly built toolchain compiles. It runs as `deploy` over SSH, with no
+Merging to `main` deploys. The `deploy` workflow publishes the web app, pulls the
+new `main` on the box and builds both services (trying a failed build once more
+after a minute), swaps them, and only then copies `wwwroot` to
+`/var/www/playground`, and finally checks the site answers and that the freshly
+built toolchain compiles. A build that fails stops the run with nothing live
+changed. It runs as `deploy` over SSH, with no
 sudo anywhere. It also has a manual trigger for re-running a deploy without a
 new merge.
 
