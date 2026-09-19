@@ -751,15 +751,10 @@ document.addEventListener('keydown', event => {
     if (key === 's') saveFile(); else openFile();
 });
 
-// A link to the REPL, offered only when the back end serves sessions.
+// The help mentions the REPL only when the back end serves sessions.
 replOffered().then(offered => {
-    const link = document.getElementById('repl-link');
+    if (!offered) return;
 
-    if (!offered || !link) return;
-
-    link.href = replPageUrl();
-    link.hidden = false;
-
-    document.getElementById('help-repl-link').href = link.href;
+    document.getElementById('help-repl-link').href = replPageUrl();
     document.getElementById('help-repl').hidden = false;
 });

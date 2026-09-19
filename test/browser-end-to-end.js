@@ -154,20 +154,19 @@ chrome.on('error', e => {
         await ev(`document.getElementById('compiler')?.dataset.state === 'ready'`),
         await ev(`document.getElementById('status')?.innerText`));
 
-    // The REPL link shows exactly when the back end serves sessions.
+    // The help mentions the REPL exactly when the back end serves sessions.
     const replLink = await ev(`(async () => {
         const { replOffered } = await import('./playground.js');
         const offered = await replOffered();
-        const link = document.getElementById('repl-link');
         const help = document.getElementById('help-repl');
         const helpHref = document.getElementById('help-repl-link')?.getAttribute('href') ?? null;
-        return JSON.stringify({ offered, shown: !!link && !link.hidden, href: link?.getAttribute('href') ?? null, help: !!help && !help.hidden, helpHref });
+        return JSON.stringify({ offered, bar: !!document.getElementById('repl-link'), help: !!help && !help.hidden, helpHref });
     })()`);
 
-    check('the playground links to the REPL, in its bar and its help, when sessions are on',
+    check('the playground links to the REPL from its help, and not its bar, when sessions are on',
         (() => {
             const r = JSON.parse(replLink ?? '{}');
-            return r.shown === r.offered && r.help === r.offered && (!r.shown || (!!r.href && r.helpHref === r.href));
+            return !r.bar && r.help === r.offered && (!r.help || !!r.helpHref);
         })(), replLink);
 
     for (let i = 0; i < 90; i++) {
