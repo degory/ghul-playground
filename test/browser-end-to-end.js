@@ -677,8 +677,8 @@ chrome.on('error', e => {
     const counted = await ev(`JSON.stringify(window.counted ?? [])`);
     check('the run on arrival and the one asked for are counted apart',
         counted === JSON.stringify([
-            `${new URL(BASE).host}/run/automatic/rosetta-code/reads-files`,
-            `${new URL(BASE).host}/run/manual/rosetta-code/reads-files`
+            `playground-run/automatic/rosetta-code/reads-files`,
+            `playground-run/manual/rosetta-code/reads-files`
         ]), counted);
 
     await cmd('Fetch.disable');
