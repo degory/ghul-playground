@@ -15,5 +15,7 @@
        supplies the runtime assembly. -->
   <ItemGroup>
     <PackageReference Include="ghul.runtime" Version="21.4.0" />
+    <!-- The interactive session's logic, shared with the terminal REPL. -->
+    <PackageReference Include="ghul.repl" Version="0.28.0" />
   </ItemGroup>
 </Project>

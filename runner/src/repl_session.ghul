@@ -1,0 +1,243 @@
+namespace Playground is
+    use System.Text.Json.Utf8JsonWriter;
+    use System.Text.Json.JsonDocument;
+    use System.Text.Json.JsonElement;
+    use System.Text.Json.JsonValueKind;
+
+    use Ghul.Repl.CELL_DIAGNOSTIC;
+    use Ghul.Repl.CELL_DISPLAY;
+    use Ghul.Repl.CELL_ENTRY;
+    use Ghul.Repl.CELL_EXPORTS;
+    use Ghul.Repl.CELL_LOCATION;
+    use Ghul.Repl.CELL_REPLY;
+    use Ghul.Repl.CELL_REQUEST;
+    use Ghul.Repl.CELL_RELATED;
+    use Ghul.Repl.LOADED_CELL;
+    use Ghul.Repl.STRAGGLERS;
+
+    use REPL_CORE = Ghul.Repl.SESSION;
+
+    // An interactive session in the page, driven by the session core the
+    // terminal uses: which cell a name resolves to, what a redefinition
+    // replaces, how a type from an earlier cell is added to and how a value
+    // is shown are the same code in both. It lives in the cell host frame,
+    // beside the cells it loads, and goes when the frame does.
+    //
+    // A submission is `prepare`, the page's request to the compile service,
+    // then `accept` with the reply. `accept` can ask for the request to be
+    // made again, as the terminal does when an import generated for an
+    // earlier cell no longer resolves and is dropped.
+    class REPL_SESSION is
+        _core: REPL_CORE static;
+        _context: SESSION static;
+        _assemblies: Collections.MAP[string, System.Reflection.Assembly] static;
+        _pending: CELL_REQUEST? static;
+        _pending_text: string static;
+        _dropped: Collections.LIST[string] static;
+
+        init() static is
+            _core = REPL_CORE();
+            _context = SESSION();
+            _assemblies = Collections.MAP[string, System.Reflection.Assembly]();
+            _pending_text = "";
+            _dropped = Collections.LIST[string]();
+        si
+
+        // `{"name", "number", "cells": [{name, source}, ...]}`: the new
+        // cell's name and number, and the chain to post, earlier cells
+        // first, each as the text it was compiled from.
+        prepare(text: string) -> string static is
+            _dropped = Collections.LIST[string]();
+            _pending_text = text;
+
+            return _chain(_core.prepare(text));
+        si
+
+        _chain(request: CELL_REQUEST) -> string static is
+            _pending = request;
+
+            let buffer = IO.MemoryStream();
+            let json = Utf8JsonWriter(buffer, _);
+
+            json.write_start_object();
+            json.write_string("name", request.name);
+            json.write_number("number", request.index);
+            json.write_start_array("cells");
+
+            for cell in _core.cells do
+                _write_cell(json, cell.name, cell.source);
+            od
+
+            _write_cell(json, request.name, request.source);
+
+            json.write_end_array();
+            json.write_end_object();
+            json.flush();
+
+            return System.Text.Encoding.utf8.get_string(buffer.to_array());
+        si
+
+        _write_cell(json: Utf8JsonWriter, name: string, source: string) static is
+            json.write_start_object();
+            json.write_string("name", name);
+            json.write_string("source", source);
+            json.write_end_object();
+        si
+
+        // Takes the compile service's reply to the prepared request, as it
+        // came, and runs the cell if it compiled. Answers
+        // `{"retry": {chain}}` when the request has to be made again, and
+        // otherwise `{"accepted", "diagnostics": [...], "text", "value"?,
+        // "error"?, "next"}`: what the session has to say, what the cell
+        // wrote, and the value it ended on as the terminal would show it.
+        accept(reply_json: string) -> string static is
+            let request = _pending;
+
+            _pending = null;
+
+            if !request? then
+                return _answer(false, Collections.LIST[string](["nothing is waiting for a reply"]), "", null, null);
+            fi
+
+            let reply = JsonDocument.parse(reply_json, _).root_element;
+            let diagnostics = _diagnostics(reply, request.name);
+
+            let loaded: LOADED_CELL? mut = null;
+            let assembly: System.Reflection.Assembly? mut = null;
+
+            let assembly_text: JsonElement mut = _;
+
+            if reply.try_get_property("assembly", assembly_text ref) /\ assembly_text.value_kind == JsonValueKind.STRING then
+                let loaded_assembly = _context.add(System.Convert.from_base64_string(assembly_text.get_string() ?? ""));
+
+                assembly = loaded_assembly;
+                loaded = CELL_EXPORTS.read(loaded_assembly);
+            elif _dropped.count == 0 then
+                let dropped = _core.drop_failed_imports(request, diagnostics);
+
+                if dropped.count > 0 then
+                    _dropped = Collections.LIST[string](dropped);
+
+                    let chain = _chain(_core.prepare(_pending_text));
+
+                    return "{{\"retry\":{chain}}}";
+                fi
+            fi
+
+            let visible_before = _core.visible_names();
+            let outcome = _core.accept(request, CELL_REPLY(diagnostics, loaded));
+            let lines = Collections.LIST[string](outcome.diagnostics);
+
+            if outcome.is_accepted /\ assembly? then
+                _assemblies[request.name] = assembly;
+
+                for name in request.carried_names do
+                    if visible_before.contains_key(name) then
+                        if let note = STRAGGLERS.note(name, visible_before[name].name, _assemblies) then
+                            lines.add(note);
+                        fi
+                    fi
+                od
+            fi
+
+            for directive in _dropped do
+                lines.add("ghul: dropped an import of an earlier cell that no longer resolves: {directive}");
+            od
+
+            if !outcome.is_accepted \/ !loaded? then
+                return _answer(false, lines, "", null, null);
+            fi
+
+            let writer = IO.StringWriter();
+            let previous = IO.Std.out;
+
+            IO.Std.set_out(writer);
+
+            let run = CELL_ENTRY.run(loaded);
+
+            IO.Std.out.flush();
+            IO.Std.set_out(previous);
+
+            let value = if run.error? then null else CELL_DISPLAY().format(run.value) fi;
+
+            return _answer(true, lines, writer.to_string(), value, run.error);
+        si
+
+        // The compile service's diagnostics are about the text it was
+        // given, prelude included; the session core moves them back to what
+        // the user wrote.
+        _diagnostics(reply: JsonElement, name: string) -> Collections.LIST[CELL_DIAGNOSTIC] static is
+            let result = Collections.LIST[CELL_DIAGNOSTIC]();
+            let items: JsonElement mut = _;
+
+            if reply.try_get_property("diagnostics", items ref) /\ items.value_kind == JsonValueKind.ARRAY then
+                for d in items.enumerate_array() do
+                    let location = CELL_LOCATION(
+                        "{name}.ghul",
+                        _int(d, "startLine"), _int(d, "startColumn"),
+                        _int(d, "endLine"), _int(d, "endColumn"));
+
+                    result.add(CELL_DIAGNOSTIC(
+                        location, _text(d, "severity") ?? "error", null,
+                        _text(d, "message") ?? "", Collections.LIST[CELL_RELATED]()));
+                od
+            fi
+
+            if let error = _text(reply, "error") then
+                result.add(CELL_DIAGNOSTIC(null, "error", null, error, Collections.LIST[CELL_RELATED]()));
+            fi
+
+            return result;
+        si
+
+        _int(element: JsonElement, name: string) -> int static is
+            let value: JsonElement mut = _;
+
+            if element.try_get_property(name, value ref) /\ value.value_kind == JsonValueKind.NUMBER then
+                return value.get_int32();
+            fi
+
+            return 1;
+        si
+
+        _text(element: JsonElement, name: string) -> string? static is
+            let value: JsonElement mut = _;
+
+            if element.try_get_property(name, value ref) /\ value.value_kind == JsonValueKind.STRING then
+                return value.get_string();
+            fi
+
+            return null;
+        si
+
+        _answer(accepted: bool, diagnostics: Collections.List[string], text: string, value: string?, error: string?) -> string static is
+            let buffer = IO.MemoryStream();
+            let json = Utf8JsonWriter(buffer, _);
+
+            json.write_start_object();
+            json.write_boolean("accepted", accepted);
+            json.write_start_array("diagnostics");
+
+            for d in diagnostics do
+                json.write_string_value(d);
+            od
+
+            json.write_end_array();
+            json.write_string("text", text);
+
+            if value? then
+                json.write_string("value", value);
+            fi
+
+            if error? then
+                json.write_string("error", error);
+            fi
+
+            json.write_number("next", _core.next_index);
+            json.write_end_object();
+            json.flush();
+
+            return System.Text.Encoding.utf8.get_string(buffer.to_array());
+        si
+    si
+si

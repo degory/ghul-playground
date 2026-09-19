@@ -1,0 +1,36 @@
+namespace Playground is
+    use System.Reflection.Assembly;
+    use System.Reflection.AssemblyName;
+
+    // The load context every cell of an interactive session goes into. A cell
+    // references the cells before it by assembly name, and the runtime asks
+    // here first, so each of those names finds the assembly already loaded
+    // and running rather than failing to find one. Everything else - the ghūl
+    // runtime above all - is left to the default context, which is where the
+    // runner's own copy is, so the cells and the runner share one runtime.
+    class SESSION: System.Runtime.Loader.AssemblyLoadContext is
+        _cells: Collections.MAP[string, Assembly];
+
+        init() is
+            super.init("ghul-session", false);
+
+            _cells = Collections.MAP[string, Assembly]();
+        si
+
+        add(bytes: ubyte[]) -> Assembly is
+            let assembly = load_from_stream(IO.MemoryStream(bytes));
+
+            _cells[assembly.get_name().name ?? ""] = assembly;
+
+            assembly
+        si
+
+        load(name: AssemblyName) -> Assembly? is
+            if let cell = name.name /\ _cells.contains_key(cell) then
+                return _cells[cell];
+            fi
+
+            return null;
+        si
+    si
+si

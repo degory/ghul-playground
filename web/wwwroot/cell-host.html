@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>ghūl cell host</title>
+  <meta charset="UTF-8">
+  <!-- Filled in by the build, as on the other pages: the runtime's preload
+       and the import map that resolves its fingerprinted files. -->
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <script type='module' src="cell-host.js"></script>
+</head>
+
+<!-- The .NET runtime for one interactive session, in a frame of its own so the
+     page can end a runaway cell by removing the frame: nothing short of that
+     stops managed code running on another thread. It has no content. -->
+<body></body>
+
+</html>

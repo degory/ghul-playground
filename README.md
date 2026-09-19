@@ -131,6 +131,7 @@ services directly when run outside it. None of these is set for local use.
 | `PLAYGROUND_TOKENS` | comma-separated shared tokens; unset, the services are open, which is how playground.ghul.dev runs |
 | `ALLOWED_ORIGINS` | the sites that may drive the services from a browser; unset, any |
 | `MAX_CONCURRENT_COMPILES`, `MAX_QUEUED_COMPILES`, `COMPILE_TIMEOUT_MS` | compile service caps |
+| `REPL_ENABLED`, `MAX_CELLS`, `MAX_CHAIN_BYTES`, `CELL_CACHE_DIR`, `CELL_CACHE_BYTES`, `CELL_TOOLCHAIN_SALT` | session cells: off unless `REPL_ENABLED` is 1; see docs/design.md |
 | `MAX_SESSIONS`, `POOL_SIZE`, `IDLE_TIMEOUT_MS`, `MAX_SESSION_MS` | analyse service caps |
 
 The reference assemblies user code can name are listed in

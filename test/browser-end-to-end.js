@@ -661,6 +661,199 @@ chrome.on('error', e => {
 
     await cmd('Fetch.disable');
 
+    // Cells of an interactive session: compiled by the service against the
+    // cells before them, and run in the cell host frame, where a runaway cell
+    // is stopped by replacing the frame. Each cell's `use` lines are written
+    // out here, where a session would generate them. Skipped where the
+    // service has no session cells.
+    const COMPILE = process.env.COMPILE ?? (new URL(BASE).hostname === '127.0.0.1'
+        ? 'http://127.0.0.1:5090'
+        : new URL('.', BASE).toString().replace(/\/$/, ''));
+
+    const health = await (await fetch(`${COMPILE}/health`)).json().catch(() => ({}));
+
+    if (!health.repl) {
+        log('skip  session cells: the compile service has none');
+    } else {
+        const cells = [
+            // Definitions only, so there is nothing to run.
+            'use default\n_helper(n: int) -> int => n + 1\nclass _HIDDEN(value: int)\n' +
+                'let names = LIST[string]()\n',
+            'use default\nuse cell1._helper\nuse cell1._HIDDEN\nuse cell1.names\n' +
+                'names.add("second")\nwrite_line("{names.count} name")\n_helper(_HIDDEN(41).value)\n',
+            'use default\nthrow System.InvalidOperationException("from cell 3")\n',
+            'use default\nuse cell1.names\nnames.add("fourth")\nnames.count\n'
+        ];
+
+        const session = JSON.parse(await ev(`(async () => {
+            const { CellRuntime } = await import('./cell-runtime.js');
+            window.cellRuntime = new CellRuntime();
+            const headers = { 'content-type': 'application/json' };
+            const token = ${JSON.stringify(TOKEN ?? null)};
+            if (token) headers.authorization = 'Bearer ' + token;
+            window.compileCells = async chain => (await fetch(${JSON.stringify(COMPILE)} + '/compile/cell', {
+                method: 'POST', headers, body: JSON.stringify({ cells: chain })
+            })).json();
+            const accepted = [];
+            const results = [];
+            for (const [index, source] of ${JSON.stringify(cells)}.entries()) {
+                const cell = { name: 'cell' + (index + 1), source };
+                const compiled = await compileCells([...accepted, cell]);
+                if (!compiled.ok) {
+                    results.push({ compiled: false, reply: compiled });
+                    break;
+                }
+                accepted.push(cell);
+                results.push(await cellRuntime.run(compiled.assembly, cell.name));
+            }
+            return JSON.stringify(results);
+        })()`) ?? '[]');
+
+        check('a cell of definitions only runs as nothing',
+            session[0] !== undefined && session[0].text === '' && !('value' in session[0]) && !session[0].error,
+            JSON.stringify(session[0]));
+        check("a later cell reaches its state and underscore names",
+            session[1]?.text === '1 name\n' && session[1]?.value === '42', JSON.stringify(session[1]));
+        check('a cell that throws reports it',
+            (session[2]?.error ?? '').includes('from cell 3'), JSON.stringify(session[2]));
+        check('and the session carries on after it', session[3]?.value === '2',
+            JSON.stringify(session[3]));
+
+        // A cell that never finishes is stopped by replacing the frame: the
+        // page survives, the run answers as stopped, and the next cell starts
+        // a new session.
+        const stopped = JSON.parse(await ev(`(async () => {
+            const chain = [{ name: 'cell1', source: 'use default\\nlet spins mut = 0\\nwhile true do spins = spins + 1 od\\n' }];
+            const compiled = await compileCells(chain);
+            if (!compiled.ok) return JSON.stringify({ compiled: false, reply: compiled });
+            const running = cellRuntime.run(compiled.assembly, 'cell1');
+            await new Promise(r => setTimeout(r, 2000));
+            const busy = cellRuntime.busy;
+            cellRuntime.stop();
+            const result = await running;
+            const fresh = [{ name: 'cell1', source: 'use default\\n6 * 7\\n' }];
+            const again = await compileCells(fresh);
+            const after = await cellRuntime.run(again.assembly, 'cell1');
+            return JSON.stringify({ busy, result, after, frames: document.querySelectorAll('iframe').length });
+        })()`) ?? '{}');
+
+        check('a runaway cell is still running until stopped', stopped.busy === true, JSON.stringify(stopped));
+        check('stopping it answers as stopped', stopped.result?.stopped === true, JSON.stringify(stopped.result));
+        check('and a new session runs on a fresh frame',
+            stopped.after?.value === '42' && stopped.frames === 1, JSON.stringify(stopped));
+        check('with the page still answering', await ev(`document.getElementById('run-label').textContent`) === 'Run');
+
+        // The REPL page, off unless asked for.
+        await cmd('Page.navigate', { url: new URL('repl.html', BASE).toString() });
+        await sleep(3000);
+
+        check('the REPL page is off without its query flag',
+            await ev(`!document.getElementById('unavailable').hidden`));
+
+        // The .NET dev host sends the cross-origin isolation headers for `/`
+        // and `/_framework/` only, where nginx sends them for every page and
+        // serves the compile service from the same origin. Locally, a small
+        // proxy stands in for nginx, so the page reaches the service by the
+        // relative path it uses in production.
+        const replBase = new URL(BASE).port === '5080'
+            ? `http://127.0.0.1:${(await startNginxStandIn()).address().port}/`
+            : BASE;
+
+        const replUrl = new URL('repl.html?repl', replBase).toString();
+
+        await cmd('Page.navigate', { url: replUrl });
+
+        for (let i = 0; i < 60; i++) {
+            if (await ev(`!document.getElementById('input-row').hidden`)) break;
+            await sleep(500);
+        }
+
+        const replStarted = await ev(`!document.getElementById('input-row').hidden`);
+
+        check('the REPL page starts with its query flag', replStarted,
+            await ev(`(async () => JSON.stringify({
+                probe: await fetch('compile/cell').then(r => r.status).catch(e => String(e)),
+                isolated: self.crossOriginIsolated,
+                unavailable: !document.getElementById('unavailable').hidden,
+                monaco: typeof monaco,
+                status: document.getElementById('status').textContent
+            }))()`));
+
+        // Typed into the input and submitted with Shift-Enter, as a reader
+        // would; answers the text of the entry it produced once the page is
+        // ready for the next.
+        const submit = async text => {
+            const before = await ev(`document.querySelectorAll('.entry').length`);
+
+            await ev(`(() => { const e = monaco.editor.getEditors()[0]; e.setValue(${JSON.stringify(text)}); e.focus(); return true; })()`);
+            await cmd('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+            await cmd('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, modifiers: 8 });
+
+            for (let i = 0; i < 240; i++) {
+                const done = await ev(`document.querySelectorAll('.entry').length > ${before} &&
+                    document.getElementById('status').textContent === ''`);
+
+                if (done) break;
+                await sleep(250);
+            }
+
+            return await ev(`[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').innerText`);
+        };
+
+        if (replStarted) {
+            const defined = await submit('let x = 41');
+            const used = await submit('x + 1');
+            const redefined = await submit('let x = "forty-one"');
+            const reread = await submit('x');
+            const failed = await submit('let y: int = "s"');
+            const after = await submit('x.length');
+
+            check('the REPL page accepts a definition', defined === '', JSON.stringify(defined));
+            check('a later cell uses it and shows its value', used === '42', JSON.stringify(used));
+            check('a redefinition replaces it going forward',
+                redefined === '' && reread.includes('forty-one'), JSON.stringify([redefined, reread]));
+            check('a cell with an error shows the error', failed.includes('not assignable'), JSON.stringify(failed));
+            check('and the session carries on after it', after === '9', JSON.stringify(after));
+            check('the prompt numbers every submission, as the terminal does',
+                await ev(`document.getElementById('prompt').textContent`) === '[7]',
+                await ev(`document.getElementById('prompt').textContent`));
+        }
+    }
+
     log(failures ? `${failures} failure(s)` : 'all checks passed');
     process.exit(failures ? 1 : 0);
 })();
+
+// What nginx does for the REPL page in production, and the .NET dev host does
+// not: the cross-origin isolation headers on every response, and the compile
+// service at `/compile` on the same origin.
+function startNginxStandIn() {
+    const http = require('http');
+
+    const server = http.createServer((request, response) => {
+        const port = request.url.startsWith('/compile') ? 5090 : 5080;
+
+        const upstream = http.request({
+            host: '127.0.0.1',
+            port,
+            path: request.url,
+            method: request.method,
+            headers: { ...request.headers, host: `127.0.0.1:${port}` }
+        }, answer => {
+            response.writeHead(answer.statusCode, {
+                ...answer.headers,
+                'cross-origin-opener-policy': 'same-origin',
+                'cross-origin-embedder-policy': 'require-corp'
+            });
+
+            answer.pipe(response);
+        });
+
+        upstream.on('error', () => response.writeHead(502).end());
+        request.pipe(upstream);
+    });
+
+    server.unref();
+
+    return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
+}
