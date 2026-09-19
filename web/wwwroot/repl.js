@@ -14,7 +14,7 @@ import { CellRuntime } from './cell-runtime.js'
 import { GhulLanguageClient } from './lsp.js'
 import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replAvailability } from './repl-route.js'
 import { setUpFullscreen, setUpHelp } from './chrome.js'
-import { CellOutput } from './cell-output.js'
+import { CellOutput, showValue } from './cell-output.js'
 
 const transcript = document.getElementById('transcript');
 const inputRow = document.getElementById('input-row');
@@ -489,7 +489,11 @@ async function start() {
             }
 
             if (answer.text) new CellOutput(result).feed(answer.text.replace(/\n$/, ''));
-            if (answer.value != null) line(result, 'value', answer.value);
+            if (answer.value != null) {
+                line(result, 'value', answer.value);
+
+                if (answer.picture) showValue(result.lastChild, answer.value, answer.picture);
+            }
             if (answer.error) line(result, 'error', answer.error);
 
             if (Number.isFinite(answer.next)) number = answer.next;

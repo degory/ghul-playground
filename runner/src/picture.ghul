@@ -1,0 +1,66 @@
+namespace Playground is
+    use System.Text.Json.Utf8JsonWriter;
+
+    // A picture a shown value offers of itself, through Ghul.Renderable: the
+    // first of its representations in a format the page puts in an image,
+    // base64 as it will go into the page's data URL. The page shows raster
+    // formats only, never markup, so the rest are passed over and the value is
+    // shown as its text.
+    class PICTURE is
+        // Past this a picture is not sent: a value can offer anything, and the
+        // page holds every picture it shows.
+        MAX_BYTES: int static => 4 * 1024 * 1024;
+
+        mime: string;
+        size: int;
+
+        // The picture, or absent where it is over MAX_BYTES and was left out.
+        content: string?;
+
+        init(mime: string, size: int, content: string?) is
+            self.mime = mime;
+            self.size = size;
+            self.content = content;
+        si
+
+        of(value: object?) -> PICTURE? static is
+            if let renderable: Ghul.Renderable = value then
+                try
+                    for (mime, bytes) in renderable.representations() do
+                        if mime =~ "image/png" \/ mime =~ "image/jpeg" \/ mime =~ "image/gif" then
+                            if bytes.count > MAX_BYTES then
+                                return PICTURE(mime, bytes.count, null);
+                            fi
+
+                            return PICTURE(mime, bytes.count, System.Convert.to_base64_string(bytes));
+                        fi
+                    od
+                catch e: System.Exception
+                    // A value that cannot say what it looks like is shown as
+                    // its text, as one that offers nothing is.
+                yrt
+            fi
+
+            return null;
+        si
+
+        // As a part of a shown value: `{"mime", "content"}`, or
+        // `{"mime", "omitted": size}` for one left out. `deferred` writes the
+        // second form whatever the size, for a record that goes to the page
+        // before the answer that carries the picture in full.
+        write(json: Utf8JsonWriter, deferred: bool) is
+            json.write_start_object();
+            json.write_string("mime", mime);
+
+            if let data = content /\ !deferred then
+                json.write_string("content", data);
+            elif deferred /\ content? then
+                json.write_boolean("deferred", true);
+            else
+                json.write_number("omitted", size);
+            fi
+
+            json.write_end_object();
+        si
+    si
+si

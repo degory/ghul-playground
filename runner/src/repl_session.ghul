@@ -214,8 +214,15 @@ namespace Playground is
 
             let value = if run.error? then null else _display.format(run.value) fi;
 
-            return _answer(true, lines, writer.to_string(), value, run.error);
+            // A value the cell ends on can offer a picture of itself, shown in
+            // place of its text; the text goes too, for the page to fall back on.
+            let picture = if value? then PICTURE.of(run.value) else null fi;
+
+            return _answer(true, lines, writer.to_string(), value, run.error, picture);
         si
+
+        _answer(accepted: bool, diagnostics: Collections.List[string], text: string, value: string?, error: string?) -> string static =>
+            _answer(accepted, diagnostics, text, value, error, null);
 
         // The compile service's diagnostics are about the text it was
         // given, prelude included; the session core moves them back to what
@@ -264,7 +271,7 @@ namespace Playground is
             return null;
         si
 
-        _answer(accepted: bool, diagnostics: Collections.List[string], text: string, value: string?, error: string?) -> string static is
+        _answer(accepted: bool, diagnostics: Collections.List[string], text: string, value: string?, error: string?, picture: PICTURE?) -> string static is
             let buffer = IO.MemoryStream();
             let json = Utf8JsonWriter(buffer, _);
 
@@ -285,6 +292,11 @@ namespace Playground is
 
             if error? then
                 json.write_string("error", error);
+            fi
+
+            if let shown = picture then
+                json.write_property_name("picture");
+                shown.write(json, false);
             fi
 
             json.write_number("next", _core.next_index);

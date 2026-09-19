@@ -77,6 +77,13 @@ namespace Playground is
             _raw(text);
         si
 
+        // A record the answer carries as `text` and the page is sent, while
+        // the cell runs, as `live`.
+        record(text: string, live: string) is
+            _captured.write(text);
+            _channel.write(live);
+        si
+
         _raw(text: string) is
             _captured.write(text);
             _channel.write(text);

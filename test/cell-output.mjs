@@ -12,7 +12,8 @@ function check(what, ok, detail = '') {
 }
 
 class NODE {
-    constructor() {
+    constructor(tag = 'div') {
+        this.tag = tag;
         this.children = [];
         this.parent = null;
         this.className = '';
@@ -22,7 +23,16 @@ class NODE {
     get textContent() { return this._text + this.children.map(c => c.textContent).join(''); }
     set textContent(value) { this._text = value; this.children = []; }
 
-    append(text) { this._text += text; }
+    append(item) {
+        if (typeof item === 'string') this._text += item; else this.appendChild(item);
+    }
+
+    replaceChildren(...items) {
+        this._text = '';
+        this.children = [];
+
+        for (const item of items) this.append(item);
+    }
 
     appendChild(child) {
         child.parent = this;
@@ -36,12 +46,12 @@ class NODE {
     }
 }
 
-globalThis.document = { createElement: () => new NODE() };
+globalThis.document = { createElement: tag => new NODE(tag) };
 
-const { CellOutput, OPEN, CLOSE } = await import('../web/wwwroot/cell-output.js');
+const { CellOutput, OPEN, CLOSE, MAX_PICTURE_BYTES } = await import('../web/wwwroot/cell-output.js');
 
-const record = (kind, id, content) =>
-    `${OPEN}${JSON.stringify({ kind, id, parts: [{ mime: 'text/plain', content }] })}${CLOSE}`;
+const record = (kind, id, content, picture) =>
+    `${OPEN}${JSON.stringify({ kind, id, parts: [{ mime: 'text/plain', content }, ...(picture ? [picture] : [])] })}${CLOSE}`;
 
 const shape = container => container.children.map(c => [c.className, c.textContent]);
 
@@ -108,6 +118,55 @@ const shape = container => container.children.map(c => [c.className, c.textConte
     output.feed(record('update', 'x', 'again'));
 
     check('and forgets the ids it had', container.children.length === 0);
+}
+
+{
+    const container = new NODE();
+    const output = new CellOutput(container);
+
+    output.feed(record('show', 'plot', 'IMAGE(2, 2)', { mime: 'image/png', content: 'iVBORw0KGgo=' }));
+
+    const image = container.children[0]?.children[0];
+
+    check('a picture is shown as an image, with the text as its alternative',
+        image?.tag === 'img' && image.src === 'data:image/png;base64,iVBORw0KGgo=' && image.alt === 'IMAGE(2, 2)',
+        JSON.stringify(image && { tag: image.tag, src: image.src, alt: image.alt }));
+
+    output.feed(record('update', 'plot', 'IMAGE(3, 3)', { mime: 'image/gif', content: 'R0lGODlh' }));
+
+    const swapped = container.children[0]?.children[0];
+
+    check('update swaps one picture for another in place',
+        container.children.length === 1 && swapped?.src === 'data:image/gif;base64,R0lGODlh', swapped?.src);
+}
+
+{
+    const shown = picture => {
+        const container = new NODE();
+
+        new CellOutput(container).feed(record('show', null, 'the text', picture));
+
+        return container.children[0];
+    };
+
+    const html = shown({ mime: 'text/html', content: '<b>no</b>' });
+    const svg = shown({ mime: 'image/svg+xml', content: 'PHN2Zz4=' });
+    const notBase64 = shown({ mime: 'image/png', content: 'x" onerror="alert(1)' });
+
+    check('markup, SVG and anything not base64 are shown as the text alone',
+        [html, svg, notBase64].every(node => node.children.length === 0 && node.textContent === 'the text'),
+        JSON.stringify([html, svg, notBase64].map(n => n.textContent)));
+
+    const omitted = shown({ mime: 'image/png', omitted: 5 * 1024 * 1024 });
+    const tooBig = shown({ mime: 'image/png', content: 'A'.repeat(Math.ceil(MAX_PICTURE_BYTES / 3) * 4 + 4) });
+    const deferred = shown({ mime: 'image/png', deferred: true });
+
+    check('a picture left out or too large falls back to the text, with a note saying why',
+        [omitted, tooBig].every(node => !node.children.some(c => c.tag === 'img') && node.textContent.startsWith('the text') && node.textContent.includes('MB')),
+        JSON.stringify([omitted, tooBig].map(n => n.textContent)));
+
+    check('a picture still on its way says it is shown when the cell finishes',
+        deferred.textContent.startsWith('the text') && deferred.textContent.includes('when the cell finishes'), deferred.textContent);
 }
 
 console.log(failures ? `${failures} failure(s)` : 'all checks passed');

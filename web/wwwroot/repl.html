@@ -52,6 +52,8 @@
 
     .result .value { color: var(--accent); }
     .result .display { color: var(--accent); }
+    .result img { display: block; max-width: 100%; height: auto; margin: 0.25rem 0; }
+    .result .picture-note { color: var(--fg-muted); font-style: italic; }
     .result .diagnostic { color: var(--bad); }
     .result .diagnostic.warn, .result .note { color: var(--warn); }
     .result .error { color: var(--bad); }
@@ -167,6 +169,8 @@
         than only the value it ends on. <code>display(value, "name")</code> shows it
         under a name, and <code>update_display(value, "name")</code> redraws it in place,
         so a long-running cell can report its progress on one line.
+        A value that can draw itself - a <code>Raster.IMAGE</code>, say - is shown
+        as its picture, whether the cell ends on it or displays it.
       </p>
 
       <h3>Stopping and starting again</h3>

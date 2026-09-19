@@ -10,6 +10,67 @@
 export const OPEN = String.fromCharCode(1);
 export const CLOSE = String.fromCharCode(2);
 
+// The raster formats the page puts in an image. Anything else a value offers -
+// markup above all - is never shown as itself, only as the value's text.
+const PICTURE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
+
+// The runner leaves out a picture past this; checked here as well, so the page
+// holds to it whatever it is sent.
+export const MAX_PICTURE_BYTES = 4 * 1024 * 1024;
+
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+
+// Fills `node` with a shown value: its picture where it offers one the page
+// shows, with the text as the image's alternative, and otherwise its text,
+// with a note where a picture was offered and could not be shown. `picture`
+// is a part as the runner writes it - see Playground.PICTURE.
+export function showValue(node, text, picture) {
+    const content = picture?.content;
+
+    if (PICTURE_TYPES.has(picture?.mime) && typeof content === 'string' && BASE64.test(content)
+        && decodedSize(content) <= MAX_PICTURE_BYTES) {
+        const image = document.createElement('img');
+
+        image.alt = text;
+        image.src = `data:${picture.mime};base64,${content}`;
+        node.replaceChildren(image);
+        return;
+    }
+
+    node.replaceChildren(text);
+
+    const note = pictureNote(picture);
+
+    if (note) {
+        const span = document.createElement('span');
+
+        span.className = 'picture-note';
+        span.textContent = `\n${note}`;
+        node.append(span);
+    }
+}
+
+function decodedSize(base64) {
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+
+    return Math.floor(base64.length / 4) * 3 - padding;
+}
+
+function pictureNote(picture) {
+    if (!PICTURE_TYPES.has(picture?.mime)) return null;
+
+    if (picture.deferred === true) return '(its picture is shown when the cell finishes)';
+
+    const size = typeof picture.omitted === 'number' ? picture.omitted
+        : typeof picture.content === 'string' ? decodedSize(picture.content) : null;
+
+    if (size !== null && size > MAX_PICTURE_BYTES) {
+        return `(its picture is ${(size / 1048576).toFixed(1)} MB, over the ${MAX_PICTURE_BYTES / 1048576} MB shown here)`;
+    }
+
+    return null;
+}
+
 export class CellOutput {
     constructor(container) {
         this.container = container;
@@ -80,16 +141,18 @@ export class CellOutput {
             return;
         }
 
-        const content = record?.parts?.find?.(part => part?.mime === 'text/plain')?.content;
+        const parts = Array.isArray(record?.parts) ? record.parts : [];
+        const text = parts.find(part => part?.mime === 'text/plain')?.content;
 
-        if (typeof content !== 'string') return;
+        if (typeof text !== 'string') return;
 
+        const picture = parts.find(part => part?.mime !== 'text/plain');
         const id = typeof record.id === 'string' ? record.id : null;
 
         if (record.kind === 'show') {
             const node = this._add('display');
 
-            node.textContent = content;
+            showValue(node, text, picture);
 
             // What the cell writes next goes after this, not into the text
             // before it.
@@ -99,7 +162,7 @@ export class CellOutput {
         } else if (record.kind === 'update' && id !== null) {
             const node = this.displays.get(id);
 
-            if (node) node.textContent = content;
+            if (node) showValue(node, text, picture);
         }
     }
 
