@@ -65,7 +65,7 @@ services:
       COMPILE_TIMEOUT_MS: "10000"
       # The cells of an interactive session: off unless REPL_ENABLED is 1 in
       # the environment, in which case /compile/cell exists at all. Its cache
-      # of built cell assemblies has a tmpfs of its own below.
+      # of built cell assemblies is the `cells` volume below.
       REPL_ENABLED: "${REPL_ENABLED:-}"
       MAX_CELLS: "50"
       MAX_CHAIN_BYTES: "262144"
@@ -80,8 +80,9 @@ services:
     # The compiler writes its output next to the source it was given.
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
-      # Room for the 64 MB cell cache, with headroom for writes in flight.
-      - /cells:rw,noexec,nosuid,size=72m,mode=1777
+
+    volumes:
+      - cells:/cells
 
     # A compile of a single file peaks under 200 MB measured; the cap is here so
     # a runaway allocation fails rather than taking the host down.
@@ -122,11 +123,20 @@ services:
       MAX_SESSIONS_PER_ADDRESS: "4"
       EVICT_QUIET_MS: "20000"
       MAX_SESSION_MS: "3600000"
+      # The analyser for an interactive session's input. Off unless
+      # REPL_ENABLED is 1, and then it reads earlier cells, by key, from the
+      # compile service's cache, which it cannot write.
+      REPL_ENABLED: "${REPL_ENABLED:-}"
+      MAX_CELLS: "50"
+      CELL_CACHE_DIR: "/cells"
 
     # Each session gets its own workspace directory here, and the analyser
     # writes the document to it.
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+
+    volumes:
+      - cells:/cells:ro
 
     # Well above what the sessions above can hold - a measured analyser is
     # around 90 MB, so a full house is under 3 GB. The limit is here to make a
@@ -177,4 +187,14 @@ services:
 # deliberately a named volume rather than a bind mount so that a stray
 # `docker compose down -v` is the only way to lose it by accident.
 volumes:
+  # The compile service's cache of built session cells: tmpfs, since it is a
+  # cache and a restart losing it costs a recompile, and a volume rather than
+  # a per-container tmpfs so that the analyse service can read it. Room for
+  # the 64 MB cache with headroom for writes in flight.
+  cells:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=72m,mode=1777,noexec,nosuid"
+
   goatcounter-data:

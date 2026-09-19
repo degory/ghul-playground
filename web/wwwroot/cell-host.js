@@ -9,6 +9,8 @@
 //   submission. Playground.REPL_SESSION.prepare's answer.
 // - `accept`, args `[reply]`: the compile service's reply, as text; runs the
 //   cell if it compiled. Playground.REPL_SESSION.accept's answer.
+// - `analysis`, args `[text]`: what to analyse for the input being typed.
+//   Playground.REPL_SESSION.analysis's answer.
 //
 // Everything run here goes into the one session this frame's runtime holds.
 // Only a parent of the same origin is answered. The frame is written as
@@ -31,7 +33,8 @@ async function runtime() {
 const OPS = {
     run: (runner, [assembly, submission]) => runner.RunCell(assembly, submission),
     prepare: (runner, [text]) => runner.ReplPrepare(text),
-    accept: (runner, [reply]) => runner.ReplAccept(reply)
+    accept: (runner, [reply]) => runner.ReplAccept(reply),
+    analysis: (runner, [text]) => runner.ReplAnalysis(text)
 };
 
 // Calls are answered one after another, in the order they arrive, since each

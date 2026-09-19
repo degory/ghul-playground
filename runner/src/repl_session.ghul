@@ -53,6 +53,25 @@ namespace Playground is
             return _chain(_core.prepare(text));
         si
 
+        // `{"source", "offset"}`: the text to analyse for what is being typed,
+        // as the next cell would be compiled, and how many of its lines come
+        // before what was typed. Changes nothing, so it can be asked on every
+        // keystroke.
+        analysis(text: string) -> string static is
+            let request = _core.prepare(text);
+
+            let buffer = IO.MemoryStream();
+            let json = Utf8JsonWriter(buffer, _);
+
+            json.write_start_object();
+            json.write_string("source", request.source);
+            json.write_number("offset", request.prelude_line_count);
+            json.write_end_object();
+            json.flush();
+
+            return System.Text.Encoding.utf8.get_string(buffer.to_array());
+        si
+
         _chain(request: CELL_REQUEST) -> string static is
             _pending = request;
 

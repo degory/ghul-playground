@@ -447,6 +447,9 @@ jobs:
           LOG_SERVER_STDERR: 1
           # The browser test runs the cells of an interactive session too.
           REPL_ENABLED: 1
+          # Written by the compile service and read by the analyse service, as
+          # the shared volume is in production.
+          CELL_CACHE_DIR: /tmp/ghul-cells
         run: |
           node compile-service/server.js > /tmp/compile.log 2>&1 &
           node analyse-service/server.js > /tmp/analyse.log 2>&1 &

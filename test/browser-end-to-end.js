@@ -802,6 +802,21 @@ chrome.on('error', e => {
 
         if (replStarted) {
             const defined = await submit('let x = 41');
+
+            // What is typed next is analysed as the next cell, against the cells
+            // before it: x is only an int if the analyser has cell 1.
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue('let y: string = x'); return true; })()`);
+
+            let analysed = '[]';
+
+            for (let i = 0; i < 120; i++) {
+                analysed = await ev(`JSON.stringify(monaco.editor.getModelMarkers({ owner: 'ghul-analyse' }).map(m => m.message))`);
+                if (analysed !== '[]') break;
+                await sleep(250);
+            }
+
+            check('the input is analysed against the cells before it',
+                analysed.includes('not assignable') && !analysed.includes('not defined'), analysed);
             const used = await submit('x + 1');
             const redefined = await submit('let x = "forty-one"');
             const reread = await submit('x');

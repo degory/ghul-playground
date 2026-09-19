@@ -16,6 +16,7 @@
 // browser deals in plain JSON-RPC objects.
 
 const fs = require('fs');
+const path = require('path');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 
@@ -54,6 +55,22 @@ const EVICT_QUIET_MS = Number(process.env.EVICT_QUIET_MS ?? 20 * 1000);
 const ACQUIRE_TIMEOUT_MS = Number(process.env.ACQUIRE_TIMEOUT_MS ?? 5000);
 
 const SERVER_COMMAND = process.env.GHUL_LANGUAGE_SERVER ?? 'ghul-language-server';
+
+// Interactive sessions. Off unless set, and off means a `?repl` connection is
+// refused rather than served as an ordinary editor. The earlier cells a REPL
+// session analyses against are read from the compile service's cache, which
+// is mounted here read-only; a client names them by cache key and never
+// supplies an assembly.
+const REPL_ENABLED = process.env.REPL_ENABLED === '1';
+const CELL_CACHE_DIR = process.env.CELL_CACHE_DIR ?? '/cells';
+const MAX_CELLS = Number(process.env.MAX_CELLS ?? 50);
+
+// The text being typed is analysed as the next step of the session, under a
+// name no cell has.
+const REPL_FLAGS = ['--submission', 'input'];
+
+const CELL_KEY = /^[0-9a-f]{64}$/;
+const CELL_NAME = /^cell[1-9][0-9]{0,3}$/;
 
 // The client addresses one fixed path and never learns where its workspace
 // actually is, so it cannot address anything outside its own session by naming
@@ -117,6 +134,24 @@ function replenish() {
     }
 }
 
+// An analyser started for one client, with nothing warmed in advance, or null
+// if it would not start.
+async function startCold(otherFlags = []) {
+    const analyser = new Analyser({ command: SERVER_COMMAND, compiler, references, log, otherFlags });
+
+    try {
+        await analyser.start();
+        await analyser.warmUp(WARM_UP_TIMEOUT_MS);
+
+        return analyser;
+    } catch (e) {
+        log(`cold start failed: ${e.message}`);
+        analyser.kill();
+
+        return null;
+    }
+}
+
 // A warm one if there is one, otherwise wait briefly for the pool, otherwise
 // start one cold rather than refusing the client.
 function acquire() {
@@ -147,17 +182,7 @@ function acquire() {
 
             log('pool empty, starting a cold analyser');
 
-            const analyser = new Analyser({ command: SERVER_COMMAND, compiler, references, log });
-
-            try {
-                await analyser.start();
-                await analyser.warmUp(WARM_UP_TIMEOUT_MS);
-                hand(analyser);
-            } catch (e) {
-                log(`cold start failed: ${e.message}`);
-                analyser.kill();
-                hand(null);
-            }
+            hand(await startCold());
         }, ACQUIRE_TIMEOUT_MS);
     });
 }
@@ -210,12 +235,17 @@ function sessionsFrom(address) {
 }
 
 class Session {
-    constructor(socket, analyser, address) {
+    constructor(socket, analyser, address, repl = false) {
         this.id = nextSessionId++;
         this.socket = socket;
         this.analyser = analyser;
         this.address = address;
+        this.repl = repl;
         this.closed = false;
+
+        // Replies to the requests the service sends the analyser on the
+        // client's behalf, by id. They are answered here, not forwarded.
+        this.hostReplies = new Map();
 
         // What the analyser had already spent being warmed, so that the figure
         // logged on close is the work this client asked for and not the pool's.
@@ -265,6 +295,22 @@ class Session {
             return;
         }
 
+        if (this.hostReplies.size > 0 && body.includes('"host-')) {
+            let message = null;
+
+            try {
+                message = JSON.parse(body);
+            } catch { }
+
+            const waiter = message ? this.hostReplies.get(message.id) : undefined;
+
+            if (waiter) {
+                this.hostReplies.delete(message.id);
+                waiter(message);
+                return;
+            }
+        }
+
         if (this.socket.readyState === this.socket.OPEN) {
             this.socket.send(body.split(this.analyser.realRoot).join(VIRTUAL_ROOT));
         }
@@ -289,6 +335,11 @@ class Session {
                 id: message.id,
                 result: this.analyser.capabilities
             }));
+            return;
+        }
+
+        if (message.method === 'playground/addCells') {
+            if (this.repl) this.addCells(message);
             return;
         }
 
@@ -319,6 +370,48 @@ class Session {
         }
 
         this.analyser.write(text.split(VIRTUAL_ROOT).join(this.analyser.realRoot));
+    }
+
+    // The earlier cells of an interactive session, named by the cache keys the
+    // compile service answered with and the cell names they were compiled
+    // under, added to what the text being typed is analysed against. Each is
+    // copied from the cache into the analyser's own workspace under its cell's
+    // name, which is how a later cell's reference to it is resolved. A key the
+    // cache does not hold is refused: this never accepts an assembly from the
+    // client.
+    async addCells(message) {
+        const reply = result => {
+            if (message.id !== undefined && this.socket.readyState === this.socket.OPEN) {
+                this.socket.send(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+            }
+        };
+
+        const cells = message.params?.cells;
+
+        if (!Array.isArray(cells) || cells.length === 0 || cells.length > MAX_CELLS ||
+            !cells.every(cell => CELL_KEY.test(cell?.key ?? '') && CELL_NAME.test(cell?.name ?? ''))) {
+            reply({ message: 'cells must name their cache keys and cell names' });
+            return;
+        }
+
+        const paths = [];
+
+        for (const { key, name } of cells) {
+            try {
+                paths.push(await this.analyser.takeCell(
+                    path.join(CELL_CACHE_DIR, `${key}.dll`), path.join(key, `${name}.dll`)));
+            } catch {
+                reply({ message: `${name} is not in the cache` });
+                return;
+            }
+        }
+
+        if (this.closed) return;
+
+        const answer = await new Promise(resolve => this.hostReplies.set(
+            this.analyser.request('ghul/addReferences', { uri: this.analyser.documentUri, paths }), resolve));
+
+        reply({ message: answer.error?.message ?? answer.result?.message ?? null });
     }
 
     // Analysing a document costs a full pass, so an oversized one is declined
@@ -392,6 +485,11 @@ const server = http.createServer((request, response) => {
     response.writeHead(404).end('not found');
 });
 
+// A connection asking for an interactive session's analyser.
+function isRepl(request) {
+    return new URL(request.url, 'http://localhost').searchParams.has('repl');
+}
+
 // A browser cannot set headers on a WebSocket, so the token arrives as a
 // subprotocol rather than a query parameter, which keeps it out of access logs.
 //
@@ -408,6 +506,11 @@ const wss = new WebSocketServer({
     maxPayload: 4 * MAX_SOURCE_BYTES,
 
     verifyClient: (info, callback) => {
+        if (isRepl(info.req) && !REPL_ENABLED) {
+            callback(false, 404, 'not found');
+            return;
+        }
+
         // Sessions are a small fixed pool, so a third-party page opening them
         // from its visitors' browsers would deny editing to everyone at no cost
         // to itself. Browsers always send Origin on a WebSocket and cannot
@@ -468,9 +571,13 @@ wss.on('connection', async (socket, request) => {
     const placeholder = { closed: false, address, lastActive: Infinity };
     sessions.add(placeholder);
 
+    const repl = isRepl(request);
+
+    // A REPL session's analyser runs in submission mode, which the pool's
+    // analysers do not, so it is started for the client.
     let analyser;
     try {
-        analyser = await acquire();
+        analyser = repl ? await startCold(REPL_FLAGS) : await acquire();
     } finally {
         sessions.delete(placeholder);
     }
@@ -481,10 +588,10 @@ wss.on('connection', async (socket, request) => {
         return;
     }
 
-    const session = new Session(socket, analyser, address);
+    const session = new Session(socket, analyser, address, repl);
     sessions.add(session);
 
-    session.log(`took analyser ${analyser.id} (${analyser.warm ? 'warm' : 'cold'}), ` +
+    session.log(`${repl ? 'REPL: ' : ''}took analyser ${analyser.id} (${analyser.warm ? 'warm' : 'cold'}), ` +
         `pool now ${JSON.stringify(poolState())}`);
 
     socket.on('message', data => {

@@ -11,7 +11,8 @@ import { GHUL_LANGUAGE, GHUL_CONFIGURATION } from './ghul-language.js'
 import { defineThemes, themeName } from './theme.js'
 import { getToken } from './token.js'
 import { CellRuntime } from './cell-runtime.js'
-import { CELL_SERVICE, replRequested, replLimits } from './repl-route.js'
+import { GhulLanguageClient } from './lsp.js'
+import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replRequested, replLimits } from './repl-route.js'
 
 const transcript = document.getElementById('transcript');
 const inputRow = document.getElementById('input-row');
@@ -96,6 +97,97 @@ async function start() {
     const history = [];
     let historyAt = 0;
 
+    // Diagnostics, hover and completion for what is being typed, from an
+    // analyser of its own. It analyses the input as the next cell would be
+    // compiled - the session's prelude, then the input - against the cells
+    // accepted so far, which the analyse service takes from the compile
+    // service's cache by key. A session that ends takes its analyser with it,
+    // since the next one reuses the cell names.
+    let analyser = null;
+    let analysis = { source: '', offset: 0 };
+    let cells = [];
+    let added = 0;
+    let analysisTimer = null;
+
+    function startAnalysis() {
+        analyser?.dispose();
+
+        cells = [];
+        added = 0;
+        analysis = { source: '', offset: 0 };
+
+        const client = new GhulLanguageClient(ANALYSE_REPL_SERVICE, {
+            getToken,
+            documentText: () => analysis.source,
+            lineOffset: () => analysis.offset,
+            // A fresh analyser has none of the cells.
+            onReady: () => {
+                added = 0;
+                addCells();
+                refreshAnalysis();
+            }
+        });
+
+        analyser = client;
+        client.attach(editor.getModel());
+    }
+
+    async function addCells() {
+        const client = analyser;
+
+        if (!client.ready || added >= cells.length) return;
+
+        const adding = cells.slice(added);
+        added = cells.length;
+
+        await client.request('playground/addCells', { cells: adding });
+
+        if (client === analyser) refreshAnalysis();
+    }
+
+    async function refreshAnalysis() {
+        if (busy) return;
+
+        const client = analyser;
+        const text = editor.getValue();
+        const answer = await runtime.call('analysis', text);
+
+        if (client !== analyser || !answer || answer.stopped || answer.error || editor.getValue() !== text) return;
+
+        analysis = { source: answer.source, offset: answer.offset };
+        client.changed(analysis.source);
+    }
+
+    editor.onDidChangeModelContent(() => {
+        clearTimeout(analysisTimer);
+        analysisTimer = setTimeout(refreshAnalysis, 300);
+    });
+
+    const isInput = model => model === editor.getModel();
+
+    monaco.languages.registerHoverProvider('ghul', {
+        provideHover: (model, position) => isInput(model) ? analyser.hover(position) : null
+    });
+
+    monaco.languages.registerCompletionItemProvider('ghul', {
+        triggerCharacters: ['.'],
+        provideCompletionItems: async (model, position) => {
+            if (!isInput(model)) return { suggestions: [] };
+
+            const word = model.getWordUntilPosition(position);
+            const range = {
+                startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+                startColumn: word.startColumn, endColumn: word.endColumn
+            };
+
+            const items = await analyser.completion(position);
+
+            return { suggestions: items.map(item => ({ ...item, range })) };
+        }
+    });
+
+    startAnalysis();
+
     const setPrompt = () => { prompt.textContent = `[${number}]`; };
 
     const setBusy = (value, text = '') => {
@@ -155,6 +247,7 @@ async function start() {
         runtime = new CellRuntime();
         number = 1;
         setPrompt();
+        startAnalysis();
     }
 
     async function post(cells) {
@@ -224,6 +317,16 @@ async function start() {
 
                 answer = await runtime.call('accept', posted.reply);
 
+                if (answer.accepted) {
+                    const keys = JSON.parse(posted.reply).keys ?? [];
+
+                    cells = prepared.cells
+                        .map((cell, index) => ({ name: cell.name, key: keys[index] }))
+                        .filter(cell => typeof cell.key === 'string');
+
+                    addCells();
+                }
+
                 if (answer.retry) {
                     prepared = answer.retry;
                     setBusy(true, 'compiling');
@@ -265,6 +368,7 @@ async function start() {
         } finally {
             setPrompt();
             setBusy(false);
+            refreshAnalysis();
             scrollToInput();
             editor.focus();
         }
@@ -315,6 +419,7 @@ async function start() {
     stopButton.addEventListener('click', () => {
         generation++;
         runtime.stop();
+        startAnalysis();
     });
 
     resetButton.addEventListener('click', () => {

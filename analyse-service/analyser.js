@@ -16,7 +16,7 @@
 // capabilities captured here instead.
 
 const { spawn } = require('child_process');
-const { mkdtemp, writeFile, mkdir, rm } = require('fs/promises');
+const { mkdtemp, writeFile, mkdir, rm, copyFile } = require('fs/promises');
 const { tmpdir } = require('os');
 const path = require('path');
 
@@ -46,11 +46,12 @@ si
 let nextId = 1;
 
 class Analyser {
-    constructor({ command, compiler, references, log }) {
+    constructor({ command, compiler, references, log, otherFlags = [] }) {
         this.id = nextId++;
         this.command = command;
         this.compiler = compiler;
         this.references = references;
+        this.otherFlags = otherFlags;
         this.log = message => log(`[analyser ${this.id}] ${message}`);
 
         this.workspace = null;
@@ -91,7 +92,7 @@ class Analyser {
         await this.writeDocument(WARM_UP_SOURCE);
         await writeFile(
             path.join(this.workspace, 'ghul.json'),
-            JSON.stringify({ compiler: this.compiler }),
+            JSON.stringify({ compiler: this.compiler, other_flags: this.otherFlags }),
             'utf8');
         await writeFile(
             path.join(this.workspace, '.assemblies.json'),
@@ -103,6 +104,31 @@ class Analyser {
     // protocol; without this it analyses an empty file and reports nothing.
     writeDocument(text) {
         return writeFile(path.join(this.workspace, 'src', 'main.ghul'), text, 'utf8');
+    }
+
+    // Copies a compiled cell into this analyser's own workspace and answers
+    // where it now is. A copy rather than the original, because the compile
+    // service evicts its cache on its own schedule and the analyser can read a
+    // reference again at any rebuild.
+    async takeCell(source, name) {
+        const destination = path.join(this.workspace, 'cells', name);
+
+        await mkdir(path.dirname(destination), { recursive: true });
+
+        await copyFile(source, destination);
+
+        return destination;
+    }
+
+    // Sends a request of the host's own and answers the reply. Only used once a
+    // client owns the analyser, so the reply arrives through `onMessage`, which
+    // the session routes here by id.
+    request(method, params) {
+        const id = `host-${++this.warmUpId}`;
+
+        this.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+
+        return id;
     }
 
     get documentUri() {
