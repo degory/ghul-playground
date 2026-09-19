@@ -108,8 +108,7 @@ chrome.on('error', e => {
     // Answered from the map, or as not found, with the header a cross-origin
     // fetch needs to be allowed to read the answer.
     function answerIntercepted({ requestId, request }) {
-        const entry = intercepted.get(request.url);
-        const body = typeof entry === 'object' ? entry.body : entry;
+        const body = intercepted.get(request.url);
 
         ws.send(JSON.stringify({
             id: ++id,
@@ -119,8 +118,7 @@ chrome.on('error', e => {
                 responseCode: body === undefined ? 404 : 200,
                 responseHeaders: [
                     { name: 'Access-Control-Allow-Origin', value: '*' },
-                    ...(request.url.endsWith('.js') ? [{ name: 'Content-Type', value: 'text/javascript' }] : []),
-                    ...(typeof entry === 'object' ? entry.headers : [])
+                    ...(request.url.endsWith('.js') ? [{ name: 'Content-Type', value: 'text/javascript' }] : [])
                 ],
                 body: Buffer.from(body ?? '').toString('base64')
             }
@@ -753,22 +751,15 @@ chrome.on('error', e => {
             await ev(`!document.getElementById('unavailable').hidden`));
 
         // The .NET dev host sends the cross-origin isolation headers for `/`
-        // and `/_framework/` only, where nginx sends them for every page, so
-        // locally the page is served here with the headers production gives it.
-        const replUrl = new URL('repl.html?repl', BASE).toString();
+        // and `/_framework/` only, where nginx sends them for every page and
+        // serves the compile service from the same origin. Locally, a small
+        // proxy stands in for nginx, so the page reaches the service by the
+        // relative path it uses in production.
+        const replBase = new URL(BASE).port === '5080'
+            ? `http://127.0.0.1:${(await startNginxStandIn()).address().port}/`
+            : BASE;
 
-        if (new URL(BASE).port === '5080') {
-            intercepted.set(replUrl, {
-                body: await (await fetch(replUrl)).text(),
-                headers: [
-                    { name: 'Content-Type', value: 'text/html' },
-                    { name: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-                    { name: 'Cross-Origin-Embedder-Policy', value: 'require-corp' }
-                ]
-            });
-
-            await cmd('Fetch.enable', { patterns: [{ urlPattern: replUrl }] });
-        }
+        const replUrl = new URL('repl.html?repl', replBase).toString();
 
         await cmd('Page.navigate', { url: replUrl });
 
@@ -781,7 +772,7 @@ chrome.on('error', e => {
 
         check('the REPL page starts with its query flag', replStarted,
             await ev(`(async () => JSON.stringify({
-                probe: await fetch('http://127.0.0.1:5090/compile/cell').then(r => r.status).catch(e => String(e)),
+                probe: await fetch('compile/cell').then(r => r.status).catch(e => String(e)),
                 isolated: self.crossOriginIsolated,
                 unavailable: !document.getElementById('unavailable').hidden,
                 monaco: typeof monaco,
@@ -832,3 +823,37 @@ chrome.on('error', e => {
     log(failures ? `${failures} failure(s)` : 'all checks passed');
     process.exit(failures ? 1 : 0);
 })();
+
+// What nginx does for the REPL page in production, and the .NET dev host does
+// not: the cross-origin isolation headers on every response, and the compile
+// service at `/compile` on the same origin.
+function startNginxStandIn() {
+    const http = require('http');
+
+    const server = http.createServer((request, response) => {
+        const port = request.url.startsWith('/compile') ? 5090 : 5080;
+
+        const upstream = http.request({
+            host: '127.0.0.1',
+            port,
+            path: request.url,
+            method: request.method,
+            headers: { ...request.headers, host: `127.0.0.1:${port}` }
+        }, answer => {
+            response.writeHead(answer.statusCode, {
+                ...answer.headers,
+                'cross-origin-opener-policy': 'same-origin',
+                'cross-origin-embedder-policy': 'require-corp'
+            });
+
+            answer.pipe(response);
+        });
+
+        upstream.on('error', () => response.writeHead(502).end());
+        request.pipe(upstream);
+    });
+
+    server.unref();
+
+    return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
+}
