@@ -30,7 +30,7 @@ USER playground
 WORKDIR /home/playground
 
 ARG GHUL_COMPILER_VERSION=61.0.0
-ARG GHUL_RUNTIME_VERSION=21.9.0
+ARG GHUL_RUNTIME_VERSION=21.11.0
 ARG GHUL_RASTER_VERSION=0.9.2
 
 RUN dotnet tool install --tool-path /home/playground/tools \

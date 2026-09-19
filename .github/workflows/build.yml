@@ -120,6 +120,9 @@ jobs:
       - name: Check the page works out where it is served from
         run: node test/base-path.mjs
 
+      - name: Check how the REPL reads a cell's output stream
+        run: node test/cell-output.mjs
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 

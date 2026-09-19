@@ -13,9 +13,20 @@ namespace Playground is
         _channel: CHANNEL;
         _captured: StringWriter;
 
+        _framed: bool;
+
         init(channel: CHANNEL, captured: StringWriter) is
             _channel = channel;
             _captured = captured;
+        si
+
+        // Framed, the stream also carries records - see DISPLAY_RECORDS - and
+        // the two characters that mark one out are replaced wherever the
+        // program writes them itself, so nothing it prints can read as one.
+        init(channel: CHANNEL, captured: StringWriter, framed: bool) is
+            _channel = channel;
+            _captured = captured;
+            _framed = framed;
         si
 
         encoding: System.Text.Encoding => System.Text.Encoding.utf8;
@@ -51,6 +62,22 @@ namespace Playground is
         si
 
         _emit(text: string) is
+            _raw(
+                if _framed then
+                    text
+                        .replace(DISPLAY_RECORDS.OPEN, DISPLAY_RECORDS.REPLACEMENT)
+                        .replace(DISPLAY_RECORDS.CLOSE, DISPLAY_RECORDS.REPLACEMENT)
+                else
+                    text
+                fi);
+        si
+
+        // A record, written as it stands, in its place among the output.
+        record(text: string) is
+            _raw(text);
+        si
+
+        _raw(text: string) is
             _captured.write(text);
             _channel.write(text);
         si
