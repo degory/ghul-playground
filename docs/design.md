@@ -217,7 +217,7 @@ errors the build does not, or miss errors the build reports.
 
 ## access tokens
 
-playground.ghul.dev runs without access tokens. Anyone can use it. Its
+The playground on ghul.dev runs without access tokens. Anyone can use it. Its
 audience is everyone who reads ghul.dev, and a shared token cannot be given to
 everyone without being public. The limits above bound the cost instead.
 `/health` reports `tokensRequired: false` there.

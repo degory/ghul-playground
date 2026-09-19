@@ -98,7 +98,7 @@ echo "not answer until one is created - and nothing is counted until then"
 echo "either, which is the safe half of this. See 'analytics' in the README:"
 echo
 echo "  docker compose exec goatcounter goatcounter db create site \\"
-echo "      -vhost=playground.ghul.dev -user.email=YOU@EXAMPLE.COM"
+echo "      -vhost=ghul.dev -user.email=YOU@EXAMPLE.COM"
 echo
 echo "It prompts for a password; that is the dashboard login. Site settings"
 echo "went with the old database, so anything changed from the defaults -"
