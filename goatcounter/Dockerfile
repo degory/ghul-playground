@@ -107,6 +107,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 #
 # -base-path is what lets GoatCounter live under a path on an existing domain
 # instead of claiming a subdomain of its own. It must agree with the location
-# block in deploy/nginx/playground.ghul.dev.conf.
+# block in deploy/nginx/ghul.dev.conf.
 ENTRYPOINT ["goatcounter", "serve"]
 CMD ["-listen=0.0.0.0:5092", "-tls=none", "-base-path=/stats", "-automigrate"]

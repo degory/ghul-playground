@@ -32,6 +32,6 @@
 # To check a decision took effect, from the network in question:
 #
 #     curl -s -o /dev/null -w '%{http_code}\n' \
-#         'https://playground.ghul.dev/stats/count?p=/exclusion-test'
+#         'https://ghul.dev/stats/count?p=/exclusion-test'
 #
 # 202 means excluded and not recorded; 200 means it was counted.

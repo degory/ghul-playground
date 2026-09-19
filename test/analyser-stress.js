@@ -7,7 +7,7 @@
 // every session, and the client's reconnect backs off for up to a minute.
 //
 //   node test/analyser-stress.js
-//   ANALYSE_URL=wss://playground.ghul.dev/analyse TOKEN=... node test/analyser-stress.js
+//   ANALYSE_URL=wss://ghul.dev/playground/analyse TOKEN=... node test/analyser-stress.js
 //
 // Exits non-zero if any request goes unanswered or the socket closes.
 

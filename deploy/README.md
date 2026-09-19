@@ -168,6 +168,10 @@ PLAYGROUND_TOKENS=
 ALLOWED_ORIGINS=https://ghul.dev,https://www.ghul.dev,https://playground.ghul.dev
 ```
 
+`https://playground.ghul.dev` stays in the list for as long as that host proxies
+the services, since a page opened there before the move still calls them from
+that origin. It goes when those proxies do.
+
 The playground runs open: `PLAYGROUND_TOKENS` is empty, so anyone may compile
 and run. That is deliberate - what bounds the load is the concurrency caps and
 the per-address limits in nginx, not authentication - and the services note at
@@ -274,11 +278,13 @@ what we intended. `host-setup.sh` is that statement.
 
 ## analytics
 
-GoatCounter, self-hosted, serving `playground.ghul.dev/stats`; both ghul.dev and
-this playground report to it. It runs under a path rather than a subdomain of
+GoatCounter, self-hosted, serving `ghul.dev/stats`; ghul.dev and this playground
+report to it as one site, whose vhost is `ghul.dev`. `playground.ghul.dev` still
+proxies `/stats/count` and `/stats/count.js` with that `Host`, for pages opened
+there before the move, and redirects the dashboard. It runs under a path rather than a subdomain of
 its own, which upstream supports through `-base-path`. The flag in
 `goatcounter/Dockerfile` and the `location` prefix in
-`nginx/playground.ghul.dev.conf` have to agree; neither works alone.
+`nginx/ghul.dev.conf` have to agree; neither works alone.
 
 Two things about it are worth knowing before touching the host.
 
@@ -323,7 +329,7 @@ nothing until one is created:
 
 ```sh
 docker compose exec goatcounter goatcounter db create site \
-    -vhost=playground.ghul.dev -user.email=YOU@EXAMPLE.COM
+    -vhost=ghul.dev -user.email=YOU@EXAMPLE.COM
 ```
 
 `deploy/reset-analytics.sh` wipes the history and starts again from empty. It is
@@ -355,7 +361,7 @@ lives at `/opt/ghul-playground/.env`, outside the web root, so it is not
 reachable. Today it holds only the origin list, but it is also where the access
 tokens would live if the gate were re-enabled, so keep it there. Worth
 re-checking with
-`curl -s -o /dev/null -w '%{http_code}' https://playground.ghul.dev/.env` after
+`curl -s -o /dev/null -w '%{http_code}' https://ghul.dev/.env` after
 any change to the nginx roots.
 
 ## who does the deploying

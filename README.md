@@ -3,8 +3,9 @@
 Edit [ghūl](https://ghul.dev) in the browser, with diagnostics, hover and
 completion as you type. Compile it, and run it in the browser.
 
-It runs at [playground.ghul.dev](https://playground.ghul.dev) and is embedded in
-the examples on [ghul.dev](https://ghul.dev). The server compiles the source and
+It runs at [ghul.dev/playground](https://ghul.dev/playground/), with a REPL at
+[ghul.dev/repl](https://ghul.dev/repl/), and is embedded in the examples on
+[ghul.dev](https://ghul.dev). The server compiles the source and
 sends the assembly to the browser, which runs it. The server never runs what it
 compiles. [docs/design.md](docs/design.md) explains the design and the limits.
 
@@ -128,7 +129,7 @@ services directly when run outside it. None of these is set for local use.
 
 | | |
 | --- | --- |
-| `PLAYGROUND_TOKENS` | comma-separated shared tokens; unset, the services are open, which is how playground.ghul.dev runs |
+| `PLAYGROUND_TOKENS` | comma-separated shared tokens; unset, the services are open, which is how ghul.dev runs them |
 | `ALLOWED_ORIGINS` | the sites that may drive the services from a browser; unset, any |
 | `MAX_CONCURRENT_COMPILES`, `MAX_QUEUED_COMPILES`, `COMPILE_TIMEOUT_MS` | compile service caps |
 | `REPL_ENABLED`, `MAX_CELLS`, `MAX_CHAIN_BYTES`, `CELL_CACHE_DIR`, `CELL_CACHE_BYTES`, `CELL_TOOLCHAIN_SALT` | session cells: off unless `REPL_ENABLED` is 1; see docs/design.md. The analyse service reads `REPL_ENABLED`, `MAX_CELLS` and `CELL_CACHE_DIR` too, and has to be given the directory the compile service writes |
