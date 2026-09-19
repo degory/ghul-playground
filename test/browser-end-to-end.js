@@ -939,6 +939,95 @@ chrome.on('error', e => {
                 rendered.record.shown.startsWith('PAIRING('),
                 JSON.stringify(rendered));
 
+            // A cell's output appears as it is written, not only once it ends.
+            const lastResult = `[...document.querySelectorAll('.entry')].at(-1).querySelector('.result').innerText`;
+
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue(${JSON.stringify(
+                'IO.Std.write_line("first"); System.Threading.Thread.sleep(3000); IO.Std.write_line("second");')}); return true; })()`);
+            await ev(`document.getElementById('run').click(); true`);
+
+            let seenMidway = null;
+
+            for (let i = 0; i < 200; i++) {
+                const now = await ev(`JSON.stringify({ running: document.getElementById('run').hasAttribute('data-stop'), text: ${lastResult} })`);
+                const { running, text } = JSON.parse(now);
+
+                if (running && text.includes('first')) {
+                    seenMidway = text;
+                    break;
+                }
+
+                await sleep(100);
+            }
+
+            for (let i = 0; i < 200; i++) {
+                if (await ev(`!document.getElementById('run').hasAttribute('data-busy') && !document.getElementById('run').hasAttribute('data-stop')`)) break;
+                await sleep(150);
+            }
+
+            const finished = await ev(lastResult);
+
+            check('a running cell shows what it has written so far',
+                seenMidway !== null && !seenMidway.includes('second') && finished === 'first\nsecond',
+                JSON.stringify({ seenMidway, finished }));
+
+            // A lot of output, fast: none of it lost or repeated, the last line
+            // included, and the page answering while it arrives.
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue(${JSON.stringify(
+                'for i in 0..100000 do IO.Std.write_line("line {i}"); od')}); return true; })()`);
+            await ev(`document.getElementById('run').click(); true`);
+
+            let slowest = 0;
+
+            for (let i = 0; i < 600; i++) {
+                const asked = Date.now();
+                const done = await ev(`!document.getElementById('run').hasAttribute('data-busy') && !document.getElementById('run').hasAttribute('data-stop')`);
+
+                slowest = Math.max(slowest, Date.now() - asked);
+
+                if (done) break;
+                await sleep(100);
+            }
+
+            const flood = await ev(`(() => {
+                const lines = ${lastResult}.split('\\n');
+                return JSON.stringify({ count: lines.length, first: lines[0], last: lines.at(-1), distinct: new Set(lines).size });
+            })()`);
+
+            const floodResult = JSON.parse(flood);
+
+            check('a cell writing 100,000 lines shows each exactly once, and the page stays responsive',
+                floodResult.count === 100000 && floodResult.distinct === 100000 &&
+                floodResult.first === 'line 0' && floodResult.last === 'line 99999' && slowest < 2000,
+                JSON.stringify({ ...floodResult, slowest }));
+
+            const thrown = await submit('IO.Std.write_line("before"); throw System.Exception("boom");');
+
+            check('a cell that throws shows its output and then the error',
+                thrown.startsWith('before\n') && thrown.includes('boom'), JSON.stringify(thrown));
+
+            // Stopped mid-cell, what it had already written stays.
+            await ev(`(() => { monaco.editor.getEditors()[0].setValue(${JSON.stringify(
+                'IO.Std.write_line("kept"); let n mut = 0; while true do n = n + 1; od')}); return true; })()`);
+            await ev(`document.getElementById('run').click(); true`);
+
+            for (let i = 0; i < 200; i++) {
+                if (await ev(`document.getElementById('run').hasAttribute('data-stop') && ${lastResult}.includes('kept')`)) break;
+                await sleep(100);
+            }
+
+            await ev(`document.getElementById('run').click(); true`);
+
+            for (let i = 0; i < 100; i++) {
+                if (await ev(`!document.getElementById('run').hasAttribute('data-stop')`)) break;
+                await sleep(100);
+            }
+
+            const afterStop = await ev(lastResult);
+
+            check('stopping a cell keeps what it had written',
+                afterStop.startsWith('kept') && afterStop.includes('stopped'), JSON.stringify(afterStop));
+
         }
     }
 

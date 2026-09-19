@@ -8,6 +8,10 @@ import { GhulLanguageClient } from './lsp.js'
 import { getToken, setToken, askForToken } from './token.js'
 import { defineThemes, themeName } from './theme.js'
 import { LiveOutput } from './live-output.js'
+import {
+    OUTPUT_WRITTEN, OUTPUT_TRUNCATED, INPUT_TURN, INPUT_READY, INPUT_LENGTH, INPUT_CAPACITY,
+    channelViews, readOutput
+} from './channel.js'
 
 // Deployed, both services sit behind the same reverse proxy that serves this
 // page, beside its files, so same-origin paths avoid CORS entirely and follow
@@ -99,20 +103,6 @@ function loadMonaco() {
     return monacoLoaded;
 }
 
-// Slots in the channel's control block. Playground.CHANNEL in the runner has
-// the same list and the two have to agree; see that file for why everything
-// crossing this boundary crosses through memory rather than through a call.
-const OUTPUT_WRITTEN = 0;
-const OUTPUT_TRUNCATED = 1;
-const INPUT_TURN = 2;
-const INPUT_READY = 3;
-const INPUT_LENGTH = 4;
-const OUTPUT_ADDRESS = 5;
-const OUTPUT_CAPACITY = 6;
-const INPUT_ADDRESS = 7;
-const INPUT_CAPACITY = 8;
-const CONTROL_SLOTS = 9;
-
 // How often the page looks at the control block while a program runs. It is
 // reading a counter out of memory, so this is cheap; what it bounds is how far
 // behind the output can be and how long after a program asks for input the box
@@ -135,27 +125,7 @@ function loadRuntime() {
             const exports = await api.getAssemblyExports(api.getConfig().mainAssemblyName);
             const address = await exports.GhulRunner.OpenChannel();
 
-            // Rebuilt whenever the runtime's memory grows: growing replaces the
-            // buffer, which leaves every view made over the old one detached
-            // and reading zero. Nothing announces that, so the check is on
-            // every use rather than wired to an event.
-            let over = null;
-            let control = null;
-            let output = null;
-            let input = null;
-
-            const views = () => {
-                const heap = api.Module.HEAPU8.buffer;
-
-                if (heap !== over) {
-                    over = heap;
-                    control = new Int32Array(heap, address, CONTROL_SLOTS);
-                    output = new Uint16Array(heap, control[OUTPUT_ADDRESS], control[OUTPUT_CAPACITY]);
-                    input = new Uint16Array(heap, control[INPUT_ADDRESS], control[INPUT_CAPACITY]);
-                }
-
-                return { control, output, input };
-            };
+            const views = channelViews(api.Module, address);
 
             // The runtime's filesystem, where a program's data files are put
             // for it to open.
@@ -166,19 +136,6 @@ function loadRuntime() {
     }
 
     return runtime;
-}
-
-// The buffers carry UTF-16, which is what a JavaScript string already is, so
-// there is nothing to decode - but a very long run cannot go through apply() in
-// one call without overflowing the argument stack.
-function readOutput(output, from, to) {
-    let text = '';
-
-    for (let at = from; at < to; at += 8192) {
-        text += String.fromCharCode.apply(null, output.subarray(at, Math.min(at + 8192, to)));
-    }
-
-    return text;
 }
 
 // An animation shows one name hundreds of times, and at the end of a run each
