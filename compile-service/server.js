@@ -21,6 +21,7 @@ const { resolveCompiler, resolveReferencePaths } = require('../shared/toolchain'
 const { MAX_SOURCE_BYTES } = require('../shared/limits');
 const origins = require('../shared/origins');
 const tokens = require('../shared/tokens');
+const cells = require('./cells');
 
 const PORT = Number(process.env.PORT ?? 5090);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -37,6 +38,20 @@ const COMPILE_TIMEOUT_MS = Number(process.env.COMPILE_TIMEOUT_MS ?? 10000);
 // service is busy, not a request that waits a minute and then times out.
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT_COMPILES ?? 2);
 const MAX_QUEUED = Number(process.env.MAX_QUEUED_COMPILES ?? 6);
+
+// The cells of an interactive session (see cells.js) are served only where
+// this is set: with it unset the endpoint does not exist, whatever a page asks
+// for. A cell request carries the source of every cell before it, so it has
+// limits of its own on the number of cells and their total size.
+const REPL_ENABLED = process.env.REPL_ENABLED === '1';
+const MAX_CELLS = Number(process.env.MAX_CELLS ?? 50);
+const MAX_CHAIN_BYTES = Number(process.env.MAX_CHAIN_BYTES ?? 256 * 1024);
+const CELL_CACHE_DIR = process.env.CELL_CACHE_DIR ?? path.join(tmpdir(), 'ghul-cells');
+const CELL_CACHE_BYTES = Number(process.env.CELL_CACHE_BYTES ?? 64 * 1024 * 1024);
+
+// The request body as JSON can be up to six times its source when every
+// character needs escaping, plus the names and punctuation around each cell.
+const MAX_CELL_REQUEST_BYTES = MAX_CHAIN_BYTES * 6 + MAX_CELLS * 64;
 
 // `file: LINE,COL..LINE,COL: severity: message`
 const DIAGNOSTIC = /^(.*?):\s*(\d+),(\d+)\.\.(\d+),(\d+):\s*(error|warn|info|hint):\s*(.*)$/;
@@ -124,6 +139,48 @@ async function withSlot(work) {
         return await work();
     } finally {
         releaseSlot();
+    }
+}
+
+let cellState = null;
+
+// The cache and the identity of the toolchain it is keyed on, made once, on
+// the first cell request; requests arriving together share the one promise.
+function getCellState() {
+    cellState ??= (async () => {
+        const { compiler, references } = await getToolchain();
+
+        return {
+            cache: await new cells.CellCache(CELL_CACHE_DIR, CELL_CACHE_BYTES).init(),
+            toolchainId: await cells.toolchainIdentity({
+                compiler, references, flags: ['--compile-server'],
+                salt: process.env.CELL_TOOLCHAIN_SALT
+            })
+        };
+    })();
+
+    return cellState;
+}
+
+async function compileCell(request) {
+    const toolchain = await getToolchain();
+    const { cache, toolchainId } = await getCellState();
+    const directory = await mkdtemp(path.join(tmpdir(), 'ghul-playground-cell-'));
+
+    const keys = cells.chainKeys(toolchainId, request);
+
+    try {
+        const result = await cells.compileCells({
+            cells: request, keys, cache, toolchain, directory,
+            timeoutMs: COMPILE_TIMEOUT_MS
+        });
+
+        // The keys are how the page later names these cells to the analyse
+        // service. Knowing one gives nothing but the assembly this service
+        // built from the sources that hash to it.
+        return result.ok ? { ...result, keys } : result;
+    } finally {
+        await rm(directory, { recursive: true, force: true });
     }
 }
 
@@ -227,16 +284,24 @@ http.createServer((request, response) => {
                 ok: state.ok,
                 error: state.error ?? undefined,
                 tokensRequired: tokens.required,
-                maxSourceBytes: MAX_SOURCE_BYTES
+                maxSourceBytes: MAX_SOURCE_BYTES,
+                repl: REPL_ENABLED
+                    ? { maxCells: MAX_CELLS, maxChainBytes: MAX_CHAIN_BYTES }
+                    : undefined
             }));
         });
         return;
     }
 
-    if (request.method !== 'POST' || !request.url.startsWith('/compile')) {
+    const isCell = request.method === 'POST' && request.url.startsWith('/compile/cell');
+
+    // Off unless enabled, and off means absent rather than refused.
+    if ((isCell && !REPL_ENABLED) || request.method !== 'POST' || !request.url.startsWith('/compile')) {
         response.writeHead(404).end('not found');
         return;
     }
+
+    const maxBodyBytes = isCell ? MAX_CELL_REQUEST_BYTES : MAX_SOURCE_BYTES;
 
     if (!origins.accepts(request.headers.origin)) {
         response.writeHead(403, { 'content-type': 'application/json' });
@@ -266,12 +331,14 @@ http.createServer((request, response) => {
     request.on('data', chunk => {
         body += chunk;
 
-        if (body.length > MAX_SOURCE_BYTES) {
+        if (body.length > maxBodyBytes) {
             aborted = true;
             response.writeHead(413, { 'content-type': 'application/json' });
             response.end(JSON.stringify({
                 ok: false, diagnostics: [], assembly: null,
-                error: `a program here is limited to ${Math.floor(MAX_SOURCE_BYTES / 1024)} KB`
+                error: isCell
+                    ? `a session here is limited to ${Math.floor(MAX_CHAIN_BYTES / 1024)} KB of source`
+                    : `a program here is limited to ${Math.floor(MAX_SOURCE_BYTES / 1024)} KB`
             }));
             request.destroy();
         }
@@ -281,21 +348,45 @@ http.createServer((request, response) => {
         if (aborted) return;
 
         try {
-            const source = JSON.parse(body).source ?? '';
+            let work;
+
+            if (isCell) {
+                // Checked in full before it waits for a slot, so a request
+                // over a limit costs a parse and nothing else.
+                const request = cells.parseCellRequest(body, {
+                    maxCells: MAX_CELLS, maxChainBytes: MAX_CHAIN_BYTES
+                });
+
+                work = () => compileCell(request);
+            } else {
+                const source = JSON.parse(body).source ?? '';
+
+                work = () => compile(source);
+            }
 
             const result = await withSlot(() => {
                 // The wait may have outlasted the client. Compiling for a
                 // socket that has gone would spend a slot on nobody.
                 if (clientGone) return null;
 
-                return compile(source);
+                return work();
             });
 
             if (result === null) return;
 
-            response.writeHead(200, { 'content-type': 'application/json' });
+            // A session whose earlier cells no longer compile - the toolchain
+            // changed under it - has to be started again.
+            response.writeHead(result.sessionBroken ? 409 : 200, { 'content-type': 'application/json' });
             response.end(JSON.stringify(result));
         } catch (e) {
+            if (e instanceof cells.BadRequest) {
+                response.writeHead(e.status, { 'content-type': 'application/json' });
+                response.end(JSON.stringify({
+                    ok: false, diagnostics: [], assembly: null, error: e.message
+                }));
+                return;
+            }
+
             if (e instanceof Busy) {
                 response.writeHead(503, {
                     'content-type': 'application/json',
@@ -320,6 +411,10 @@ http.createServer((request, response) => {
     console.log(`compile service on http://${HOST}:${PORT}`);
     console.log(`at most ${MAX_CONCURRENT} compile(s) at once, ${MAX_QUEUED} queued, ` +
         `${COMPILE_TIMEOUT_MS} ms each, ${MAX_SOURCE_BYTES} bytes of source`);
+    console.log(REPL_ENABLED
+        ? `session cells ENABLED: at most ${MAX_CELLS} cells, ${MAX_CHAIN_BYTES} bytes of source, ` +
+            `a ${CELL_CACHE_BYTES} byte cache in ${CELL_CACHE_DIR}`
+        : 'session cells disabled (REPL_ENABLED is unset)');
     console.log(tokens.describe());
     console.log(origins.describe());
 });
