@@ -10,14 +10,20 @@ const { readdir } = require('fs/promises');
 const { existsSync } = require('fs');
 const path = require('path');
 
-// What user code can name. The test for an entry is whether it *runs* in the
-// wasm host, not whether it is safe: nothing here reaches the server, which
-// only compiles, and the browser sandbox is what bounds the program. Two
-// families stay out on that test alone. `System.Runtime.InteropServices.JavaScript`
-// would let a program script the hosting page, and it is the one exclusion
-// that matters to anyone but the author. `System.Net.Http` is the browser's
-// fetch, which makes every visitor's browser a network egress under our
-// origin.
+// What user code can name. The host is published untrimmed, so every
+// framework assembly is already downloaded by every visitor whatever this
+// list says: the list is a compile-time whitelist, and adding to it costs
+// no download.
+//
+// What may be named is what cannot reach the network, another process,
+// native code, or code generated at run time. So `System.Net.Http` stays
+// out - it is the browser's fetch, which makes every visitor's browser a
+// network egress under our origin - and so do the rest of `System.Net`,
+// `System.Diagnostics.Process`, `System.Data`, `System.Reflection.Emit`
+// and `System.Linq.Expressions`.
+// `System.Runtime.InteropServices.JavaScript` would let a program script
+// the hosting page, and it is the one exclusion that matters to anyone but
+// the author.
 //
 // This does NOT deny the filesystem: `System.Runtime` type-forwards the
 // `System.IO` surface and cannot be dropped, so `IO.File.read_all_text`
@@ -49,6 +55,11 @@ const REFERENCES = [
     'System.Xml.XPath',
     'System.Xml.XPath.XDocument',
     'System.Security.Cryptography',
+    'System.Collections.Immutable',
+    'System.Numerics.Vectors',
+    'System.Threading.Channels',
+    'System.Web.HttpUtility',
+    'System.Drawing.Primitives',
     'System.Threading',
     // The program runs on a worker thread, so Thread.sleep pauses it without
     // stopping the page - which is how an animation paces its frames.
@@ -65,7 +76,9 @@ const REFERENCES = [
     // closure of System.Xml.XPath.XDocument and System.Security.Cryptography
     'System.Xml.Linq',
     'System.Formats.Asn1',
-    'System.Collections.NonGeneric'
+    'System.Collections.NonGeneric',
+    // closure of System.Web.HttpUtility
+    'System.Collections.Specialized'
 ];
 
 function highestVersion(versions) {
