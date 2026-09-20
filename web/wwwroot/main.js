@@ -5,6 +5,7 @@ import { createPlayground, replOffered } from './playground.js'
 import { replPageUrl } from './repl-route.js'
 import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
+import { parseArguments, renderArguments } from './arguments.js'
 import * as files from './files.js'
 import { countEvent, band } from './events.js'
 
@@ -12,6 +13,8 @@ import { countEvent, band } from './events.js'
 const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
 
 const runButton = document.getElementById('run');
+const argumentsRow = document.getElementById('arguments-row');
+const argumentsInput = document.getElementById('arguments');
 const runLabel = document.getElementById('run-label');
 const inputRow = document.getElementById('input-row');
 const stdin = document.getElementById('stdin');
@@ -532,6 +535,12 @@ if (notice) {
     showTab(outputPane);
 }
 
+// A task that names the arguments it is run with shows them, so a reader sees
+// what it is being given and can change it. Without this the page would run
+// such a task with nothing and show it doing nothing much, which is what it
+// did before there was a field.
+if (program?.arguments?.length) showArguments(program.arguments);
+
 // Ask up front rather than letting the analyser fail quietly and the first run
 // come back rejected - but only where the services actually want a token.
 if (await playground.tokenRequired() && !playground.hasToken()) {
@@ -584,12 +593,48 @@ function countOutcome(outcome) {
     count('playground-result', outcome);
 }
 
+// The command line the program is run with. Read from the field on every run
+// rather than held, because the reader can have changed it since the last one,
+// and never recorded anywhere: what somebody types is theirs.
+const programArguments = () =>
+    argumentsRow.hidden ? [] : parseArguments(argumentsInput.value);
+
+// Shown for a task that carries arguments of its own, and otherwise only when
+// the reader asks. A program that takes none looks exactly as it did.
+function showArguments(args = null) {
+    if (args) argumentsInput.value = renderArguments(args);
+
+    argumentsRow.hidden = false;
+}
+
+// That the field was used at all, once per page load. What is in it is never
+// recorded: an argument is something a reader typed, which no event carries.
+let argumentsCounted = false;
+
+function countArguments() {
+    if (argumentsCounted) return;
+
+    argumentsCounted = true;
+
+    count('playground-action', 'arguments');
+}
+
+// Enter in the field runs the program, which is what a reader who has just
+// changed an argument means by it. Without this the form would reload the page.
+argumentsRow.addEventListener('submit', event => {
+    event.preventDefault();
+
+    if (!isRunning()) runProgram();
+});
+
+argumentsInput.addEventListener('input', countArguments);
+
 function runProgram({ automatic = false } = {}) {
     inFlight = { at: performance.now(), stopped: false, counted: false };
 
     count('playground-run', `${automatic ? 'automatic' : 'manual'}/${provenance?.name ?? 'editor'}`);
 
-    playground.run();
+    playground.run(programArguments());
 }
 
 runButton.addEventListener('click', () => {
@@ -814,6 +859,13 @@ saveItem.addEventListener('click', () => {
 document.getElementById('file-save-as').addEventListener('click', () => {
     count('playground-action', 'save-file-as');
     saveFileAs();
+});
+
+document.getElementById('file-arguments').addEventListener('click', () => {
+    closeMenu();
+    countArguments();
+    showArguments();
+    argumentsInput.focus();
 });
 
 // Taken off the browser, which would otherwise save or open the page. Monaco

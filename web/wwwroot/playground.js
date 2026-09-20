@@ -384,7 +384,10 @@ export async function createPlayground({
         reportDiagnostics();
     }
 
-    async function run() {
+    // `args` is what the program receives as its command line. It is handed
+    // in per run rather than held here, because it is the page's field and the
+    // reader can have changed it since the last one.
+    async function run(args = []) {
         onOutput('');
         onImages([]);
 
@@ -545,7 +548,11 @@ export async function createPlayground({
             let produced;
 
             try {
-                produced = JSON.parse(await exports.GhulRunner.Run(result.assembly));
+                // Each argument is followed by a newline rather than joined
+                // by one, so that no arguments and one empty argument are
+                // different strings rather than both being empty.
+                produced = JSON.parse(await exports.GhulRunner.Run(
+                    result.assembly, (args ?? []).map(argument => `${argument}\n`).join('')));
             } finally {
                 clearInterval(watch);
 

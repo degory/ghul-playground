@@ -9,6 +9,8 @@
 // cross-origin requests. raw.githubusercontent.com does, and unlike the
 // GitHub API it is not held to 60 requests an hour.
 
+import { argumentsFromFile } from './arguments.js'
+
 const ROSETTA_CODE_ROOT = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
 const ROSETTA_CODE = `${ROSETTA_CODE_ROOT}tasks`;
 
@@ -20,8 +22,10 @@ const COLLECTIONS = {
     // way, tasks/<slug>/<NN-part>/<NN-part>.ghul. A solution the playground
     // cannot run carries a playground-unsupported file giving the reason, and
     // one that reads files names them in playground-files, one path per line
-    // relative to the task's directory. The task's own directory holds
-    // task.json, whose task field is the task's name on the wiki.
+    // relative to the task's directory. One that takes command-line arguments
+    // names them in run.args, one argument per line, which is the file the test
+    // runner uses. The task's own directory holds task.json, whose task field
+    // is the task's name on the wiki.
     'rosetta-code': {
         pattern: /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/([0-9]{2}(?:-[a-z0-9]+)+))?$/,
 
@@ -32,6 +36,7 @@ const COLLECTIONS = {
                 source: `${directory}/${part ?? slug}.ghul`,
                 unsupported: `${directory}/playground-unsupported`,
                 files: `${directory}/playground-files`,
+                arguments: `${directory}/run.args`,
                 root: ROSETTA_CODE_ROOT,
                 about: `${ROSETTA_CODE}/${slug}/task.json`,
                 page: `${ROSETTA_EXPLORER}/${slug}`
@@ -67,7 +72,8 @@ export function requestedProgram(pathname) {
 }
 
 // The program's source, the reason it will not run here if it carries one,
-// the files it reads, and its title where the collection gives one. Throws with a message fit to show the reader.
+// the files it reads, the arguments it is run with, and its title where the
+// collection gives one. Throws with a message fit to show the reader.
 export async function loadProgram(request, fetchImpl = fetch) {
     if (request.error) throw new Error(request.error);
 
@@ -77,13 +83,15 @@ export async function loadProgram(request, fetchImpl = fetch) {
     let unsupported;
     let manifest;
     let about;
+    let runArgs;
 
     try {
-        [source, unsupported, manifest, about] = await Promise.all([
+        [source, unsupported, manifest, about, runArgs] = await Promise.all([
             get(request.source),
             get(request.unsupported),
             get(request.files),
-            get(request.about)
+            get(request.about),
+            get(request.arguments)
         ]);
     } catch (e) {
         throw new Error(`could not load ${request.name}: ${e.message}`);
@@ -126,6 +134,9 @@ export async function loadProgram(request, fetchImpl = fetch) {
         source: await source.text(),
         unsupported: unsupported.ok ? (await unsupported.text()).trim() : null,
         files,
+        // The arguments the task is run with, as its own run.args gives them:
+        // one a line. A task that takes none has no such file, and gets none.
+        arguments: runArgs.ok ? argumentsFromFile(await runArgs.text()) : [],
         ...(error ? { error } : {})
     };
 }

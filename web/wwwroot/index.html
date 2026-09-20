@@ -208,6 +208,37 @@
 
     .empty { color: var(--fg-muted); font-style: italic; }
 
+    #arguments-row[hidden] { display: none; }
+
+    #arguments-row {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #arguments-row label {
+      flex: none;
+      color: var(--fg-muted);
+      font-size: 0.75rem;
+    }
+
+    #arguments-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.15rem 0.4rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: inherit;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+
+    #arguments-row input::placeholder { color: var(--fg-muted); opacity: 0.7; }
+
     #about-program[hidden] { display: none; }
 
     #about-program {
@@ -436,6 +467,7 @@
         <button id="file-open" role="menuitem">Open<kbd>Ctrl+O</kbd></button>
         <button id="file-save" role="menuitem"><span id="file-save-label">Save</span><kbd>Ctrl+S</kbd></button>
         <button id="file-save-as" role="menuitem">Save as</button>
+        <button id="file-arguments" role="menuitem">Command-line arguments</button>
         <p id="file-note"></p>
       </div>
     </div>
@@ -518,6 +550,20 @@
           <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0h10L5 6z" /></svg>
         </button>
       </div>
+
+      <!-- What the program is run with, for the few that take a command line.
+           Above the output rather than below it, because it is an input to the
+           run: the box below is for a program that is already running and asks
+           for a line. Hidden unless the task opened here carries arguments of
+           its own, or the reader asks for it from the File menu, so a page for
+           a program that takes none looks exactly as it did. -->
+      <form id="arguments-row" hidden>
+        <label for="arguments">arguments</label>
+        <input id="arguments" type="text" autocomplete="off" autocapitalize="off"
+               spellcheck="false" autocorrect="off"
+               placeholder="separated by spaces; quote one that contains a space"
+               aria-label="Command-line arguments for the program">
+      </form>
 
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
       <pre id="output" role="tabpanel" hidden><span class="empty">Run the program to see its output here.</span></pre>

@@ -53,12 +53,18 @@ partial class GhulRunner
     // reads a line blocks the thread it is on until somebody types - which is
     // fine for a pool thread and would be the runtime's own interop thread
     // otherwise.
+    //
+    // `arguments` is what the program receives as its command line, one a
+    // line: a string rather than a string[] because the interop surface is
+    // plain strings, and a newline rather than anything richer because no
+    // argument can contain one - the page's field is a single line and a
+    // task's run.args is one argument a line.
     [JSExport]
-    internal static Task<string> Run(string base64) => Task.Run(() =>
+    internal static Task<string> Run(string base64, string arguments) => Task.Run(() =>
     {
         try
         {
-            return (string)Runner.Invoke(null, new object[] { base64 })!;
+            return (string)Runner.Invoke(null, new object[] { base64, arguments })!;
         }
         catch (Exception e)
         {
