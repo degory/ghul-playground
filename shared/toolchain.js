@@ -60,6 +60,7 @@ const REFERENCES = [
     'System.Threading.Channels',
     'System.Web.HttpUtility',
     'System.Drawing.Primitives',
+    'System.IO.Compression',
     'System.Threading',
     // The program runs on a worker thread, so Thread.sleep pauses it without
     // stopping the page - which is how an animation paces its frames.
