@@ -77,6 +77,20 @@
       .entry .result, #hint { margin-left: 2.5rem; }
     }
   </style>
+
+  <!-- The counter, as the playground page loads it. Without it the events this
+       page sends have nowhere to go: the helper waits for this element to load
+       and it never appears, so every one of them is queued for ever.
+
+       The paths are absolute rather than relative to this page's base, because
+       the counter is mounted at the origin's own /stats/ and is shared with the
+       documentation site.
+
+       Readers who do not want to be counted can visit /#toggle-goatcounter once
+       per browser; the flag is per-origin and this page shares ghul.dev's
+       origin, so setting it there covers this page too. -->
+  <script id="goatcounter" data-goatcounter="/stats/count"
+          async src="/stats/count.js"></script>
 </head>
 
 <body>
