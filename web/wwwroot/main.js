@@ -759,8 +759,12 @@ async function swapTo(name, { counted = null, push = true } = {}) {
     provenance = next;
 
     playground.setFiles(loaded.files);
-    playground.setSource(loaded.source);
+
+    // Recorded before the buffer is written, because writing it runs the
+    // change handler, which has to be able to tell this from an edit.
     loadedSource = loaded.source;
+
+    playground.setSource(loaded.source);
 
     renderProgram();
 
@@ -956,7 +960,10 @@ playground.editor.onDidChangeModelContent(event => {
 
     sourceLength = source.length;
 
-    if (replaced || !source.trim()) forgetProvenance();
+    // Replacing the whole buffer with the program that was just loaded is how a
+    // swap delivers it, not a reader throwing the program away - and giving up
+    // the path here would undo the provenance the swap has just set.
+    if (source !== loadedSource && (replaced || !source.trim())) forgetProvenance();
 
     clearTimeout(saveDebounce);
     saveDebounce = setTimeout(() => {
