@@ -932,7 +932,7 @@ chrome.on('error', e => {
     const line = await ev(`document.getElementById('about-program').innerText`) ?? '';
 
     check('the line says which part this is', line.includes('part 1 of 2'), JSON.stringify(line));
-    check('and offers the next one by name', line.includes('next: the second way'), JSON.stringify(line));
+    check('and offers the next one by name', line.includes('next: The second way'), JSON.stringify(line));
     check('and offers no previous one from the first part', !line.includes('previous'), JSON.stringify(line));
 
     await ev(`[...document.querySelectorAll('#about-program a')]
@@ -947,7 +947,7 @@ chrome.on('error', e => {
     const second = await ev(`document.getElementById('about-program').innerText`) ?? '';
 
     check('and the line now offers the previous part instead',
-        second.includes('part 2 of 2') && second.includes('previous: the first way')
+        second.includes('part 2 of 2') && second.includes('previous: The first way')
         && !second.includes('next:'), JSON.stringify(second));
 
     // --- what a swap counts ------------------------------------------------

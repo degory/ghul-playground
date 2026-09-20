@@ -259,16 +259,24 @@
        program asks for a line. */
     #more-to-run[hidden] { display: none; }
 
+    /* The heading sits beside the cards rather than above them: the pane is
+       short, and a row of its own would come out of the output the reader is
+       looking at. It wraps above them when there is no room. */
     #more-to-run {
+      display: flex;
       flex: none;
-      padding: 0.5rem 1rem 0.7rem;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.3rem 0.6rem;
+      padding: 0.4rem 1rem 0.45rem;
       border-top: 1px solid var(--border);
     }
 
     #more-to-run h2 {
-      margin: 0 0 0.4rem;
+      flex: none;
+      margin: 0;
       color: var(--fg-muted);
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       font-weight: 600;
       letter-spacing: 0.04em;
       text-transform: uppercase;
@@ -276,22 +284,25 @@
 
     #more-to-run ul {
       display: flex;
+      flex: 1 1 20rem;
       flex-wrap: wrap;
-      gap: 0.4rem;
+      gap: 0.35rem;
       margin: 0;
       padding: 0;
       list-style: none;
     }
 
-    /* Each card takes a third of the row and shrinks with it, down to a width
-       below which the titles stop being readable, at which point they wrap. */
-    #more-to-run li { flex: 1 1 11rem; min-width: 0; }
+    /* Each card takes a share of the row and shrinks with it, down to a width
+       below which the titles stop being readable, at which point they wrap. The
+       cap is for a strip with fewer than three to offer, where cards that grew
+       to fill the row would read as one wide thing rather than as a choice. */
+    #more-to-run li { flex: 1 1 11rem; min-width: 0; max-width: 24rem; }
 
     #more-to-run button {
       display: block;
       width: 100%;
       height: 100%;
-      padding: 0.4rem 0.6rem;
+      padding: 0.25rem 0.5rem;
       border: 1px solid var(--border);
       border-radius: 4px;
       background: none;
@@ -307,7 +318,8 @@
 
     #more-to-run .title {
       display: block;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
+      line-height: 1.35;
       /* One line: a wrapped title makes the three cards different heights,
          and the whole title is on the card's tooltip anyway. */
       overflow: hidden;
@@ -317,10 +329,10 @@
 
     #more-to-run .why {
       display: block;
-      margin-top: 0.15rem;
       overflow: hidden;
       color: var(--fg-muted);
-      font-size: 0.7rem;
+      font-size: 0.68rem;
+      line-height: 1.3;
       text-overflow: ellipsis;
       white-space: nowrap;
     }

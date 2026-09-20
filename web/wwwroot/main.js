@@ -586,13 +586,6 @@ function taskAndPart(name) {
     return { slug, id: part ? `${slug}/${part}` : slug };
 }
 
-// A part's heading as it reads mid-sentence, since that is where the line puts
-// it. Only the first letter, and only when the word carries on in lower case,
-// so a heading that begins with a name or an acronym is left as it was.
-function midSentence(heading) {
-    return /^[A-Z][a-z]/.test(heading) ? heading[0].toLowerCase() + heading.slice(1) : heading;
-}
-
 function link(text, href, counted) {
     const a = Object.assign(document.createElement('a'),
         { textContent: text, href, target: '_blank', rel: 'noopener' });
@@ -653,12 +646,12 @@ function renderAbout() {
         const next = parts[at + 1];
 
         if (previous) {
-            aboutProgram.append(' · ', swapLink(`← previous: ${midSentence(previous.heading ?? 'the part before')}`,
+            aboutProgram.append(' · ', swapLink(`← previous: ${previous.heading ?? 'the part before'}`,
                 `${provenance.name.split('/')[0]}/${previous.id}`, { family: 'rosetta-part', detail: 'previous' }));
         }
 
         if (next) {
-            aboutProgram.append(' · ', swapLink(`next: ${midSentence(next.heading ?? 'the part after')} →`,
+            aboutProgram.append(' · ', swapLink(`next: ${next.heading ?? 'the part after'} →`,
                 `${provenance.name.split('/')[0]}/${next.id}`, { family: 'rosetta-part', detail: 'next' }));
         }
     } else {
