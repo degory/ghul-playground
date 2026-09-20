@@ -123,6 +123,9 @@ jobs:
       - name: Check how the REPL reads a cell's output stream
         run: node test/cell-output.mjs
 
+      - name: Check every page that sends events loads the counter
+        run: node test/counted-pages.mjs
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 
