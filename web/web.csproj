@@ -70,6 +70,24 @@
        publish, so without this the dev server comes up serving a site with no
        editor and no error, and everything downstream fails in ways that look
        like whatever you were working on. -->
+  <!-- What the trimmer may not touch, taken from the same list the compile
+       service compiles against. Generated rather than written out again: a
+       reference the editor accepts whose assembly the trimmer removed is a
+       program that compiles and then fails to load, so the two lists have to be
+       one list. -->
+  <Target Name="WhitelistTrimmerRoots" BeforeTargets="PrepareForILLink"
+          Condition="'$(PublishTrimmed)' == 'true' and '$(SkipWhitelistTrimmerRoots)' != 'true'">
+    <Exec Command="node &quot;$(MSBuildProjectDirectory)/../scripts/trimmer-roots.js&quot;"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="TrimmerRootAssembly" />
+    </Exec>
+
+    <Error Condition="'@(TrimmerRootAssembly)' == ''"
+           Text="trimmer-roots.js produced no roots; publishing trimmed without them would remove assemblies the compile service accepts." />
+
+    <Message Importance="high" Text="trimmer roots: @(TrimmerRootAssembly->Count()) assemblies kept whole" />
+  </Target>
+
   <Target Name="EnsureMonacoIsStaged" BeforeTargets="PrepareForPublish;Build">
     <Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/vs/loader.js')"
            Text="Monaco is not staged into web/wwwroot/vs. Run 'npm install' at the repository root first." />
