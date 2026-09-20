@@ -712,6 +712,100 @@ chrome.on('error', e => {
         counted.filter(p => /^playground-first-output\/(under-1s|1-3s|3-10s|over-10s)$/.test(p)).length === 1,
         shown);
 
+    // --- a command line ---------------------------------------------------
+
+    // The reads-files page takes no arguments, so the row is not there.
+    check('a program that takes no arguments shows no arguments row',
+        await ev(`document.getElementById('arguments-row').offsetParent === null`));
+
+    // A task that names its arguments in run.args, exactly as the corpus does.
+    // The program writes each one back in brackets, so an argument containing a
+    // space can be told from two arguments.
+    const echo = [
+        'use IO.Std.write_line;', '', 'entry(args: string[]) is',
+        '    write_line("count {args.count}");', '',
+        '    for argument in args do',
+        '        write_line("[{argument}]");',
+        '    od', 'si', ''
+    ].join('\n');
+
+    intercepted.set(`${TASKS}tasks/takes-args/takes-args.ghul`, echo);
+    intercepted.set(`${TASKS}tasks/takes-args/run.args`, '-c\nalpha beta\n"quoted"\n');
+    intercepted.set(`${TASKS}tasks/takes-args/task.json`, '{ "task": "Takes args" }');
+
+    // Not untracked, like the page before it: the events are checked against
+    // the stub counter, which ?notrack would stop reaching.
+    await cmd('Page.navigate', { url: new URL('rosetta-code/takes-args', BASE).toString() });
+
+    let echoed = '';
+    for (let i = 0; i < 240; i++) {
+        echoed = await ev(`document.getElementById('output').innerText`) ?? '';
+        if (echoed.includes('count ')) break;
+        await sleep(500);
+    }
+
+    check('a task naming its arguments runs with them', echoed.includes('count 3')
+        && echoed.includes('[-c]') && echoed.includes('[alpha beta]') && echoed.includes('["quoted"]'),
+        JSON.stringify(echoed.trim()));
+
+    check('and the row shows them, quoted as a command line is',
+        await ev(`document.getElementById('arguments').value`) === '-c "alpha beta" "\\"quoted\\""',
+        JSON.stringify(await ev(`document.getElementById('arguments').value`)));
+
+    check('and the row is visible without being asked for',
+        await ev(`document.getElementById('arguments-row').offsetParent !== null`));
+
+    // What the reader types is what the program gets, including a space inside
+    // one argument and a quote inside another.
+    await ev(`(() => {
+        const field = document.getElementById('arguments');
+        field.value = '"two words" plain "say \\\\"hi\\\\""';
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    })()`);
+
+    await ev(`document.getElementById('run').click(); true`);
+
+    let retyped = '';
+    for (let i = 0; i < 240; i++) {
+        retyped = await ev(`document.getElementById('output').innerText`) ?? '';
+        if (retyped.includes('count 3') && retyped.includes('[plain]')) break;
+        await sleep(500);
+    }
+
+    check('a command line the reader types reaches the program exactly',
+        retyped.includes('count 3') && retyped.includes('[two words]')
+        && retyped.includes('[plain]') && retyped.includes('[say "hi"]'),
+        JSON.stringify(retyped.trim()));
+
+    // Using the field is counted; what is in it never is.
+    const withArguments = JSON.parse(await ev(`JSON.stringify(window.counted ?? [])`));
+
+    check('using the arguments field is counted once, and its contents are not',
+        withArguments.filter(p => p === 'playground-action/arguments').length === 1
+        && !withArguments.some(p => /alpha|quoted|two words|plain/.test(p)),
+        JSON.stringify(withArguments));
+
+    // A program that takes none: the reader can still ask for the field.
+    await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
+
+    for (let i = 0; i < 120; i++) {
+        if (await ev(`document.getElementById('compiler')?.dataset.state === 'ready'`)) break;
+        await sleep(500);
+    }
+
+    check('the row is hidden again on a task that names no arguments',
+        await ev(`document.getElementById('arguments-row').offsetParent === null`));
+
+    await ev(`document.getElementById('file-toggle').click(); true`);
+    await sleep(300);
+    await ev(`document.getElementById('file-arguments').click(); true`);
+    await sleep(300);
+
+    check('and the File menu brings it up',
+        await ev(`document.getElementById('arguments-row').offsetParent !== null`)
+        && await ev(`document.getElementById('arguments').value`) === '');
+
     await cmd('Fetch.disable');
 
     // Cells of an interactive session: compiled by the service against the
