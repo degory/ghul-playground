@@ -425,6 +425,27 @@ editing `.env` and restarting the one service.
 source database is untouched; `test/dashboard-queries.mjs` runs every query the
 dashboards make against GoatCounter's own schema.
 
+The snapshot service reports itself unhealthy when the copy is missing or older
+than two intervals. That is worth knowing because the failure it has is quiet:
+the loop goes on running and the container stays up, so without the health check
+the only sign is a dashboard that is emptier than it should be.
+
+**If that volume was created before the image owned its own mount point**, the
+copies fail with `unable to open database "/snapshot/analytics.sqlite3.new"`.
+Docker seeds a new named volume's ownership from the image's mount point, and
+seeds nothing into a volume that already exists - so the fix is to let it be
+created again:
+
+```sh
+cd /opt/ghul-playground
+sudo docker compose stop snapshot grafana
+sudo docker volume rm ghul-playground_goatcounter-snapshot
+sudo docker compose up -d snapshot grafana
+```
+
+Nothing is lost: the volume holds one copy of the analytics database and the
+next one is along within five minutes.
+
 ### what a dashboard can show
 
 Only what GoatCounter already stores. It keeps no address under any setting,
