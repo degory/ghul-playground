@@ -201,7 +201,6 @@ services:
     volumes:
       - goatcounter-data:/data
       - goatcounter-snapshot:/snapshot
-      - ./deploy/snapshot/snapshot.sh:/snapshot.sh:ro
 
     environment:
       # The name goatcounter gives it, which is not the name of the service.
@@ -281,7 +280,10 @@ services:
 
   prometheus:
     <<: *hardening
-    image: prom/prometheus:v3.6.0
+    build:
+      context: deploy/prometheus
+      dockerfile: Dockerfile
+    image: ghul-playground-prometheus
 
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -296,7 +298,6 @@ services:
 
     volumes:
       - prometheus-data:/prometheus
-      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
     mem_limit: 1g
     memswap_limit: 1g

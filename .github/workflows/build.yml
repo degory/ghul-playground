@@ -135,6 +135,9 @@ jobs:
       - name: Check the dashboard queries against GoatCounter's schema
         run: node test/dashboard-queries.mjs
 
+      - name: Check nothing mounts a single file into a container
+        run: node test/bind-mounts.mjs
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 
