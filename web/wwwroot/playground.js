@@ -401,7 +401,7 @@ export async function createPlayground({
             }];
 
             reportDiagnostics();
-            onStatus('failed', { compiled: 0 });
+            onStatus('failed', { compiled: 0, tooBig: true });
             return;
         }
 
@@ -460,7 +460,11 @@ export async function createPlayground({
             showCompileDiagnostics(result.diagnostics ?? []);
 
             if (!result.ok) {
-                onStatus('failed', { compiled: Math.round(performance.now() - started) });
+                onStatus('failed', {
+                    compiled: Math.round(performance.now() - started),
+                    timedOut: result.timedOut === true
+                });
+
                 return;
             }
 
@@ -583,7 +587,15 @@ export async function createPlayground({
                 }
             }
 
-            onStatus('done', { compiled, ran: Math.round(performance.now() - ran) });
+            // `error` is the runner's: an exception the program did not handle
+            // is written into the output rather than thrown out to here, so this
+            // is the only thing that distinguishes a program that threw from one
+            // that ran to the end.
+            onStatus('done', {
+                compiled,
+                ran: Math.round(performance.now() - ran),
+                threw: Boolean(produced.error)
+            });
         } catch (e) {
             onOutput(String(e));
             onStatus('error');

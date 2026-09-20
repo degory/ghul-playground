@@ -211,6 +211,11 @@ async function compile(source) {
                     severity: 'error',
                     message: `compilation timed out after ${COMPILE_TIMEOUT_MS} ms`
                 });
+
+                // Said in a field as well as in the diagnostic, so a caller can
+                // tell a timeout from a program that does not compile without
+                // matching on the wording of a message meant for a reader.
+                return { ok: false, diagnostics, assembly: null, timedOut: true };
             }
 
             return { ok: false, diagnostics, assembly: null };

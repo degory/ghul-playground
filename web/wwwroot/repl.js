@@ -15,6 +15,46 @@ import { GhulLanguageClient } from './lsp.js'
 import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replAvailability } from './repl-route.js'
 import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { CellOutput, showValue } from './cell-output.js'
+import { countEvent, countBand } from './events.js'
+
+const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
+
+// Once per page load, so a session's other events have a denominator.
+count('repl-open');
+
+// How many cells this session has taken, reported when the session ends rather
+// than per cell: the interesting number is how far a session gets, and a count
+// per cell would say the same thing once for every step on the way.
+let cellsThisSession = 0;
+
+function countSessionLength() {
+    if (!cellsThisSession) return;
+
+    count('repl-cells-in-session', countBand(cellsThisSession));
+
+    cellsThisSession = 0;
+}
+
+// A tab being hidden is the only end a session usually gets, and pagehide is
+// the event that still fires when it is hidden by being closed.
+addEventListener('pagehide', countSessionLength);
+
+// Once per session each: that a reader reached for display at all, and that a
+// picture appeared, are facts about the session rather than about the cell.
+let displayCounted = false;
+let pictureCounted = false;
+
+function countDisplay(hasPicture) {
+    if (!displayCounted) {
+        displayCounted = true;
+        count('repl-action', 'display-used');
+    }
+
+    if (hasPicture && !pictureCounted) {
+        pictureCounted = true;
+        count('repl-action', 'picture-shown');
+    }
+}
 
 const transcript = document.getElementById('transcript');
 const inputRow = document.getElementById('input-row');
@@ -29,12 +69,14 @@ const resetButton = document.getElementById('reset');
 
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
 
-setUpFullscreen(document.getElementById('fullscreen'));
+setUpFullscreen(document.getElementById('fullscreen'),
+    () => count('repl-action', 'fullscreen'));
 
 const help = setUpHelp(
     document.getElementById('help'),
     document.getElementById('help-toggle'),
-    document.getElementById('help-close'));
+    document.getElementById('help-close'),
+    () => count('repl-action', 'help'));
 
 document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && help.open) help.close();
@@ -347,6 +389,11 @@ async function start() {
     // Ends the session: its frame and every cell in it go, and the next
     // submission starts a new one at cell 1.
     function resetSession() {
+        countSessionLength();
+
+        displayCounted = false;
+        pictureCounted = false;
+
         generation++;
         runtime.dispose();
         runtime = new CellRuntime(document.body, { onState: onRuntimeState });
@@ -399,6 +446,10 @@ async function start() {
 
         const result = addEntry(`[${number}]`, text);
 
+        // How this cell ended, counted once in the finally below whichever way it
+        // leaves. `ok` is the value it keeps if nothing worse happens.
+        let outcome = 'ok';
+
         scrollToInput();
         setBusy(true, 'compiling');
 
@@ -412,7 +463,7 @@ async function start() {
             // answer carries the whole of it again, so once the answer is in
             // this goes and the answer is shown in its place; a cell that is
             // stopped keeps it.
-            const live = new CellOutput(result);
+            const live = new CellOutput(result, { onDisplay: countDisplay });
             let truncatedNote = null;
 
             const showLive = (chunk, truncated) => {
@@ -441,6 +492,7 @@ async function start() {
                 }
 
                 if (posted.broken) {
+                    outcome = 'compile-error';
                     line(result, 'error', 'an earlier cell no longer compiles here, so the session has been reset; run this cell again');
                     resetSession();
                     return;
@@ -453,6 +505,10 @@ async function start() {
                 if (!answer.stopped) dropLive();
 
                 if (answer.accepted) {
+                    // Counted here rather than at the end, so a cell that fills the
+                    // session is counted into the session it filled.
+                    cellsThisSession++;
+
                     const keys = JSON.parse(posted.reply).keys ?? [];
 
                     cells = prepared.cells
@@ -472,11 +528,13 @@ async function start() {
             }
 
             if (prepared?.error) {
+                outcome = 'compile-error';
                 line(result, 'error', prepared.error);
                 return;
             }
 
             if (prepared?.stopped || answer?.stopped) {
+                outcome = 'stopped';
                 line(result, 'muted', 'stopped; the session was reset');
                 number = 1;
                 return;
@@ -494,7 +552,12 @@ async function start() {
 
                 if (answer.picture) showValue(result.lastChild, answer.value, answer.picture);
             }
-            if (answer.error) line(result, 'error', answer.error);
+            if (answer.error) {
+                outcome = 'threw';
+                line(result, 'error', answer.error);
+            } else if (!answer.accepted) {
+                outcome = 'compile-error';
+            }
 
             if (Number.isFinite(answer.next)) number = answer.next;
 
@@ -503,9 +566,12 @@ async function start() {
                 resetSession();
             }
         } catch (e) {
+            outcome = 'error';
             failure = `The last cell did not reach the compile service: ${e.message ?? e}`;
             line(result, 'error', `${e.message ?? e}`);
         } finally {
+            count('repl-cell', outcome);
+
             setPrompt();
             setBusy(false);
             refreshAnalysis();
@@ -571,6 +637,8 @@ async function start() {
     resetButton.addEventListener('click', () => {
         // Asked only when there is something to lose.
         if (number > 1 && !confirm('Start a new session? The cells so far, and what they defined, are discarded.')) return;
+
+        count('repl-action', 'new-session');
 
         if (busy) runtime.stop();
 

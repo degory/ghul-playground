@@ -22,6 +22,17 @@ const BASE = process.env.BASE ?? 'http://127.0.0.1:5080/';
 const TOKEN = process.env.TOKEN;
 const PORT = Number(process.env.CDP_PORT ?? 9321);
 
+// A run against a deployment would otherwise count itself: the pages honour
+// ?notrack and send no events under it. The one page that checks the events
+// themselves is navigated to without it, and serves a stub counter instead.
+const untracked = url => {
+    const u = new URL(url);
+
+    u.searchParams.set('notrack', '');
+
+    return u.toString();
+};
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log = m => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`);
 
@@ -139,12 +150,12 @@ chrome.on('error', e => {
     // The token lives in the playground origin's storage, which is where a
     // reader would have entered it.
     if (TOKEN) {
-        await cmd('Page.navigate', { url: new URL('embed.html', BASE).toString() });
+        await cmd('Page.navigate', { url: untracked(new URL('embed.html', BASE)) });
         await sleep(4000);
         await ev(`localStorage.setItem('ghul-playground-token', ${JSON.stringify(TOKEN)}); true`);
     }
 
-    await cmd('Page.navigate', { url: BASE });
+    await cmd('Page.navigate', { url: untracked(BASE) });
 
     for (let i = 0; i < 120; i++) {
         if (await ev(`document.getElementById('compiler')?.dataset.state === 'ready'`)) break;
@@ -569,7 +580,7 @@ chrome.on('error', e => {
     // A program opened by path is fetched from its collection into the editor,
     // which exercises the path fallback, the <base> the page's own assets are
     // resolved against, and the cross-origin fetch.
-    await cmd('Page.navigate', { url: new URL('rosetta-code/hello-world-text', BASE).toString() });
+    await cmd('Page.navigate', { url: untracked(new URL('rosetta-code/hello-world-text', BASE)) });
 
     let opened = '';
     for (let i = 0; i < 120; i++) {
@@ -678,12 +689,28 @@ chrome.on('error', e => {
     check('and linked to its page on ghul.dev', await ev(
         `Boolean(document.querySelector('#about-program a[href="https://ghul.dev/rosetta/reads-files"]'))`));
 
-    const counted = await ev(`JSON.stringify(window.counted ?? [])`);
-    check('the run on arrival and the one asked for are counted apart',
-        counted === JSON.stringify([
-            `playground-run/automatic/rosetta-code/reads-files`,
-            `playground-run/manual/rosetta-code/reads-files`
-        ]), counted);
+    const counted = JSON.parse(await ev(`JSON.stringify(window.counted ?? [])`));
+    const shown = JSON.stringify(counted);
+
+    // The runs and their outcomes, in order: this is the part that has to be
+    // exactly right, and the only part that does not depend on how long
+    // anything took or on what the browser's colour scheme is.
+    check('the run on arrival and the one asked for are counted apart, each with one outcome',
+        JSON.stringify(counted.filter(p => /^playground-(run|result)\//.test(p))) === JSON.stringify([
+            'playground-run/automatic/rosetta-code/reads-files',
+            'playground-result/compiled-ok',
+            'playground-run/manual/rosetta-code/reads-files',
+            'playground-result/compiled-ok'
+        ]), shown);
+
+    check('the page load is counted once, saying where the program came from',
+        counted.filter(p => p === 'playground-open/rosetta-code').length === 1, shown);
+
+    // Twice would mean the second run was counted as a cold start, which it is
+    // not: the runtime is in the browser's cache by then.
+    check('the wait for first output is counted once, for the first run only',
+        counted.filter(p => /^playground-first-output\/(under-1s|1-3s|3-10s|over-10s)$/.test(p)).length === 1,
+        shown);
 
     await cmd('Fetch.disable');
 
@@ -784,7 +811,7 @@ chrome.on('error', e => {
             ? new URL('../repl/', replBase).toString()
             : new URL('repl.html', replBase).toString();
 
-        await cmd('Page.navigate', { url: replUrl });
+        await cmd('Page.navigate', { url: untracked(replUrl) });
 
         for (let i = 0; i < 60; i++) {
             if (await ev(`!document.getElementById('input-row').hidden`)) break;
