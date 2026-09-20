@@ -64,6 +64,14 @@ export function countEvent(path, title) {
         return;
     }
 
+    const script = document.getElementById('goatcounter');
+
+    // A page that does not load the counter at all is a page that counts
+    // nothing, so the event is dropped rather than queued. Queueing it would
+    // wait for a load event that can never arrive, which is how a page with no
+    // counter came to look as though it were sending events.
+    if (!script) return;
+
     queued.push(event);
 
     if (listening) return;
@@ -73,7 +81,7 @@ export function countEvent(path, title) {
     // The script is in the page's own markup, so if it is already loaded the
     // load event has been and gone - hence sending straight away above, and
     // waiting only when the function is genuinely not there yet.
-    document.getElementById('goatcounter')?.addEventListener('load', () => {
+    script.addEventListener('load', () => {
         while (queued.length) send(queued.shift());
     }, { once: true });
 }

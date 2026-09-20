@@ -820,6 +820,12 @@ chrome.on('error', e => {
 
         const replStarted = await ev(`!document.getElementById('input-row').hidden`);
 
+        // The events this page sends go nowhere without it, and nothing else
+        // shows that: the helper drops what it cannot deliver, so a page with no
+        // counter is silent rather than broken-looking.
+        check('the REPL page loads the counter',
+            await ev(`Boolean(document.getElementById('goatcounter'))`));
+
         check('the REPL page starts, with no flag on its URL', replStarted,
             await ev(`(async () => JSON.stringify({
                 probe: await fetch('compile/cell').then(r => r.status).catch(e => String(e)),
