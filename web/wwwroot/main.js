@@ -8,6 +8,7 @@ import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import { parseArguments, renderArguments } from './arguments.js'
 import * as files from './files.js'
 import { countEvent, band } from './events.js'
+import { loadIndex } from './rosetta-index.js'
 
 // Every event this page sends names what the reader did, never what they wrote.
 const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
@@ -547,18 +548,60 @@ if (await playground.tokenRequired() && !playground.hasToken()) {
     await playground.askForToken();
 }
 
-if (program?.source) {
-    const link = (text, href) => Object.assign(document.createElement('a'),
-        { textContent: text, href, target: '_blank', rel: 'noopener' });
+// The task index, which the line below and the suggestions both read. Fetched
+// lazily and only once a program has run, so a reader who never runs one never
+// pays for it, and a fetch that fails leaves every use of it showing nothing.
+let taskIndex = null;
 
-    aboutProgram.append(program.title ?? requested.name);
+async function withTaskIndex() {
+    if (taskIndex) return taskIndex;
 
-    if (requested.page) aboutProgram.append(' · ', link('more about this task on ghul.dev', requested.page));
+    taskIndex = await loadIndex();
 
-    aboutProgram.append(' · ', link('take the tour', 'https://ghul.dev/expression-oriented-programming'));
+    if (taskIndex) renderAbout();
+
+    return taskIndex;
+}
+
+// The one line under the output saying what this program is and where it came
+// from. Rebuilt rather than appended to: the index arrives after the first run
+// with the count it could not have at load, and a swap replaces the whole line.
+function renderAbout() {
+    aboutProgram.replaceChildren();
+
+    if (!program?.source) return;
+
+    const link = (text, href, counted) => {
+        const a = Object.assign(document.createElement('a'),
+            { textContent: text, href, target: '_blank', rel: 'noopener' });
+
+        if (counted) a.addEventListener('click', () => count(counted));
+
+        return a;
+    };
+
+    const title = program.title ?? requested.name;
+
+    // The title carries the link to the task's own page rather than a separate
+    // "more about this task" beside it: one destination, named by the thing it
+    // describes.
+    aboutProgram.append(requested.page ? link(title, requested.page) : title);
+
+    aboutProgram.append(' · a Rosetta Code task solved in ghūl, '
+        + 'a statically typed language for .NET');
+
+    aboutProgram.append(' · ', link('what is ghūl?', 'https://ghul.dev/', 'rosetta-what-is-ghul'));
+
+    // The count is the index's, so the line says "all solutions" until it has
+    // arrived rather than showing a number that might be wrong.
+    aboutProgram.append(' · ', link(
+        taskIndex ? `all ${taskIndex.tasks.length} solutions` : 'all solutions',
+        'https://ghul.dev/rosetta', 'rosetta-browse-all'));
 
     showAbout();
 }
+
+renderAbout();
 
 const isRunning = () => runButton.hasAttribute('data-stop');
 
@@ -578,6 +621,10 @@ let inFlight = null;
 let firstOutputCounted = false;
 
 function countFirstOutput() {
+    // The first output is also when the suggestions become relevant, so it is
+    // where the index is asked for: after a run rather than before one.
+    if (provenance) withTaskIndex();
+
     if (firstOutputCounted || !inFlight) return;
 
     firstOutputCounted = true;
