@@ -183,6 +183,180 @@ services:
     cpus: 0.5
     pids_limit: 128
 
+  # A copy of the analytics database for Grafana to read, and nothing else.
+  #
+  # Grafana cannot read the live one: it is in WAL mode, so a reader has to be
+  # able to create the -shm file beside it, and a read-only mount refuses while
+  # a read-write mount would put a second writer on the only irreplaceable thing
+  # on this host. So this takes a copy. It is also where visits that are not
+  # visitors are removed, which keeps the rules out of the dashboards and out of
+  # this repository - see deploy/snapshot/snapshot.sh.
+  snapshot:
+    <<: *hardening
+    build:
+      context: deploy/snapshot
+      dockerfile: Dockerfile
+    image: ghul-playground-snapshot
+
+    volumes:
+      - goatcounter-data:/data
+      - goatcounter-snapshot:/snapshot
+      - ./deploy/snapshot/snapshot.sh:/snapshot.sh:ro
+
+    environment:
+      # The name goatcounter gives it, which is not the name of the service.
+      SNAPSHOT_SOURCE: /data/db.sqlite3
+      SNAPSHOT_TARGET: /snapshot/analytics.sqlite3
+      SNAPSHOT_INTERVAL: "300"
+      # Which visits are the site's own rather than a visitor's. Set on the
+      # host, never here: it describes the people running the site rather than
+      # the service. deploy/README.md has the format - one line, rules
+      # separated by `;`, because a compose environment file cannot carry a
+      # value that spans lines.
+      SNAPSHOT_EXCLUDE: "${SNAPSHOT_EXCLUDE:-}"
+
+    # It copies a file of a few hundred kilobytes and runs a handful of
+    # statements over it, twelve times an hour.
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+
+  # The only one of these four reachable from outside, and only through nginx
+  # under /stats/insights/ with a login.
+  grafana:
+    <<: *hardening
+    build:
+      context: deploy/grafana
+      dockerfile: Dockerfile
+    image: ghul-playground-grafana
+
+    ports:
+      - "127.0.0.1:5093:3000"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
+      # Read-only, and the snapshot rather than the database: nothing here can
+      # write analytics data or reach the original.
+      - goatcounter-snapshot:/snapshot:ro
+
+    environment:
+      # Served under a path rather than a host of its own, as the counter it
+      # sits beside is. Both halves are needed: the root URL is what Grafana
+      # writes into its own links, the sub-path is what makes it answer there.
+      GF_SERVER_ROOT_URL: https://ghul.dev/stats/insights/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+
+      # Set on the host beside the counter's own credentials.
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}"
+
+      # Nobody reads this without logging in, nobody creates an account, and
+      # nothing is published from it. The numbers are the site owner's.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_FEATURE_TOGGLES_ENABLE: ""
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+
+      # This container has no egress, so both of these would fail anyway; off
+      # so that they are not tried and not logged as failures every hour.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+
+      # Installing at run time is what the image was built to avoid; saying so
+      # here stops a future edit reintroducing it.
+      GF_INSTALL_PLUGINS: ""
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+
+  prometheus:
+    <<: *hardening
+    image: prom/prometheus:v3.6.0
+
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Ninety days. At this series count that is a few gigabytes on a disk with
+      # hundreds free; the retention is chosen for how far back a question can
+      # reach rather than for space.
+      - --storage.tsdb.retention.time=90d
+      # Nothing outside reaches it, so it needs no interface of its own; this is
+      # for Grafana's queries and for its own scrape.
+      - --web.listen-address=0.0.0.0:9090
+
+    volumes:
+      - prometheus-data:/prometheus
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+
+  node-exporter:
+    <<: *hardening
+    image: prom/node-exporter:v1.9.1
+
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      # The container filesystems are Docker's business and are covered by
+      # cAdvisor; this is about the machine.
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+)($$|/)
+
+    pid: host
+
+    volumes:
+      - /:/host:ro,rslave
+
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+
+  # Deliberately without the Docker socket. The usual recipe mounts it, which
+  # is root on this machine for anything that gets into this container, and it
+  # is not needed: cgroups and Docker's own directory, both read-only, give the
+  # per-container processor and memory numbers this is here for.
+  cadvisor:
+    <<: *hardening
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+
+    command:
+      # Everything below is the series count, which is what decides both this
+      # container's memory and Prometheus's disk. Per-processor, scheduler and
+      # per-connection metrics are where the count runs away, and none of them
+      # answers a question anyone here is asking.
+      - --docker_only=true
+      - --store_container_labels=false
+      - --disable_metrics=percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl
+
+    volumes:
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+    # cAdvisor reads cgroup files that are not world-readable.
+    cap_add:
+      - DAC_READ_SEARCH
+
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+
 # Analytics history. Nothing else on this host is stateful, and this is
 # deliberately a named volume rather than a bind mount so that a stray
 # `docker compose down -v` is the only way to lose it by accident.
@@ -198,3 +372,14 @@ volumes:
       o: "size=72m,mode=1777,noexec,nosuid"
 
   goatcounter-data:
+
+  # Rebuilt from goatcounter-data every few minutes, so losing it costs one
+  # interval. Named rather than a tmpfs only because Grafana should find a
+  # snapshot already there when the host restarts.
+  goatcounter-snapshot:
+
+  # Dashboards are provisioned from this repository; what lives here is the
+  # login, and Grafana's own bookkeeping.
+  grafana-data:
+
+  prometheus-data:
