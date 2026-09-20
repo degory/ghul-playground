@@ -368,9 +368,38 @@ and is not in this repository.
 
 ## dashboards, and what the host is doing
 
-Grafana is served at `/stats/insights/`, behind its own login. It is the only
-one of the four services added for it that is reachable from outside at all;
-Prometheus, node-exporter and cAdvisor answer nobody but Grafana and each other.
+**Grafana is not published.** It listens on loopback and nothing in nginx
+routes to it; the dashboards are reached by forwarding that port over ssh:
+
+```sh
+ssh -L 3000:127.0.0.1:5093 playground.ghul.dev
+```
+
+and then <http://localhost:3000/>. Open the tunnel as `-L 3000:` rather than on
+some other local port: Grafana builds its own absolute links from its listening
+port, which is 3000 inside the container, so another port gives a dashboard
+whose links do not work.
+
+The reason is what these dashboards can show. A published route is a login page
+on the public internet in front of a service that can reconstruct a visitor's
+session, and the alternative costs one ssh command for the one person who reads
+them. The host is already key-only with root login disabled, so this adds
+nothing to what is exposed - there is no route to secure, nothing for a scanner
+to find, and no second credential to keep.
+
+An address allow-list was considered and rejected on evidence rather than
+taste: the same question came up for the analytics exclusion, and over ninety
+days this site's own addresses appeared in three distinct /24s on home fibre and
+sixteen addresses on mobile. A list wide enough to work admits every other
+subscriber on those carriers' pools; one narrow enough to mean anything locks
+the reader out from a phone.
+
+`test/no-route-to-grafana.mjs` fails if a route to it appears in any nginx file,
+because a route could come back by accident and would look exactly like working
+software.
+
+Prometheus, node-exporter and cAdvisor answer nobody but Grafana and each other,
+and are not published at all.
 
 Two things it reads, and they are separate on purpose.
 
@@ -411,8 +440,10 @@ and they would otherwise be most of what this job stores.
 Both go in `/opt/ghul-playground/.env` beside the tokens, written by hand, and
 neither is in this repository.
 
-`GRAFANA_ADMIN_PASSWORD` is the dashboard login. Compose refuses to start
-Grafana without it rather than falling back to a default.
+`GRAFANA_ADMIN_PASSWORD` is the dashboard login, asked for at
+<http://localhost:3000/> through the tunnel above. Compose refuses to start
+Grafana without it rather than falling back to a default. The value is on the
+host and nowhere else.
 
 `SNAPSHOT_EXCLUDE` says which recorded visits are the site's own rather than a
 visitor's, and is applied to the **copy**: the live database keeps every row it
