@@ -64,8 +64,12 @@ apt-get update -qq
 # in some Ubuntu images and not others, so a host that happens to have it makes
 # the dependency invisible until a host that does not fails the deploy on
 # "rsync: command not found".
+#
+# libnginx-mod-http-brotli-static supplies the brotli_static directive the site
+# files use. Without it nginx rejects the configuration as having an unknown
+# directive and will not start, so it is not optional on a host built from here.
 apt-get install -y -qq --no-install-recommends \
-    nginx certbot python3-certbot-nginx \
+    nginx libnginx-mod-http-brotli-static certbot python3-certbot-nginx \
     docker.io docker-compose-v2 \
     iptables-persistent netfilter-persistent \
     chrony unattended-upgrades rsync
