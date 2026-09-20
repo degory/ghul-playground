@@ -970,7 +970,6 @@ chrome.on('error', e => {
         const identity = document.getElementById('task-identity');
         const strip = document.getElementById('more-to-run');
         const bar = document.querySelector('header');
-        const tabs = document.getElementById('tabs');
         const links = [...document.querySelectorAll('#suggestions a, #more-links a')];
 
         // A cut-short element scrolls where it cannot show: for one line of
@@ -991,8 +990,12 @@ chrome.on('error', e => {
             links: links.length,
             clippedLinks: links.filter(clipped).map(a => a.textContent),
             identityClipped: clipped(identity),
+            // Below the tabs rather than merely offset from the row's top: the
+            // row centres its items, so an identity shorter than a tab button
+            // always sits a few pixels down from it while sharing the line.
             identityOnItsOwnRow:
-                identity.getBoundingClientRect().top >= tabs.getBoundingClientRect().top + 8,
+                identity.getBoundingClientRect().top
+                    >= document.getElementById('tab-output').getBoundingClientRect().bottom - 2,
             identityInTheTabRow: identity.closest('#tabs') !== null,
             timingShown: document.getElementById('run-cost').offsetParent !== null,
             stripHeight: Math.round(strip.getBoundingClientRect().height),
