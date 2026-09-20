@@ -138,6 +138,9 @@ jobs:
       - name: Check nothing mounts a single file into a container
         run: node test/bind-mounts.mjs
 
+      - name: Check nginx publishes no route to the dashboards
+        run: node test/no-route-to-grafana.mjs
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 

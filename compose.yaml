@@ -230,6 +230,14 @@ services:
       dockerfile: Dockerfile
     image: ghul-playground-grafana
 
+    # Loopback, and nothing in front of it. The dashboards are reached by
+    # forwarding this port over ssh rather than by publishing a route to them:
+    #
+    #     ssh -L 3000:127.0.0.1:5093 playground.ghul.dev
+    #
+    # then http://localhost:3000/. The host is key-only with root login
+    # disabled, so this adds nothing to what is exposed - there is no route to
+    # secure, nothing for a scanner to find, and no second credential to keep.
     ports:
       - "127.0.0.1:5093:3000"
 
@@ -242,11 +250,13 @@ services:
       - goatcounter-snapshot:/snapshot:ro
 
     environment:
-      # Served under a path rather than a host of its own, as the counter it
-      # sits beside is. Both halves are needed: the root URL is what Grafana
-      # writes into its own links, the sub-path is what makes it answer there.
-      GF_SERVER_ROOT_URL: https://ghul.dev/stats/insights/
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Reached through an ssh tunnel, so the origin a browser sees is
+      # localhost and the port is the one the tunnel was opened on. Grafana
+      # builds its own absolute links from this and its listening port, which
+      # is 3000 inside the container - so a tunnel opened as `-L 3000:` gives
+      # links that work, and one opened on another port gives links that do
+      # not. Hence the command written out above and in deploy/README.md.
+      GF_SERVER_DOMAIN: localhost
 
       # Set on the host beside the counter's own credentials.
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}"
