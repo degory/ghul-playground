@@ -221,6 +221,12 @@ Both take `ANALYSE_URL` / `BASE` and `TOKEN` to run against a deployment rather
 than a local one. The browser test needs a Chrome or Chromium binary and takes
 `CHROME` if it is not where Playwright puts it.
 
+A run against a deployment would otherwise count itself, so the pages send no
+analytics events when the URL carries `?notrack`, and the browser test opens
+them that way. The one page in it that checks the events themselves is opened
+without it and is served a stub counter instead, so nothing reaches the real
+one either way.
+
 ## layout
 
 | | |

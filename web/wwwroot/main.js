@@ -6,6 +6,10 @@ import { replPageUrl } from './repl-route.js'
 import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import * as files from './files.js'
+import { countEvent, band } from './events.js'
+
+// Every event this page sends names what the reader did, never what they wrote.
+const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
 
 const runButton = document.getElementById('run');
 const runLabel = document.getElementById('run-label');
@@ -238,7 +242,11 @@ function showImages(list) {
         download.innerHTML = DOWNLOAD_ICON;
         download.title = `Save ${image.name}`;
         download.setAttribute('aria-label', `Save ${image.name}`);
-        download.addEventListener('click', () => files.saveImage(shown.url, image.name));
+        download.addEventListener('click', () => {
+            count('playground-action', 'save-image');
+
+            files.saveImage(shown.url, image.name);
+        });
 
         caption.append(name, download);
         figure.append(frame, caption);
@@ -266,14 +274,16 @@ imagesSize.addEventListener('click', () => {
 
 // --- full screen ----------------------------------------------------------
 
-setUpFullscreen(document.getElementById('fullscreen'));
+setUpFullscreen(document.getElementById('fullscreen'),
+    () => count('playground-action', 'fullscreen'));
 
 // --- the about panel ------------------------------------------------------
 
 const help = setUpHelp(
     document.getElementById('help'),
     document.getElementById('help-toggle'),
-    document.getElementById('help-close'));
+    document.getElementById('help-close'),
+    () => count('playground-action', 'help'));
 
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
@@ -321,6 +331,19 @@ if (program?.source) document.title = `${requested.name} - ghūl playground`;
 let currentName = null;
 let provenance = requested;
 
+// Where the buffer came from, once per page load, as the collection it was
+// named from or as the reason there was no name: a program restored from the
+// last visit, or the one the page ships with. The collection rather than the
+// program, because the program is already the run event's business and a path
+// per task would say the same thing twice.
+count('playground-open', requested ? requested.name.split('/')[0]
+    : savedSource ? 'restored'
+    : 'default');
+
+// Which theme the reader is actually shown. It follows the system preference
+// and there is no control for it, so this is the only way to know.
+count('playground-theme', window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+
 function forgetProvenance() {
     if (!provenance) return;
 
@@ -366,6 +389,8 @@ const playground = await createPlayground({
 
     onOutput: text => {
         if (!text) followingOutput = true;
+
+        if (text) countFirstOutput();
 
         outputPane.textContent = text;
         if (!text) outputPane.innerHTML = '<span class="empty">The program produced no output.</span>';
@@ -445,6 +470,22 @@ const playground = await createPlayground({
         // whose output is on screen.
         if (state === 'done') reportCost(detail);
         if (BUSY.has(state)) reportCost(null);
+
+        // How the run ended, one event per run. A run the reader stopped keeps
+        // that as its outcome whatever it goes on to do once its input has been
+        // ended. `unauthorized` is not an outcome: it is a prompt, and the run
+        // either carries on with a token or ends with the reader's answer, so
+        // counting it would mean counting a run that has not finished.
+        if (state === 'done') {
+            countOutcome(inFlight?.stopped ? 'stopped' : detail?.threw ? 'threw' : 'compiled-ok');
+        }
+
+        if (state === 'failed') {
+            countOutcome(detail?.timedOut ? 'timeout' : detail?.tooBig ? 'too-big' : 'compile-error');
+        }
+
+        if (state === 'busy') countOutcome('busy');
+        if (state === 'error') countOutcome('error');
     },
 
     onAnalyser: state => {
@@ -516,23 +557,38 @@ const isRunning = () => runButton.hasAttribute('data-stop');
 // whether the reader asked for it or arrived at a link that ran it for them.
 // The counter loads asynchronously and may not be there yet for a run on
 // arrival, so that one waits for it rather than going uncounted.
-function countRun(automatic) {
-    const event = {
-        path: `playground-run/${automatic ? 'automatic' : 'manual'}/${provenance?.name ?? 'editor'}`,
-        title: automatic ? 'run on arrival' : 'run',
-        event: true
-    };
+// The run in flight: when it started, whether the reader stopped it, and
+// whether its outcome has been counted. One outcome event per run, so a run the
+// reader stopped is counted as stopped rather than as whatever it went on to do
+// once its input was ended.
+let inFlight = null;
 
-    if (window.goatcounter?.count) {
-        window.goatcounter.count(event);
-    } else {
-        document.getElementById('goatcounter')?.addEventListener('load',
-            () => window.goatcounter?.count?.(event), { once: true });
-    }
+// The wait a reader actually experiences the first time, which is the one that
+// includes fetching and starting the runtime. Once per page load: every later
+// run has it in the browser's cache and would flatter the number.
+let firstOutputCounted = false;
+
+function countFirstOutput() {
+    if (firstOutputCounted || !inFlight) return;
+
+    firstOutputCounted = true;
+
+    count('playground-first-output', band(performance.now() - inFlight.at));
+}
+
+function countOutcome(outcome) {
+    if (!inFlight || inFlight.counted) return;
+
+    inFlight.counted = true;
+
+    count('playground-result', outcome);
 }
 
 function runProgram({ automatic = false } = {}) {
-    countRun(automatic);
+    inFlight = { at: performance.now(), stopped: false, counted: false };
+
+    count('playground-run', `${automatic ? 'automatic' : 'manual'}/${provenance?.name ?? 'editor'}`);
+
     playground.run();
 }
 
@@ -548,7 +604,15 @@ runButton.addEventListener('click', () => {
     // is to take the runtime away, which means reloading - and the page comes
     // back with nothing running, which is the state that was asked for. The
     // editor's content is saved as it is typed, so that much survives.
+    if (inFlight) inFlight.stopped = true;
+
     if (playground.stop()) return;
+
+    // Counted here because the reload means no status will ever arrive to
+    // count it from. The request races the reload and can be lost, which is
+    // the better failure: a count that sometimes goes missing rather than a
+    // run that is always uncounted.
+    countOutcome('stopped');
 
     location.reload();
 });
@@ -625,6 +689,8 @@ playground.editor.onDidChangeModelContent(event => {
 const copyButton = document.getElementById('copy');
 
 copyButton.addEventListener('click', () => {
+    count('playground-action', 'copy');
+
     navigator.clipboard?.writeText(playground.getSource()).then(() => {
         copyButton.dataset.copied = '';
         setTimeout(() => delete copyButton.dataset.copied, 1500);
@@ -732,9 +798,23 @@ async function saveFileAs() {
     acknowledge(name);
 }
 
-document.getElementById('file-open').addEventListener('click', openFile);
-saveItem.addEventListener('click', saveFile);
-document.getElementById('file-save-as').addEventListener('click', saveFileAs);
+// Counted at the click rather than on success: a reader who asked and was then
+// stopped by the browser's own dialogue still asked, and whether the two differ
+// is worth being able to see.
+document.getElementById('file-open').addEventListener('click', () => {
+    count('playground-action', 'open-file');
+    openFile();
+});
+
+saveItem.addEventListener('click', () => {
+    count('playground-action', 'save-file');
+    saveFile();
+});
+
+document.getElementById('file-save-as').addEventListener('click', () => {
+    count('playground-action', 'save-file-as');
+    saveFileAs();
+});
 
 // Taken off the browser, which would otherwise save or open the page. Monaco
 // binds neither chord, so an event from inside the editor reaches here too and

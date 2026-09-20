@@ -5,8 +5,13 @@
 // but the window itself. F11 is the browser's own and is left alone; this is
 // for the reader on a machine where that key does something else, and for a
 // phone, where there is no key at all.
-export function setUpFullscreen(button) {
+// `used` is called when the reader works the toggle, so each page can count it
+// under its own event family. Nothing here counts anything itself: this file is
+// shared, and the family is the caller's to name.
+export function setUpFullscreen(button, used = () => { }) {
     button.addEventListener('click', () => {
+        used();
+
         if (document.fullscreenElement) {
             document.exitFullscreen();
         } else {
@@ -28,10 +33,14 @@ export function setUpFullscreen(button) {
 // The help panel: opened and closed by its toggle, closed by its own button or
 // a click on the backdrop. Escape is left to the page, which knows what else
 // is layered over it and should dismiss one layer at a time.
-export function setUpHelp(panel, toggle, close) {
+export function setUpHelp(panel, toggle, close, opened = () => { }) {
     const show = open => { panel.hidden = !open; };
 
-    toggle.addEventListener('click', () => show(panel.hidden));
+    toggle.addEventListener('click', () => {
+        if (panel.hidden) opened();
+
+        show(panel.hidden);
+    });
     close.addEventListener('click', () => show(false));
     panel.addEventListener('click', event => { if (event.target === panel) show(false); });
 

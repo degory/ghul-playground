@@ -72,7 +72,10 @@ function pictureNote(picture) {
 }
 
 export class CellOutput {
-    constructor(container) {
+    // `onDisplay` is called the first time the cell shows a value through display
+    // or update_display, which is the only place that act is visible.
+    constructor(container, { onDisplay } = {}) {
+        this.onDisplay = onDisplay;
         this.container = container;
         this.nodes = [];
         this.displays = new Map();
@@ -150,6 +153,8 @@ export class CellOutput {
         const id = typeof record.id === 'string' ? record.id : null;
 
         if (record.kind === 'show') {
+            this.onDisplay?.(picture !== undefined);
+
             const node = this._add('display');
 
             showValue(node, text, picture);
