@@ -8,7 +8,7 @@ import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import { parseArguments, renderArguments } from './arguments.js'
 import * as files from './files.js'
 import { countEvent, countPageview, band } from './events.js'
-import { loadIndex, suggestions, taskFor } from './rosetta-index.js'
+import { loadIndex, suggestions as suggest, taskFor } from './rosetta-index.js'
 
 // Every event this page sends names what the reader did, never what they wrote.
 const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
@@ -116,21 +116,22 @@ function showTab(panel) {
         tab.panel.hidden = !selected;
     }
 
-    showAbout();
+    showTaskLabels();
 }
 
 // Filled in once the program is known, and emptied when the buffer stops
 // being that program.
-const aboutProgram = document.getElementById('about-program');
+const taskIdentity = document.getElementById('task-identity');
 const moreToRun = document.getElementById('more-to-run');
+const suggestions = document.getElementById('suggestions');
+const moreLinks = document.getElementById('more-links');
 
-function showAbout() {
-    aboutProgram.hidden = outputPane.hidden || !aboutProgram.hasChildNodes();
-    moreToRun.hidden = outputPane.hidden || !moreToRun.querySelector('li');
-
-    // The line can only be measured once it is on screen, so this is also
-    // where a line built while the other tab was showing gets fitted.
-    fitAbout();
+// The identity labels the pane whichever tab is showing, since it says what the
+// program is rather than anything about its output. The suggestions are for a
+// reader looking at what their program did, so they follow the output tab.
+function showTaskLabels() {
+    taskIdentity.hidden = !taskIdentity.hasChildNodes();
+    moreToRun.hidden = outputPane.hidden || !suggestions.hasChildNodes();
 }
 
 for (const tab of tabs) {
@@ -561,7 +562,7 @@ if (await playground.tokenRequired() && !playground.hasToken()) {
     await playground.askForToken();
 }
 
-// The task index, which the line below and the suggestions both read. Fetched
+// The task index, which the identity and the suggestions both read. Fetched
 // lazily and only once a program has run, so a reader who never runs one never
 // pays for it, and a fetch that fails leaves every use of it showing nothing.
 let taskIndex = null;
@@ -590,19 +591,24 @@ function taskAndPart(name) {
     return { slug, id: part ? `${slug}/${part}` : slug };
 }
 
-function link(text, href, counted) {
+function link(text, href, counted, title = null) {
     const a = Object.assign(document.createElement('a'),
         { textContent: text, href, target: '_blank', rel: 'noopener' });
 
+    if (title) a.title = title;
     if (counted) a.addEventListener('click', () => count(counted));
 
     return a;
 }
 
 // A link that opens another program here rather than navigating to it.
-function swapLink(text, name, counted) {
+function swapLink(name, counted, { text, title = null } = {}) {
     const a = Object.assign(document.createElement('a'),
-        { textContent: text, href: new URL(name, document.baseURI).toString() });
+        { href: new URL(name, document.baseURI).toString() });
+
+    a.append(...text);
+
+    if (title) a.title = title;
 
     a.addEventListener('click', event => {
         // A modified click is the reader asking for another tab, which the href
@@ -618,151 +624,99 @@ function swapLink(text, name, counted) {
     return a;
 }
 
-// The one line under the output saying what this program is and where it came
-// from. Rebuilt rather than appended to: the index arrives after the first run
-// with the count it could not have at load, and a swap replaces the whole line.
-function renderAbout(describe = true) {
-    aboutProgram.replaceChildren();
+const muted = text =>
+    Object.assign(document.createElement('span'), { className: 'separator', textContent: text });
 
-    aboutProgram.dataset.describes = String(describe);
+// Which task the pane is showing, at the end of the tab row: the title, and for
+// a task solved more than one way which part it is and the way to the next.
+// Rebuilt rather than appended to, because a swap replaces the whole of it.
+function renderIdentity() {
+    taskIdentity.replaceChildren();
 
     // Keyed on provenance rather than on what was loaded: once the buffer has
-    // been replaced it is no longer that task, and neither the line nor the
-    // strip describes it any more.
+    // been replaced it is no longer that task, and nothing here describes it.
     if (!provenance || !program?.source) return;
 
     const title = program.title ?? provenance.name;
 
-    // The title carries the link to the task's own page rather than a separate
-    // "more about this task" beside it: one destination, named by the thing it
-    // describes.
-    aboutProgram.append(provenance.page ? link(title, provenance.page) : title);
+    taskIdentity.append(provenance.page ? link(title, provenance.page) : title);
 
     const { slug, id } = taskAndPart(provenance.name);
     const parts = taskFor(taskIndex, slug)?.parts ?? [];
     const at = parts.findIndex(part => part.id === id);
 
-    // What ghūl is, for the reader this page most often gets: somebody who
-    // followed a link from the wiki and has not heard of it. First, because it
-    // says what they are looking at, and dropped only when the line has no room
-    // for it - see fitAbout.
-    if (describe) {
-        aboutProgram.append(' · a Rosetta Code task solved in ghūl, '
-            + 'a statically typed language for .NET');
-    }
-
     // A task solved more than one way carries its own navigation, because the
     // parts are one task shown several ways and a reader who has run one is
     // the reader most likely to want the next.
     if (parts.length > 1 && at >= 0) {
-        aboutProgram.append(` · part ${at + 1} of ${parts.length}`);
+        taskIdentity.append(muted(` · part ${at + 1} of ${parts.length} · `));
+
+        const collection = provenance.name.split('/')[0];
+        const heading = part => Object.assign(document.createElement('span'),
+            { className: 'heading', textContent: `: ${part.heading ?? 'the part'}` });
 
         const previous = parts[at - 1];
         const next = parts[at + 1];
 
         if (previous) {
-            aboutProgram.append(' · ', swapLink(`← previous: ${previous.heading ?? 'the part before'}`,
-                `${provenance.name.split('/')[0]}/${previous.id}`, { family: 'rosetta-part', detail: 'previous' }));
+            taskIdentity.append(swapLink(`${collection}/${previous.id}`,
+                { family: 'rosetta-part', detail: 'previous' },
+                { text: ['← previous', heading(previous)] }));
         }
+
+        if (previous && next) taskIdentity.append(muted(' · '));
 
         if (next) {
-            aboutProgram.append(' · ', swapLink(`next: ${next.heading ?? 'the part after'} →`,
-                `${provenance.name.split('/')[0]}/${next.id}`, { family: 'rosetta-part', detail: 'next' }));
+            taskIdentity.append(swapLink(`${collection}/${next.id}`,
+                { family: 'rosetta-part', detail: 'next' },
+                { text: ['next', heading(next), ' →'] }));
         }
     }
-
-    aboutProgram.append(' · ', link('what is ghūl?', 'https://ghul.dev/', 'rosetta-what-is-ghul'));
-
-    // The count is the index's, so the line says "all solutions" until it has
-    // arrived rather than showing a number that might be wrong.
-    aboutProgram.append(' · ', link(
-        taskIndex ? `all ${taskIndex.tasks.length} solutions` : 'all solutions',
-        'https://ghul.dev/rosetta', 'rosetta-browse-all'));
 }
 
-// Three other tasks, under the output the reader has just watched appear. The
-// index arrives after the first run, so this is empty until then and the strip
-// stays hidden; an index that never arrives leaves it hidden for good, which is
-// the same page as before the strip existed.
+// Three other tasks, under the output the reader has just watched appear, and
+// the two links out beside them. The index arrives after the first run, so this
+// is empty until then and the row stays hidden; an index that never arrives
+// leaves it hidden for good, which is the same page as before it existed.
 function renderMoreToRun() {
-    const list = moreToRun.querySelector('ul');
-
-    list.replaceChildren();
+    suggestions.replaceChildren();
+    moreLinks.replaceChildren();
 
     if (!taskIndex || !provenance) return;
 
     const { slug } = taskAndPart(provenance.name);
     const collection = provenance.name.split('/')[0];
 
-    suggestions(taskIndex, slug, turn).forEach((task, position) => {
-        const item = document.createElement('li');
-        const button = document.createElement('button');
-
-        button.type = 'button';
-        button.title = `Run ${task.title}`;
-
-        button.append(Object.assign(document.createElement('span'),
-            { className: 'title', textContent: task.title }));
-
-        if (task.reason) {
-            button.append(Object.assign(document.createElement('span'),
-                { className: 'why', textContent: task.reason }));
-        }
+    suggest(taskIndex, slug, turn).forEach((task, position) => {
+        if (position) suggestions.append(muted(' · '));
 
         // A suggestion opens the task's first part, which is the one a reader
         // should meet first - the later numbers add to it.
         const name = `${collection}/${task.parts?.[0]?.id ?? task.slug}`;
 
-        button.addEventListener('click', () => swapTo(name,
-            { counted: { family: 'rosetta-more', detail: `${task.kind}/${position + 1}` } }));
-
-        item.append(button);
-        list.append(item);
+        suggestions.append(swapLink(name,
+            { family: 'rosetta-more', detail: `${task.kind}/${position + 1}` },
+            { text: [task.title], title: task.reason ?? undefined }));
     });
-}
 
-// How many rows the line may take before the description is what goes. Two,
-// because a phone wraps the line whatever is on it and the description is worth
-// one of those rows; a third row is where it starts eating the output.
-const ABOUT_ROWS = 2;
+    if (!suggestions.hasChildNodes()) return;
 
-// The line says what ghūl is where there is room for it, and drops that clause
-// where there is not, rather than wrapping further. Measured rather than
-// guessed at a breakpoint: what fits depends on the task's title, whether it
-// has parts, and how long their headings are.
-function fitAbout() {
-    if (aboutProgram.hidden || !aboutProgram.hasChildNodes()) return;
-
-    if (aboutProgram.dataset.describes !== 'true') return;
-
-    const row = parseFloat(getComputedStyle(aboutProgram).lineHeight);
-
-    if (!(row > 0)) return;
-
-    const rows = (aboutProgram.clientHeight
-        - parseFloat(getComputedStyle(aboutProgram).paddingTop)
-        - parseFloat(getComputedStyle(aboutProgram).paddingBottom)) / row;
-
-    if (rows > ABOUT_ROWS + 0.5) renderAbout(false);
+    // The count is the index's, so this says "all solutions" until it has
+    // arrived rather than showing a number that might be wrong.
+    moreLinks.append(
+        link(taskIndex ? `all ${taskIndex.tasks.length} solutions` : 'all solutions',
+            'https://ghul.dev/rosetta', 'rosetta-browse-all'),
+        muted(' · '),
+        link('what is ghūl?', 'https://ghul.dev/', 'rosetta-what-is-ghul'));
 }
 
 // Both surfaces read the same two things - which program this is, and the index
 // - so they are rendered together and a swap has one call to make.
 function renderProgram() {
-    renderAbout();
+    renderIdentity();
     renderMoreToRun();
-    showAbout();
+    showTaskLabels();
 }
-
-// A window that changes width changes what fits, in both directions, so the
-// line is built whole again and measured again rather than only ever losing
-// its description.
-window.addEventListener('resize', () => {
-    if (!provenance) return;
-
-    renderAbout();
-    showAbout();
-});
 
 // Open another program in this tab: the runtime is already warm, so this is a
 // swap rather than a page load. The URL still becomes the program's own, and

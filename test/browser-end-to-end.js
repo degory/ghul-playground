@@ -683,11 +683,11 @@ chrome.on('error', e => {
         }
     }
 
-    const about = await ev(`(() => { const a = document.getElementById('about-program');
+    const about = await ev(`(() => { const a = document.getElementById('task-identity');
                  return a.offsetParent !== null ? a.innerText : null; })()`);
-    check('the program is named under its output', about?.startsWith('Reads files'), JSON.stringify(about));
+    check('the program is named in the tab row', about?.startsWith('Reads files'), JSON.stringify(about));
     check('and linked to its page on ghul.dev', await ev(
-        `Boolean(document.querySelector('#about-program a[href="https://ghul.dev/rosetta/reads-files"]'))`));
+        `Boolean(document.querySelector('#task-identity a[href="https://ghul.dev/rosetta/reads-files"]'))`));
 
     const counted = JSON.parse(await ev(`JSON.stringify(window.counted ?? [])`));
     const shown = JSON.stringify(counted);
@@ -812,7 +812,7 @@ chrome.on('error', e => {
     // strip stays hidden and the line above it is untouched.
     check('a task index that will not load leaves no strip',
         await ev(`document.getElementById('more-to-run').offsetParent === null`));
-    check('and leaves the line under the output alone', about?.startsWith('Reads files'));
+    check('and leaves the task named in the tab row alone', about?.startsWith('Reads files'));
 
     // A made-up index, so what the strip offers is decided here rather than by
     // what the corpus happens to hold today. `cannot-run` is what a task
@@ -864,8 +864,8 @@ chrome.on('error', e => {
         return false;
     };
 
-    const cards = () => ev(`JSON.stringify([...document.querySelectorAll('#more-to-run li button')]
-        .map(b => b.innerText.split('\\n')))`);
+    const cards = () => ev(`JSON.stringify([...document.querySelectorAll('#suggestions a')]
+        .map(a => [a.textContent, a.title]))`);
 
     await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
 
@@ -874,7 +874,7 @@ chrome.on('error', e => {
     // The index is fetched at the first output and not before it, so the strip
     // arrives a moment after the program's own text does.
     for (let i = 0; i < 60; i++) {
-        if (await ev(`document.querySelectorAll('#more-to-run li').length > 0`)) break;
+        if (await ev(`document.querySelectorAll('#suggestions a').length > 0`)) break;
         await sleep(500);
     }
 
@@ -895,16 +895,16 @@ chrome.on('error', e => {
 
     const taking = offered[0][0];
 
-    await ev(`document.querySelectorAll('#more-to-run li button')[0].click(); true`);
+    await ev(`document.querySelectorAll('#suggestions a')[0].click(); true`);
 
     check('taking a suggestion swaps the program in and runs it', await ranSaying('related-one'),
         JSON.stringify(await ev(`document.getElementById('output').innerText`)));
     check('and the URL becomes that task\'s own',
         await ev(`location.pathname`) === new URL('rosetta-code/related-one', BASE).pathname,
         await ev(`location.pathname`));
-    check('and the line under the output names it',
-        (await ev(`document.getElementById('about-program').innerText`) ?? '').startsWith('Related one'),
-        await ev(`document.getElementById('about-program').innerText`));
+    check('and the tab row names it',
+        (await ev(`document.getElementById('task-identity').innerText`) ?? '').startsWith('Related one'),
+        await ev(`document.getElementById('task-identity').innerText`));
     check('and the editor holds its source',
         (await ev(`monaco.editor.getModels()[0].getValue()`) ?? '').includes('related-one'));
     check('and the strip no longer offers the task now being run',
@@ -925,18 +925,18 @@ chrome.on('error', e => {
     check('a part of a multi-part task opens and runs', await ranSaying('the first way'));
 
     for (let i = 0; i < 60; i++) {
-        if (await ev(`document.querySelectorAll('#more-to-run li').length > 0`)) break;
+        if (await ev(`document.querySelectorAll('#suggestions a').length > 0`)) break;
         await sleep(500);
     }
 
-    const line = await ev(`document.getElementById('about-program').innerText`) ?? '';
+    const line = await ev(`document.getElementById('task-identity').innerText`) ?? '';
 
     check('the line says which part this is', line.includes('part 1 of 2'), JSON.stringify(line));
     check('and offers the next one by name', line.includes('next: The second way'), JSON.stringify(line));
     check('and offers no previous one from the first part', !line.includes('previous'), JSON.stringify(line));
 
-    await ev(`[...document.querySelectorAll('#about-program a')]
-        .find(a => a.textContent.startsWith('next:')).click(); true`);
+    await ev(`[...document.querySelectorAll('#task-identity a')]
+        .find(a => a.textContent.startsWith('next')).click(); true`);
 
     check('a part link swaps the next part in and runs it', await ranSaying('the second way'),
         JSON.stringify(await ev(`document.getElementById('output').innerText`)));
@@ -944,7 +944,7 @@ chrome.on('error', e => {
         await ev(`location.pathname`) === new URL('rosetta-code/two-parts/02-second', BASE).pathname,
         await ev(`location.pathname`));
 
-    const second = await ev(`document.getElementById('about-program').innerText`) ?? '';
+    const second = await ev(`document.getElementById('task-identity').innerText`) ?? '';
 
     check('and the line now offers the previous part instead',
         second.includes('part 2 of 2') && second.includes('previous: The first way')
@@ -961,44 +961,23 @@ chrome.on('error', e => {
 
     // --- what the line says, and what it drops -----------------------------
 
-    // The sentence saying what ghūl is, for the reader who followed a link from
-    // the wiki and has never heard of it. It is on the line wherever there is
-    // room, and the first thing to go where there is not.
-    await cmd('Emulation.setDeviceMetricsOverride',
-        { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    await sleep(1000);
-
-    const wide = await ev(`document.getElementById('about-program').innerText`) ?? '';
-
-    check('a wide window says what ghūl is, alongside the part navigation',
-        wide.includes('a statically typed language for .NET')
-        && wide.includes('part 2 of 2'), JSON.stringify(wide));
-
-    // --- a phone ----------------------------------------------------------
-
-    // Measured rather than looked at: a picture does not fail CI. The bar is
-    // the one thing that must not wrap, because a second row of it takes the
-    // height from the editor on the screen that has least of it.
-    await cmd('Emulation.setDeviceMetricsOverride',
-        { width: 390, height: 780, deviceScaleFactor: 1, mobile: true });
-    await sleep(1000);
-
-    const phoneLine = await ev(`document.getElementById('about-program').innerText`) ?? '';
-
-    check('a phone drops that sentence rather than wrapping the line further',
-        !phoneLine.includes('a statically typed language for .NET')
-        && phoneLine.includes('part 2 of 2'), JSON.stringify(phoneLine));
-
-    // The bar is measured with the strip and then without it, rather than
-    // against a number: how many rows it takes at this width is the bar's own
-    // business and differs between machines, and what must not happen is the
-    // strip changing it.
-    const narrow = JSON.parse(await ev(`(() => {
-        const bar = document.querySelector('header');
+    // Nothing in either place may be cut short: a task offered by half its name
+    // is not offered, and a title that says it is a link and then hides where
+    // it goes is worse than no title. Measured at both widths, because what
+    // fits differs and a link that wraps is fine where one that is clipped is
+    // not.
+    const layout = async where => JSON.parse(await ev(`(() => {
+        const identity = document.getElementById('task-identity');
         const strip = document.getElementById('more-to-run');
-        const buttons = [...document.querySelectorAll('#more-to-run li button')];
-        const showing = !strip.hidden;
+        const bar = document.querySelector('header');
+        const tabs = document.getElementById('tabs');
+        const links = [...document.querySelectorAll('#suggestions a, #more-links a')];
 
+        // A cut-short element scrolls where it cannot show: for one line of
+        // text these are equal exactly when all of it is visible.
+        const clipped = element => element.scrollWidth > element.clientWidth + 1;
+
+        const showing = !strip.hidden;
         const withStrip = bar.getBoundingClientRect().height;
 
         strip.hidden = true;
@@ -1008,73 +987,71 @@ chrome.on('error', e => {
         strip.hidden = !showing;
 
         return JSON.stringify({
-            withStrip,
-            without,
-            barRow: Math.max(...[...bar.children].map(c => c.getBoundingClientRect().height)),
-            page: document.documentElement.scrollWidth,
-            window: window.innerWidth,
+            where: ${JSON.stringify(where)},
+            links: links.length,
+            clippedLinks: links.filter(clipped).map(a => a.textContent),
+            identityClipped: clipped(identity),
+            identityOnItsOwnRow:
+                identity.getBoundingClientRect().top >= tabs.getBoundingClientRect().top + 8,
+            identityInTheTabRow: identity.closest('#tabs') !== null,
+            timingShown: document.getElementById('run-cost').offsetParent !== null,
+            stripHeight: Math.round(strip.getBoundingClientRect().height),
             stripWidth: strip.getBoundingClientRect().width,
-            widest: buttons.length ? Math.max(...buttons.map(b => b.getBoundingClientRect().width)) : 0,
-            cards: buttons.length
+            barWithStrip: withStrip,
+            barWithout: without,
+            page: document.documentElement.scrollWidth,
+            window: window.innerWidth
         });
     })()`) ?? '{}');
 
-    check('the strip has something in it to measure at 390px',
-        narrow.cards === 3, JSON.stringify(narrow));
+    await cmd('Emulation.setDeviceMetricsOverride',
+        { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sleep(1000);
+
+    const wide = await layout('1280px');
+
+    check('the identity is in the tab row', wide.identityInTheTabRow && !wide.identityOnItsOwnRow,
+        JSON.stringify(wide));
+    check('the timing is beside it while there is room', wide.timingShown, JSON.stringify(wide));
+    check('nothing in the strip is cut short at 1280px',
+        wide.links > 0 && wide.clippedLinks.length === 0, JSON.stringify(wide));
+    check('and neither is the identity', !wide.identityClipped, JSON.stringify(wide));
+
+    // --- a phone ----------------------------------------------------------
+
+    // Measured rather than looked at: a picture does not fail CI. The bar is
+    // the one thing that must not change, because a second row of it takes the
+    // height from the editor on the screen that has least of it.
+    await cmd('Emulation.setDeviceMetricsOverride',
+        { width: 390, height: 780, deviceScaleFactor: 1, mobile: true });
+    await sleep(1000);
+
+    const narrow = await layout('390px');
+
+    check('the identity takes a row of its own on a phone',
+        narrow.identityInTheTabRow && narrow.identityOnItsOwnRow, JSON.stringify(narrow));
+    check('the timing has yielded its place by then', !narrow.timingShown, JSON.stringify(narrow));
+    check('nothing in the strip is cut short at 390px either',
+        narrow.links > 0 && narrow.clippedLinks.length === 0, JSON.stringify(narrow));
+    check('and the identity is not cut short', !narrow.identityClipped, JSON.stringify(narrow));
+
+    // Two rows of links at most: the strip wraps rather than truncating, and
+    // this is what says the wrapping has an end. One row is about 18px.
+    check('the strip is at most three rows tall',
+        narrow.stripHeight > 0 && narrow.stripHeight <= 72, JSON.stringify(narrow));
+
     check('the strip does not change the height of the top bar at 390px',
-        narrow.withStrip === narrow.without, JSON.stringify(narrow));
+        narrow.barWithStrip === narrow.barWithout, JSON.stringify(narrow));
     check('and nothing makes the page scroll sideways',
         narrow.page <= narrow.window + 1, JSON.stringify(narrow));
-    check('the strip fits the window, and its cards fit the strip',
-        narrow.stripWidth <= narrow.window + 1 && narrow.widest <= narrow.stripWidth + 1,
-        JSON.stringify(narrow));
+    check('the strip fits the window',
+        narrow.stripWidth <= narrow.window + 1, JSON.stringify(narrow));
 
-    // One row of titles on a phone: the descriptions and the heading are worth
-    // less than the height they cost at that width. What is asserted is the
-    // strip's own height against the same strip with them put back, rather than
-    // how many lines of output that leaves - the pane is a share of a window
-    // whose height differs between machines, and a line count measured here
-    // says as much about the runner as about the page. The line count is
-    // reported anyway, because it is what the saving is for.
-    const compact = JSON.parse(await ev(`(() => {
-        const strip = document.getElementById('more-to-run');
-        const output = document.getElementById('output');
-        const row = parseFloat(getComputedStyle(output).lineHeight);
-        const lines = () => Math.floor(output.getBoundingClientRect().height / row);
-
-        const tops = [...document.querySelectorAll('#more-to-run li')]
-            .map(li => Math.round(li.getBoundingClientRect().top));
-
-        const height = () => strip.getBoundingClientRect().height;
-
-        const was = { strip: height(), lines: lines() };
-
-        // The desktop form, forced on at this width: what the strip would cost
-        // without the rules that make it compact.
-        for (const w of strip.querySelectorAll('.why')) w.style.display = 'block';
-        strip.querySelector('h2').style.display = 'block';
-
-        const full = { strip: height(), lines: lines() };
-
-        for (const w of strip.querySelectorAll('.why')) w.style.display = '';
-        strip.querySelector('h2').style.display = '';
-
-        return JSON.stringify({
-            rows: new Set(tops).size,
-            whys: [...document.querySelectorAll('#more-to-run .why')]
-                .filter(w => w.offsetParent !== null).length,
-            heading: document.querySelector('#more-to-run h2').offsetParent !== null,
-            was, full
-        });
-    })()`) ?? '{}');
-
-    check('the cards are on one row at 390px', compact.rows === 1, JSON.stringify(compact));
-    check('with no description under them and no heading beside them',
-        compact.whys === 0 && compact.heading === false, JSON.stringify(compact));
-    check('which takes at least 20px less of the pane than showing them would',
-        compact.full.strip - compact.was.strip >= 20, JSON.stringify(compact));
-    check('and leaves the output more lines than showing them would',
-        compact.was.lines > compact.full.lines, JSON.stringify(compact));
+    // Each suggestion says why it is being offered, in the corpus's own words,
+    // where a reader can reach it without it taking a line of its own.
+    check('every suggestion carries its reason as a title',
+        JSON.parse(await cards() ?? '[]').every(([text, title]) => text && title),
+        await cards());
 
     await cmd('Emulation.clearDeviceMetricsOverride');
 
