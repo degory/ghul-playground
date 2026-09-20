@@ -127,6 +127,10 @@ const moreToRun = document.getElementById('more-to-run');
 function showAbout() {
     aboutProgram.hidden = outputPane.hidden || !aboutProgram.hasChildNodes();
     moreToRun.hidden = outputPane.hidden || !moreToRun.querySelector('li');
+
+    // The line can only be measured once it is on screen, so this is also
+    // where a line built while the other tab was showing gets fitted.
+    fitAbout();
 }
 
 for (const tab of tabs) {
@@ -617,8 +621,10 @@ function swapLink(text, name, counted) {
 // The one line under the output saying what this program is and where it came
 // from. Rebuilt rather than appended to: the index arrives after the first run
 // with the count it could not have at load, and a swap replaces the whole line.
-function renderAbout() {
+function renderAbout(describe = true) {
     aboutProgram.replaceChildren();
+
+    aboutProgram.dataset.describes = String(describe);
 
     // Keyed on provenance rather than on what was loaded: once the buffer has
     // been replaced it is no longer that task, and neither the line nor the
@@ -635,6 +641,15 @@ function renderAbout() {
     const { slug, id } = taskAndPart(provenance.name);
     const parts = taskFor(taskIndex, slug)?.parts ?? [];
     const at = parts.findIndex(part => part.id === id);
+
+    // What ghūl is, for the reader this page most often gets: somebody who
+    // followed a link from the wiki and has not heard of it. First, because it
+    // says what they are looking at, and dropped only when the line has no room
+    // for it - see fitAbout.
+    if (describe) {
+        aboutProgram.append(' · a Rosetta Code task solved in ghūl, '
+            + 'a statically typed language for .NET');
+    }
 
     // A task solved more than one way carries its own navigation, because the
     // parts are one task shown several ways and a reader who has run one is
@@ -654,9 +669,6 @@ function renderAbout() {
             aboutProgram.append(' · ', swapLink(`next: ${next.heading ?? 'the part after'} →`,
                 `${provenance.name.split('/')[0]}/${next.id}`, { family: 'rosetta-part', detail: 'next' }));
         }
-    } else {
-        aboutProgram.append(' · a Rosetta Code task solved in ghūl, '
-            + 'a statically typed language for .NET');
     }
 
     aboutProgram.append(' · ', link('what is ghūl?', 'https://ghul.dev/', 'rosetta-what-is-ghul'));
@@ -709,6 +721,31 @@ function renderMoreToRun() {
     });
 }
 
+// How many rows the line may take before the description is what goes. Two,
+// because a phone wraps the line whatever is on it and the description is worth
+// one of those rows; a third row is where it starts eating the output.
+const ABOUT_ROWS = 2;
+
+// The line says what ghūl is where there is room for it, and drops that clause
+// where there is not, rather than wrapping further. Measured rather than
+// guessed at a breakpoint: what fits depends on the task's title, whether it
+// has parts, and how long their headings are.
+function fitAbout() {
+    if (aboutProgram.hidden || !aboutProgram.hasChildNodes()) return;
+
+    if (aboutProgram.dataset.describes !== 'true') return;
+
+    const row = parseFloat(getComputedStyle(aboutProgram).lineHeight);
+
+    if (!(row > 0)) return;
+
+    const rows = (aboutProgram.clientHeight
+        - parseFloat(getComputedStyle(aboutProgram).paddingTop)
+        - parseFloat(getComputedStyle(aboutProgram).paddingBottom)) / row;
+
+    if (rows > ABOUT_ROWS + 0.5) renderAbout(false);
+}
+
 // Both surfaces read the same two things - which program this is, and the index
 // - so they are rendered together and a swap has one call to make.
 function renderProgram() {
@@ -716,6 +753,16 @@ function renderProgram() {
     renderMoreToRun();
     showAbout();
 }
+
+// A window that changes width changes what fits, in both directions, so the
+// line is built whole again and measured again rather than only ever losing
+// its description.
+window.addEventListener('resize', () => {
+    if (!provenance) return;
+
+    renderAbout();
+    showAbout();
+});
 
 // Open another program in this tab: the runtime is already warm, so this is a
 // swap rather than a page load. The URL still becomes the program's own, and

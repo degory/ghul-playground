@@ -248,6 +248,9 @@
       border-top: 1px solid var(--border);
       color: var(--fg-muted);
       font-size: 0.75rem;
+      /* Written out because the line is measured against it: how many rows it
+         has decided whether it has room for the sentence saying what ghūl is. */
+      line-height: 1.5;
     }
 
     #about-program a { color: inherit; }
@@ -335,6 +338,16 @@
       line-height: 1.3;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    /* On a phone the pane is the scarcest thing on the screen, so the strip is
+       one row of titles: the description under each one and the heading beside
+       them are both worth less than the lines of output they cost. */
+    @media (max-width: 34rem) {
+      #more-to-run h2, #more-to-run .why { display: none; }
+
+      #more-to-run { padding: 0.35rem 1rem 0.4rem; }
+      #more-to-run li { flex: 1 1 5rem; }
     }
 
     /* At the end of the tab row rather than in the header: next to the output

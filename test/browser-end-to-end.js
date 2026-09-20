@@ -959,6 +959,21 @@ chrome.on('error', e => {
         && swapped.includes(new URL('rosetta-code/two-parts/02-second', BASE).pathname),
         JSON.stringify(swapped));
 
+    // --- what the line says, and what it drops -----------------------------
+
+    // The sentence saying what ghūl is, for the reader who followed a link from
+    // the wiki and has never heard of it. It is on the line wherever there is
+    // room, and the first thing to go where there is not.
+    await cmd('Emulation.setDeviceMetricsOverride',
+        { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sleep(1000);
+
+    const wide = await ev(`document.getElementById('about-program').innerText`) ?? '';
+
+    check('a wide window says what ghūl is, alongside the part navigation',
+        wide.includes('a statically typed language for .NET')
+        && wide.includes('part 2 of 2'), JSON.stringify(wide));
+
     // --- a phone ----------------------------------------------------------
 
     // Measured rather than looked at: a picture does not fail CI. The bar is
@@ -967,6 +982,12 @@ chrome.on('error', e => {
     await cmd('Emulation.setDeviceMetricsOverride',
         { width: 390, height: 780, deviceScaleFactor: 1, mobile: true });
     await sleep(1000);
+
+    const phoneLine = await ev(`document.getElementById('about-program').innerText`) ?? '';
+
+    check('a phone drops that sentence rather than wrapping the line further',
+        !phoneLine.includes('a statically typed language for .NET')
+        && phoneLine.includes('part 2 of 2'), JSON.stringify(phoneLine));
 
     // The bar is measured with the strip and then without it, rather than
     // against a number: how many rows it takes at this width is the bar's own
@@ -1007,6 +1028,30 @@ chrome.on('error', e => {
     check('the strip fits the window, and its cards fit the strip',
         narrow.stripWidth <= narrow.window + 1 && narrow.widest <= narrow.stripWidth + 1,
         JSON.stringify(narrow));
+
+    // One row of titles on a phone: the descriptions and the heading are worth
+    // less than the lines of output they cost at that width.
+    const compact = JSON.parse(await ev(`(() => {
+        const tops = [...document.querySelectorAll('#more-to-run li')]
+            .map(li => Math.round(li.getBoundingClientRect().top));
+        const pane = document.getElementById('pane').getBoundingClientRect().height;
+        const output = document.getElementById('output').getBoundingClientRect().height;
+        const row = parseFloat(getComputedStyle(document.getElementById('output')).lineHeight);
+        return JSON.stringify({
+            rows: new Set(tops).size,
+            whys: [...document.querySelectorAll('#more-to-run .why')]
+                .filter(w => w.offsetParent !== null).length,
+            heading: document.querySelector('#more-to-run h2').offsetParent !== null,
+            lines: Math.floor(output / row),
+            pane
+        });
+    })()`) ?? '{}');
+
+    check('the cards are on one row at 390px', compact.rows === 1, JSON.stringify(compact));
+    check('with no description under them and no heading beside them',
+        compact.whys === 0 && compact.heading === false, JSON.stringify(compact));
+    check('and the output pane still shows five lines at the height it opens with',
+        compact.lines >= 5, JSON.stringify(compact));
 
     await cmd('Emulation.clearDeviceMetricsOverride');
 
