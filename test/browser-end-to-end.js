@@ -1030,28 +1030,51 @@ chrome.on('error', e => {
         JSON.stringify(narrow));
 
     // One row of titles on a phone: the descriptions and the heading are worth
-    // less than the lines of output they cost at that width.
+    // less than the height they cost at that width. What is asserted is the
+    // strip's own height against the same strip with them put back, rather than
+    // how many lines of output that leaves - the pane is a share of a window
+    // whose height differs between machines, and a line count measured here
+    // says as much about the runner as about the page. The line count is
+    // reported anyway, because it is what the saving is for.
     const compact = JSON.parse(await ev(`(() => {
+        const strip = document.getElementById('more-to-run');
+        const output = document.getElementById('output');
+        const row = parseFloat(getComputedStyle(output).lineHeight);
+        const lines = () => Math.floor(output.getBoundingClientRect().height / row);
+
         const tops = [...document.querySelectorAll('#more-to-run li')]
             .map(li => Math.round(li.getBoundingClientRect().top));
-        const pane = document.getElementById('pane').getBoundingClientRect().height;
-        const output = document.getElementById('output').getBoundingClientRect().height;
-        const row = parseFloat(getComputedStyle(document.getElementById('output')).lineHeight);
+
+        const height = () => strip.getBoundingClientRect().height;
+
+        const was = { strip: height(), lines: lines() };
+
+        // The desktop form, forced on at this width: what the strip would cost
+        // without the rules that make it compact.
+        for (const w of strip.querySelectorAll('.why')) w.style.display = 'block';
+        strip.querySelector('h2').style.display = 'block';
+
+        const full = { strip: height(), lines: lines() };
+
+        for (const w of strip.querySelectorAll('.why')) w.style.display = '';
+        strip.querySelector('h2').style.display = '';
+
         return JSON.stringify({
             rows: new Set(tops).size,
             whys: [...document.querySelectorAll('#more-to-run .why')]
                 .filter(w => w.offsetParent !== null).length,
             heading: document.querySelector('#more-to-run h2').offsetParent !== null,
-            lines: Math.floor(output / row),
-            pane
+            was, full
         });
     })()`) ?? '{}');
 
     check('the cards are on one row at 390px', compact.rows === 1, JSON.stringify(compact));
     check('with no description under them and no heading beside them',
         compact.whys === 0 && compact.heading === false, JSON.stringify(compact));
-    check('and the output pane still shows five lines at the height it opens with',
-        compact.lines >= 5, JSON.stringify(compact));
+    check('which takes at least 20px less of the pane than showing them would',
+        compact.full.strip - compact.was.strip >= 20, JSON.stringify(compact));
+    check('and leaves the output more lines than showing them would',
+        compact.was.lines > compact.full.lines, JSON.stringify(compact));
 
     await cmd('Emulation.clearDeviceMetricsOverride');
 
