@@ -683,11 +683,11 @@ chrome.on('error', e => {
         }
     }
 
-    const about = await ev(`(() => { const a = document.getElementById('about-program');
+    const about = await ev(`(() => { const a = document.getElementById('task-identity');
                  return a.offsetParent !== null ? a.innerText : null; })()`);
-    check('the program is named under its output', about?.startsWith('Reads files'), JSON.stringify(about));
+    check('the program is named in the tab row', about?.startsWith('Reads files'), JSON.stringify(about));
     check('and linked to its page on ghul.dev', await ev(
-        `Boolean(document.querySelector('#about-program a[href="https://ghul.dev/rosetta/reads-files"]'))`));
+        `Boolean(document.querySelector('#task-identity a[href="https://ghul.dev/rosetta/reads-files"]'))`));
 
     const counted = JSON.parse(await ev(`JSON.stringify(window.counted ?? [])`));
     const shown = JSON.stringify(counted);
@@ -805,6 +805,258 @@ chrome.on('error', e => {
     check('and the File menu brings it up',
         await ev(`document.getElementById('arguments-row').offsetParent !== null`)
         && await ev(`document.getElementById('arguments').value`) === '');
+    // --- more to run ------------------------------------------------------
+
+    // The index is fetched from the collection, which this section is serving,
+    // and nothing answers for it yet - so this is the failed-fetch case: the
+    // strip stays hidden and the line above it is untouched.
+    check('a task index that will not load leaves no strip',
+        await ev(`document.getElementById('more-to-run').offsetParent === null`));
+    check('and leaves the task named in the tab row alone', about?.startsWith('Reads files'));
+
+    // A made-up index, so what the strip offers is decided here rather than by
+    // what the corpus happens to hold today. `cannot-run` is what a task
+    // carrying playground-unsupported looks like from the index: the generator
+    // writes that file's absence as this flag, and the strip reads the flag.
+    const task = (slug, title, tags, parts) => ({
+        slug, title, tags, images: [], playground: true,
+        parts: parts ?? [{ id: slug, heading: null, playground: true, images: [] }]
+    });
+
+    const INDEX = {
+        version: 1,
+        tags: { files: 'reads or writes a file' },
+        showcase: ['show-off'],
+        tasks: [
+            task('reads-files', 'Reads files', ['files']),
+            task('related-one', 'Related one', ['files']),
+            task('related-two', 'Related two', ['files']),
+            { ...task('cannot-run', 'Cannot run', ['files']), playground: false,
+              parts: [{ id: 'cannot-run', heading: null, playground: false, images: [] }] },
+            task('show-off', 'Show off', ['strings']),
+            task('two-parts', 'Two parts', ['files'], [
+                { id: 'two-parts/01-first', heading: 'The first way', playground: true, images: [] },
+                { id: 'two-parts/02-second', heading: 'The second way', playground: true, images: [] }
+            ])
+        ]
+    };
+
+    intercepted.set(`${TASKS}index.json`, JSON.stringify(INDEX));
+
+    const says = (slug, text) => {
+        intercepted.set(`${TASKS}tasks/${slug}/${slug.split('/').at(-1)}.ghul`,
+            `use IO.Std.write_line;\n\nentry() is\n    write_line("${text}");\nsi\n`);
+        intercepted.set(`${TASKS}tasks/${slug.split('/')[0]}/task.json`,
+            JSON.stringify({ task: INDEX.tasks.find(t => t.slug === slug.split('/')[0])?.title ?? slug }));
+    };
+
+    for (const slug of ['related-one', 'related-two', 'show-off', 'cannot-run']) says(slug, slug);
+    says('two-parts/01-first', 'the first way');
+    says('two-parts/02-second', 'the second way');
+
+    // Waits for a program to have run: the pane carries a placeholder from the
+    // moment a run starts, so the text the program printed is the only signal.
+    const ranSaying = async text => {
+        for (let i = 0; i < 180; i++) {
+            if ((await ev(`document.getElementById('output').innerText`) ?? '').includes(text)) return true;
+            await sleep(500);
+        }
+        return false;
+    };
+
+    const cards = () => ev(`JSON.stringify([...document.querySelectorAll('#suggestions a')]
+        .map(a => [a.textContent, a.title]))`);
+
+    await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
+
+    check('a task with an index runs on arrival', await ranSaying('from the notes'));
+
+    // The index is fetched at the first output and not before it, so the strip
+    // arrives a moment after the program's own text does.
+    for (let i = 0; i < 60; i++) {
+        if (await ev(`document.querySelectorAll('#suggestions a').length > 0`)) break;
+        await sleep(500);
+    }
+
+    const offered = JSON.parse(await cards() ?? '[]');
+
+    check('three tasks are offered once a program has run',
+        offered.length === 3, JSON.stringify(offered));
+    check('a task that cannot run here is not among them',
+        !offered.some(([title]) => title === 'Cannot run'), JSON.stringify(offered));
+    check('the task being run is not among them',
+        !offered.some(([title]) => title === 'Reads files'), JSON.stringify(offered));
+    check('a related card says what the two tasks have in common, in the index\'s own words',
+        offered[0]?.[1] === 'reads or writes a file', JSON.stringify(offered[0]));
+    check('the showcase pick is last and says why it is there',
+        offered[2]?.[0] === 'Show off' && offered[2]?.[1] === 'worth seeing', JSON.stringify(offered[2]));
+
+    // --- taking one -------------------------------------------------------
+
+    const taking = offered[0][0];
+
+    await ev(`document.querySelectorAll('#suggestions a')[0].click(); true`);
+
+    check('taking a suggestion swaps the program in and runs it', await ranSaying('related-one'),
+        JSON.stringify(await ev(`document.getElementById('output').innerText`)));
+    check('and the URL becomes that task\'s own',
+        await ev(`location.pathname`) === new URL('rosetta-code/related-one', BASE).pathname,
+        await ev(`location.pathname`));
+    check('and the tab row names it',
+        (await ev(`document.getElementById('task-identity').innerText`) ?? '').startsWith('Related one'),
+        await ev(`document.getElementById('task-identity').innerText`));
+    check('and the editor holds its source',
+        (await ev(`monaco.editor.getModels()[0].getValue()`) ?? '').includes('related-one'));
+    check('and the strip no longer offers the task now being run',
+        !JSON.parse(await cards() ?? '[]').some(([title]) => title === taking));
+
+    await ev(`history.back(); true`);
+
+    check('Back returns to the task it was taken from', await ranSaying('from the notes'),
+        JSON.stringify(await ev(`document.getElementById('output').innerText`)));
+    check('and the URL goes back with it',
+        await ev(`location.pathname`) === new URL('rosetta-code/reads-files', BASE).pathname,
+        await ev(`location.pathname`));
+
+    // --- a task solved more than one way ----------------------------------
+
+    await cmd('Page.navigate', { url: new URL('rosetta-code/two-parts/01-first', BASE).toString() });
+
+    check('a part of a multi-part task opens and runs', await ranSaying('the first way'));
+
+    for (let i = 0; i < 60; i++) {
+        if (await ev(`document.querySelectorAll('#suggestions a').length > 0`)) break;
+        await sleep(500);
+    }
+
+    const line = await ev(`document.getElementById('task-identity').innerText`) ?? '';
+
+    check('the line says which part this is', line.includes('part 1 of 2'), JSON.stringify(line));
+    check('and offers the next one by name', line.includes('next: The second way'), JSON.stringify(line));
+    check('and offers no previous one from the first part', !line.includes('previous'), JSON.stringify(line));
+
+    await ev(`[...document.querySelectorAll('#task-identity a')]
+        .find(a => a.textContent.startsWith('next')).click(); true`);
+
+    check('a part link swaps the next part in and runs it', await ranSaying('the second way'),
+        JSON.stringify(await ev(`document.getElementById('output').innerText`)));
+    check('and the URL names that part',
+        await ev(`location.pathname`) === new URL('rosetta-code/two-parts/02-second', BASE).pathname,
+        await ev(`location.pathname`));
+
+    const second = await ev(`document.getElementById('task-identity').innerText`) ?? '';
+
+    check('and the line now offers the previous part instead',
+        second.includes('part 2 of 2') && second.includes('previous: The first way')
+        && !second.includes('next:'), JSON.stringify(second));
+
+    // --- what a swap counts ------------------------------------------------
+
+    const swapped = JSON.parse(await ev(`JSON.stringify(window.counted ?? [])`));
+
+    check('taking a part is counted, with a pageview for the task it opened',
+        swapped.includes('rosetta-part/next')
+        && swapped.includes(new URL('rosetta-code/two-parts/02-second', BASE).pathname),
+        JSON.stringify(swapped));
+
+    // --- what the line says, and what it drops -----------------------------
+
+    // Nothing in either place may be cut short: a task offered by half its name
+    // is not offered, and a title that says it is a link and then hides where
+    // it goes is worse than no title. Measured at both widths, because what
+    // fits differs and a link that wraps is fine where one that is clipped is
+    // not.
+    const layout = async where => JSON.parse(await ev(`(() => {
+        const identity = document.getElementById('task-identity');
+        const strip = document.getElementById('more-to-run');
+        const bar = document.querySelector('header');
+        const links = [...document.querySelectorAll('#suggestions a, #more-links a')];
+
+        // A cut-short element scrolls where it cannot show: for one line of
+        // text these are equal exactly when all of it is visible.
+        const clipped = element => element.scrollWidth > element.clientWidth + 1;
+
+        const showing = !strip.hidden;
+        const withStrip = bar.getBoundingClientRect().height;
+
+        strip.hidden = true;
+
+        const without = bar.getBoundingClientRect().height;
+
+        strip.hidden = !showing;
+
+        return JSON.stringify({
+            where: ${JSON.stringify(where)},
+            links: links.length,
+            clippedLinks: links.filter(clipped).map(a => a.textContent),
+            identityClipped: clipped(identity),
+            // Below the tabs rather than merely offset from the row's top: the
+            // row centres its items, so an identity shorter than a tab button
+            // always sits a few pixels down from it while sharing the line.
+            identityOnItsOwnRow:
+                identity.getBoundingClientRect().top
+                    >= document.getElementById('tab-output').getBoundingClientRect().bottom - 2,
+            identityInTheTabRow: identity.closest('#tabs') !== null,
+            timingShown: document.getElementById('run-cost').offsetParent !== null,
+            stripHeight: Math.round(strip.getBoundingClientRect().height),
+            stripWidth: strip.getBoundingClientRect().width,
+            barWithStrip: withStrip,
+            barWithout: without,
+            page: document.documentElement.scrollWidth,
+            window: window.innerWidth
+        });
+    })()`) ?? '{}');
+
+    await cmd('Emulation.setDeviceMetricsOverride',
+        { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await sleep(1000);
+
+    const wide = await layout('1280px');
+
+    check('the identity is in the tab row', wide.identityInTheTabRow && !wide.identityOnItsOwnRow,
+        JSON.stringify(wide));
+    check('the timing is beside it while there is room', wide.timingShown, JSON.stringify(wide));
+    check('nothing in the strip is cut short at 1280px',
+        wide.links > 0 && wide.clippedLinks.length === 0, JSON.stringify(wide));
+    check('and neither is the identity', !wide.identityClipped, JSON.stringify(wide));
+
+    // --- a phone ----------------------------------------------------------
+
+    // Measured rather than looked at: a picture does not fail CI. The bar is
+    // the one thing that must not change, because a second row of it takes the
+    // height from the editor on the screen that has least of it.
+    await cmd('Emulation.setDeviceMetricsOverride',
+        { width: 390, height: 780, deviceScaleFactor: 1, mobile: true });
+    await sleep(1000);
+
+    const narrow = await layout('390px');
+
+    check('the identity takes a row of its own on a phone',
+        narrow.identityInTheTabRow && narrow.identityOnItsOwnRow, JSON.stringify(narrow));
+    check('the timing has yielded its place by then', !narrow.timingShown, JSON.stringify(narrow));
+    check('nothing in the strip is cut short at 390px either',
+        narrow.links > 0 && narrow.clippedLinks.length === 0, JSON.stringify(narrow));
+    check('and the identity is not cut short', !narrow.identityClipped, JSON.stringify(narrow));
+
+    // Two rows of links at most: the strip wraps rather than truncating, and
+    // this is what says the wrapping has an end. One row is about 18px.
+    check('the strip is at most three rows tall',
+        narrow.stripHeight > 0 && narrow.stripHeight <= 72, JSON.stringify(narrow));
+
+    check('the strip does not change the height of the top bar at 390px',
+        narrow.barWithStrip === narrow.barWithout, JSON.stringify(narrow));
+    check('and nothing makes the page scroll sideways',
+        narrow.page <= narrow.window + 1, JSON.stringify(narrow));
+    check('the strip fits the window',
+        narrow.stripWidth <= narrow.window + 1, JSON.stringify(narrow));
+
+    // Each suggestion says why it is being offered, in the corpus's own words,
+    // where a reader can reach it without it taking a line of its own.
+    check('every suggestion carries its reason as a title',
+        JSON.parse(await cards() ?? '[]').every(([text, title]) => text && title),
+        await cards());
+
+    await cmd('Emulation.clearDeviceMetricsOverride');
 
     await cmd('Fetch.disable');
 

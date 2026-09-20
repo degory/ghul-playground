@@ -687,6 +687,11 @@ export async function createPlayground({
         wakeAnalyser: () => client.wake(),
         setSource: text => editor.setValue(text),
         getSource: () => editor.getValue(),
+        // The data files the next run writes into the runtime's working
+        // directory. Files an earlier run wrote are left where they are: the
+        // filesystem lives as long as the tab, and a program only ever opens
+        // the names it was written to open.
+        setFiles: next => { files = next ?? []; },
         setTheme: name => monaco.editor.setTheme(themeName(name)),
         contentHeight: () => editor.getContentHeight(),
         dispose: () => { client.dispose(); editor.dispose(); }

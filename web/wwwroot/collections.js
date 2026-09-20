@@ -11,7 +11,7 @@
 
 import { argumentsFromFile } from './arguments.js'
 
-const ROSETTA_CODE_ROOT = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
+export const ROSETTA_CODE_ROOT = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
 const ROSETTA_CODE = `${ROSETTA_CODE_ROOT}tasks`;
 
 // Where ghul.dev describes a task, alongside the other solutions.

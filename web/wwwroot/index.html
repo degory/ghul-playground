@@ -239,19 +239,97 @@
 
     #arguments-row input::placeholder { color: var(--fg-muted); opacity: 0.7; }
 
-    #about-program[hidden] { display: none; }
+    /* One link style for the two places below, so a task's name reads as
+       something to click wherever it appears: the accent the active tab is
+       already underlined in, no rule at rest, one on hover and on keyboard
+       focus. */
+    #task-identity a, #more-to-run a {
+      color: var(--accent);
+      text-decoration: none;
+      border-radius: 2px;
+    }
 
-    #about-program {
-      flex: none;
-      margin: 0;
-      padding: 0.3rem 1rem;
-      border-top: 1px solid var(--border);
+    #task-identity a:hover, #more-to-run a:hover,
+    #task-identity a:focus-visible, #more-to-run a:focus-visible {
+      text-decoration: underline;
+    }
+
+    #task-identity a:focus-visible, #more-to-run a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    /* Which task the pane is showing, at the right-hand end of the tab row.
+       `margin-left: auto` puts it there and leaves the timing beside it. */
+    #task-identity[hidden] { display: none; }
+
+    #task-identity {
+      margin: 0 0 0 auto;
+      min-width: 0;
+      overflow: hidden;
       color: var(--fg-muted);
+      font-size: 0.75rem;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* The timing sits to its right and is the first thing to go when the row
+       runs out of room: it is the least important thing on it, and it is
+       already written in the size of a tooltip. */
+    @media (max-width: 62rem) {
+      #run-cost { display: none; }
+    }
+
+    /* Narrower still, the part's heading goes and the arrow carries the
+       meaning, which is where the reader is going rather than what is there. */
+    @media (max-width: 46rem) {
+      #task-identity .heading { display: none; }
+    }
+
+    /* On a phone the identity takes a row of its own under the tabs, rather
+       than competing with them for a line that has none to spare. */
+    @media (max-width: 34rem) {
+      #tabs { flex-wrap: wrap; }
+
+      #task-identity {
+        flex-basis: 100%;
+        margin: 0 0 0.25rem;
+        order: 1;
+      }
+    }
+
+    /* Three other tasks, under the output the reader has just watched appear:
+       one row of ordinary links, because a task's name is the whole of what
+       there is to say about it and a box around each said nothing more. */
+    #more-to-run[hidden] { display: none; }
+
+    #more-to-run {
+      display: flex;
+      flex: none;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.2rem 0.5rem;
+      margin: 0;
+      padding: 0.35rem 1rem 0.4rem;
+      border-top: 1px solid var(--border);
       font-size: 0.75rem;
     }
 
-    #about-program a { color: inherit; }
-    .notice { color: var(--warn); }
+    #more-to-run .label { flex: none; color: var(--fg-muted); }
+
+    /* Wraps onto a second row rather than being cut: a task offered by half
+       its name is not offered. */
+    #suggestions { flex: 1 1 auto; min-width: 0; }
+
+    #more-links { flex: none; margin-left: auto; }
+
+    #more-to-run .separator { color: var(--fg-muted); }
+
+    @media (max-width: 34rem) {
+      /* Nothing is pushed to the right on a phone: the row is already
+         wrapping, and a right-aligned tail reads as a second column. */
+      #more-links { margin-left: 0; }
+    }
 
     /* At the end of the tab row rather than in the header: next to the output
        a reader who pressed run is already looking at, out of the chrome, and
@@ -291,7 +369,9 @@
     }
 
     #run-cost {
-      margin-left: auto;
+      /* Enough room that the timing reads as its own thing rather than as the
+         end of the sentence naming the task. */
+      padding-left: 0.9rem;
       padding-right: 0.4rem;
       color: var(--fg-muted);
       font-size: 0.75rem;
@@ -543,6 +623,12 @@
           Output
         </button>
 
+        <!-- Which task the pane is showing: the title, and for a task solved
+             more than one way the part and the way to the next. Here rather
+             than under the output because this row is what labels the pane,
+             and because one place saying what this is beats two. -->
+        <p id="task-identity" hidden></p>
+
         <span id="run-cost"></span>
 
         <button id="pane-toggle" title="Collapse the pane" aria-label="Collapse the pane"
@@ -568,12 +654,6 @@
       <pre id="diagnostics" role="tabpanel"><span class="empty">No problems.</span></pre>
       <pre id="output" role="tabpanel" hidden><span class="empty">Run the program to see its output here.</span></pre>
 
-      <!-- For a program opened by path: what it is and where to read more.
-           Outside the output so a long run cannot scroll it away, and only
-           under the output tab, which is where a reader who followed a link
-           is looking. -->
-      <p id="about-program" hidden></p>
-
       <!-- Shown only while a program is actually blocked reading a line, which
            it asks for itself: a box that were always there would invite typing
            at a program that will never read it. -->
@@ -582,6 +662,18 @@
         <input id="stdin" type="text" autocomplete="off" autocapitalize="off"
                spellcheck="false" aria-label="Input for the running program">
       </form>
+
+      <!-- Three other Rosetta Code tasks to run, filled in once a program has
+           run for the first time. A reader who arrived at one task from the
+           wiki has no way to another from here, and going back to the wiki and
+           clicking through is a whole page load for something the page already
+           has the runtime warm for. One row of links, because the pane is
+           short and a task's name is the whole of what there is to say. -->
+      <p id="more-to-run" hidden>
+        <span class="label">More to try:</span>
+        <span id="suggestions"></span>
+        <span id="more-links"></span>
+      </p>
     </div>
 
     <!-- Over the editor and the pane rather than inside either. A picture
