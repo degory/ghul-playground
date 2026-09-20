@@ -389,9 +389,22 @@ which a read-only mount refuses, and a read-write mount would put a second
 writer on the only irreplaceable thing on this host.
 
 cAdvisor runs **without the Docker socket**. The usual recipe mounts it, which
-is root on this machine for anything that gets into that container; cgroups and
-Docker's own directory, both read-only, give the per-container processor and
-memory numbers without it.
+is root on this machine for anything that gets into that container.
+
+What that costs is the container's *name*. cAdvisor learns names from Docker's
+API, and its Docker factory wants containerd's socket as well, so a read-only
+proxy in front of the Docker socket does not buy them either - both were tried.
+Reading the cgroups directly still gives a series per container, keyed by the
+cgroup path, which carries the container's id; Prometheus lifts the first twelve
+characters out of it into a `container` label, which is what `docker ps` prints,
+so matching one to a service is one command on the host.
+
+`--docker_only` is deliberately **not** set. It reports only containers cAdvisor
+identified through Docker, which without those sockets is none: it reported a
+single series, the root cgroup, which is the machine rather than a container.
+The cgroups that are not containers are dropped at scrape time - there are sixty
+of them to every container, the machine's own numbers come from node-exporter,
+and they would otherwise be most of what this job stores.
 
 ### two settings the host supplies
 
@@ -424,6 +437,27 @@ editing `.env` and restarting the one service.
 `test/snapshot-rules.sh` checks what each kind of rule removes and that the
 source database is untouched; `test/dashboard-queries.mjs` runs every query the
 dashboards make against GoatCounter's own schema.
+
+The snapshot service reports itself unhealthy when the copy is missing or older
+than two intervals. That is worth knowing because the failure it has is quiet:
+the loop goes on running and the container stays up, so without the health check
+the only sign is a dashboard that is emptier than it should be.
+
+**If that volume was created before the image owned its own mount point**, the
+copies fail with `unable to open database "/snapshot/analytics.sqlite3.new"`.
+Docker seeds a new named volume's ownership from the image's mount point, and
+seeds nothing into a volume that already exists - so the fix is to let it be
+created again:
+
+```sh
+cd /opt/ghul-playground
+sudo docker compose stop snapshot grafana
+sudo docker volume rm ghul-playground_goatcounter-snapshot
+sudo docker compose up -d snapshot grafana
+```
+
+Nothing is lost: the volume holds one copy of the analytics database and the
+next one is along within five minutes.
 
 ### what a dashboard can show
 

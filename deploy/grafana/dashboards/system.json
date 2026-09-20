@@ -220,8 +220,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))",
-          "legendFormat": "{{name}}",
+          "expr": "sum by (container) (rate(container_cpu_usage_seconds_total[5m]))",
+          "legendFormat": "{{container}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -256,15 +256,15 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "container_memory_working_set_bytes{name!=\"\"}",
-          "legendFormat": "{{name}}",
+          "expr": "container_memory_working_set_bytes",
+          "legendFormat": "{{container}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           }
         }
       ],
-      "description": "The number a memory cap is measured against. The compile service has been killed for reaching its cap before, and that is invisible from the machine's own totals."
+      "description": "Per container, keyed by the first twelve characters of its id - the same ones docker ps prints. cAdvisor cannot name them without Docker's and containerd's sockets, which are root on this machine and are deliberately not mounted."
     },
     {
       "type": "timeseries",
@@ -292,8 +292,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "changes(container_start_time_seconds{name!=\"\"}[1h])",
-          "legendFormat": "{{name}}",
+          "expr": "changes(container_start_time_seconds[1h])",
+          "legendFormat": "{{container}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

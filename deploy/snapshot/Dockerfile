@@ -15,6 +15,24 @@ RUN apk add --no-cache sqlite
 # which is what we want if the other image's user ever changes.
 RUN adduser -D -u 1000 snapshot
 
+# The directory the snapshot volume is mounted over has to exist here, owned by
+# the user that will run. Docker seeds a *new* named volume from whatever is at
+# the mount point in the image, ownership included; with nothing there it
+# creates the mount point itself as root, the container drops to an
+# unprivileged user, and every copy fails with
+#
+#   unable to open database "/snapshot/analytics.sqlite3.new"
+#
+# in a loop, while the container itself stays up and healthy-looking. The
+# goatcounter image carries the same line for the same reason.
+RUN install -d -o snapshot -g snapshot /snapshot
+
 USER snapshot
+
+# A copy that is not being written is the failure this service can have, and it
+# is invisible without this: the loop goes on running, the container stays up,
+# and Grafana quietly reads a snapshot that is hours old or absent. Unhealthy
+# after two missed intervals says it in the one place anybody looks.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3   CMD [ -f "${SNAPSHOT_TARGET:-/snapshot/analytics.sqlite3}" ]    && [ -z "$(find "${SNAPSHOT_TARGET:-/snapshot/analytics.sqlite3}"         -mmin +$(( (${SNAPSHOT_INTERVAL:-300} * 2) / 60 + 1 )))" ] || exit 1
 
 ENTRYPOINT ["/bin/sh", "/snapshot.sh"]

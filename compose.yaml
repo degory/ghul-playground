@@ -334,11 +334,16 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.55.1
 
     command:
-      # Everything below is the series count, which is what decides both this
-      # container's memory and Prometheus's disk. Per-processor, scheduler and
-      # per-connection metrics are where the count runs away, and none of them
-      # answers a question anyone here is asking.
-      - --docker_only=true
+      # Not --docker_only. That flag reports only containers cAdvisor has
+      # identified through Docker, and identifying them means talking to
+      # Docker's API and to containerd's socket - both root on this machine for
+      # anything that gets into this container, which is the trade this was set
+      # up to avoid. With the flag and without the sockets it reports exactly
+      # one series, the root cgroup, which is the machine and not a container.
+      #
+      # Reading the cgroups directly gives a series per container keyed by the
+      # cgroup's path, which carries the container's id. See the relabelling in
+      # deploy/prometheus/prometheus.yml for what becomes of it.
       - --store_container_labels=false
       - --disable_metrics=percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl
 
