@@ -1,4 +1,4 @@
-// What the "More to run" strip offers, checked against a made-up index and then
+// What the "More to try" strip offers, checked against a made-up index and then
 // against the real one.
 //
 //   node test/rosetta-suggestions.js
