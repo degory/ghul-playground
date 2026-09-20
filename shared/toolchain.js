@@ -40,6 +40,15 @@ const REFERENCES = [
     'System.Runtime.Numerics',
     'System.Text.Json',
     'System.Text.RegularExpressions',
+    // XML, which the XML tasks read and write. An external entity in a
+    // document resolves against a host that has neither a filesystem nor
+    // a network, so the usual hazard has nowhere to reach.
+    'System.Xml.ReaderWriter',
+    'System.Xml.XmlDocument',
+    'System.Xml.XDocument',
+    'System.Xml.XPath',
+    'System.Xml.XPath.XDocument',
+    'System.Security.Cryptography',
     'System.Threading',
     // The program runs on a worker thread, so Thread.sleep pauses it without
     // stopping the page - which is how an animation paces its frames.
@@ -52,7 +61,11 @@ const REFERENCES = [
     'System.Runtime.InteropServices',
     // closure of System.Text.Json
     'System.IO.Pipelines',
-    'System.Text.Encodings.Web'
+    'System.Text.Encodings.Web',
+    // closure of System.Xml.XPath.XDocument and System.Security.Cryptography
+    'System.Xml.Linq',
+    'System.Formats.Asn1',
+    'System.Collections.NonGeneric'
 ];
 
 function highestVersion(versions) {
