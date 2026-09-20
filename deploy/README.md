@@ -389,9 +389,22 @@ which a read-only mount refuses, and a read-write mount would put a second
 writer on the only irreplaceable thing on this host.
 
 cAdvisor runs **without the Docker socket**. The usual recipe mounts it, which
-is root on this machine for anything that gets into that container; cgroups and
-Docker's own directory, both read-only, give the per-container processor and
-memory numbers without it.
+is root on this machine for anything that gets into that container.
+
+What that costs is the container's *name*. cAdvisor learns names from Docker's
+API, and its Docker factory wants containerd's socket as well, so a read-only
+proxy in front of the Docker socket does not buy them either - both were tried.
+Reading the cgroups directly still gives a series per container, keyed by the
+cgroup path, which carries the container's id; Prometheus lifts the first twelve
+characters out of it into a `container` label, which is what `docker ps` prints,
+so matching one to a service is one command on the host.
+
+`--docker_only` is deliberately **not** set. It reports only containers cAdvisor
+identified through Docker, which without those sockets is none: it reported a
+single series, the root cgroup, which is the machine rather than a container.
+The cgroups that are not containers are dropped at scrape time - there are sixty
+of them to every container, the machine's own numbers come from node-exporter,
+and they would otherwise be most of what this job stores.
 
 ### two settings the host supplies
 

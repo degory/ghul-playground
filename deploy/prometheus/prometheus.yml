@@ -26,3 +26,22 @@ scrape_configs:
   - job_name: containers
     static_configs:
       - targets: ['cadvisor:8080']
+
+    metric_relabel_configs:
+      # cAdvisor reports each container under its cgroup path, which for Docker
+      # is `/system.slice/docker-<id>.scope`. Without a name from Docker's own
+      # API the id is what there is, so it is lifted into a label of its own and
+      # shortened to the twelve characters `docker ps` prints.
+      - source_labels: [id]
+        regex: '.*docker[-/]([0-9a-f]{12})[0-9a-f]*(\.scope)?'
+        target_label: container
+        replacement: '$1'
+
+      # Everything else cAdvisor reports is a cgroup of the machine's own - the
+      # root, the system slice, one per service - and there are sixty of them to
+      # every container. The machine's own numbers come from node-exporter,
+      # which measures them properly, so these are dropped rather than stored:
+      # they are most of the series this job would otherwise cost.
+      - source_labels: [container]
+        regex: '^$'
+        action: drop
