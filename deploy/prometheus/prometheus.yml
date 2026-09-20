@@ -1,0 +1,28 @@
+# What this host is doing, as against what its visitors are doing. Visitor
+# analytics are not here and cannot be: Prometheus stores pre-aggregated series
+# and has no way to show one visit's sequence, which is the question the
+# analytics side exists to answer.
+
+global:
+  # Thirty seconds rather than fifteen. Nothing here changes faster than that
+  # matters for, and the series count is what decides both the memory and the
+  # disk, so halving the rate halves both for no loss.
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # The machine: processor, load, memory, disk, network.
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Per-container processor and memory, which is the half that matters here:
+  # the compile service has been OOM-killed before, and a cap it is sitting
+  # against is invisible from the host's own numbers.
+  - job_name: containers
+    static_configs:
+      - targets: ['cadvisor:8080']

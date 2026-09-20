@@ -129,6 +129,12 @@ jobs:
       - name: Check how a command line is written and read back
         run: node test/arguments.mjs
 
+      - name: Check what the analytics snapshot keeps and drops
+        run: test/snapshot-rules.sh
+
+      - name: Check the dashboard queries against GoatCounter's schema
+        run: node test/dashboard-queries.mjs
+
       - name: Build the ghūl runner
         run: dotnet build runner --configuration Release
 

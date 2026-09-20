@@ -15,12 +15,15 @@ import { GhulLanguageClient } from './lsp.js'
 import { CELL_SERVICE, ANALYSE_REPL_SERVICE, replAvailability } from './repl-route.js'
 import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { CellOutput, showValue } from './cell-output.js'
-import { countEvent, countBand } from './events.js'
+import { countEvent, countBand, countTimeOnPage } from './events.js'
 
 const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
 
 // Once per page load, so a session's other events have a denominator.
 count('repl-open');
+
+// As on the playground page: how long the reader had it in front of them.
+countTimeOnPage('repl-time');
 
 // How many cells this session has taken, reported when the session ends rather
 // than per cell: the interesting number is how far a session gets, and a count

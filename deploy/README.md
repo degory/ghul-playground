@@ -366,6 +366,74 @@ Deleting by path, from the dashboard, is the only narrower option.
 whose visits are not recorded. The list itself is written by hand on the host
 and is not in this repository.
 
+## dashboards, and what the host is doing
+
+Grafana is served at `/stats/insights/`, behind its own login. It is the only
+one of the four services added for it that is reachable from outside at all;
+Prometheus, node-exporter and cAdvisor answer nobody but Grafana and each other.
+
+Two things it reads, and they are separate on purpose.
+
+**What the host is doing** comes from Prometheus, which scrapes the machine
+(node-exporter) and the containers (cAdvisor) every thirty seconds and keeps
+ninety days. That is what Prometheus is for. It is also why visitor analytics
+are *not* in it: it stores series that have already been aggregated, so it can
+say how many visits there were at nine o'clock and can never say what one
+visitor did next.
+
+**What visitors did** comes from a copy of GoatCounter's database, taken by the
+`snapshot` service every five minutes and mounted into Grafana read-only.
+Grafana cannot reach the live database at all. The copy exists because the live
+one is in WAL mode: a reader has to be able to create the `-shm` file beside it,
+which a read-only mount refuses, and a read-write mount would put a second
+writer on the only irreplaceable thing on this host.
+
+cAdvisor runs **without the Docker socket**. The usual recipe mounts it, which
+is root on this machine for anything that gets into that container; cgroups and
+Docker's own directory, both read-only, give the per-container processor and
+memory numbers without it.
+
+### two settings the host supplies
+
+Both go in `/opt/ghul-playground/.env` beside the tokens, written by hand, and
+neither is in this repository.
+
+`GRAFANA_ADMIN_PASSWORD` is the dashboard login. Compose refuses to start
+Grafana without it rather than falling back to a default.
+
+`SNAPSHOT_EXCLUDE` says which recorded visits are the site's own rather than a
+visitor's, and is applied to the **copy**: the live database keeps every row it
+has ever had, and this must never be the thing that clears it. Doing it here
+rather than in the dashboards means no query has to know, and that what is
+excluded - which describes whoever runs the site rather than the service - stays
+off a public repository.
+
+One line, rules separated by `;`, each rule's own fields by `|`:
+
+| rule | removes |
+| --- | --- |
+| `location\|XX` | every visit recorded in that place |
+| `location-window\|XX\|<from>\|<to>` | that place, between two timestamps |
+| `path\|<pattern>` | paths matching a SQL `LIKE` pattern |
+
+A rule naming nothing removes nothing, and a rule of an unknown kind is
+reported and skipped, so a mistake costs a snapshot rather than data. The next
+copy is five minutes away regardless, so changing the rules needs no more than
+editing `.env` and restarting the one service.
+
+`test/snapshot-rules.sh` checks what each kind of rule removes and that the
+source database is untouched; `test/dashboard-queries.mjs` runs every query the
+dashboards make against GoatCounter's own schema.
+
+### what a dashboard can show
+
+Only what GoatCounter already stores. It keeps no address under any setting,
+and the visit identifier it does keep is random and lives for one visit, so the
+visit log shows a sequence of pages within one visit and can never join two.
+Nothing is added to the snapshot that GoatCounter does not already hold, and
+its `users`, `api_tokens` and `store` tables are dropped from the copy - the
+dashboard has no business holding the counter's own password hash.
+
 ## traffic that is not a reader
 
 `reject-unknown-hosts.conf` makes nginx refuse any request whose `Host` is not a

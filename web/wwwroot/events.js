@@ -97,6 +97,86 @@ export function countPageview(path) {
     record({ path });
 }
 
+// Something to count as the page is going away, which the counter's own script
+// cannot carry: it sends an image request, and a browser tearing a page down
+// abandons those. sendBeacon is the one request a browser promises to finish,
+// and GoatCounter accepts a POST to its count endpoint for exactly this.
+function beacon(path, title) {
+    if (suppressed || !navigator.sendBeacon) return;
+
+    const endpoint = document.getElementById('goatcounter')?.dataset.goatcounter;
+
+    if (!endpoint) return;
+
+    try {
+        const url = new URL(endpoint, location.href);
+
+        url.searchParams.set('p', path);
+        url.searchParams.set('e', 'true');
+
+        if (title) url.searchParams.set('t', title);
+
+        navigator.sendBeacon(url.toString());
+    } catch {
+        // A page on its way out is not a place to report anything.
+    }
+}
+
+// How long the reader had the page in front of them, in bands, counted once.
+//
+// Time the page spent hidden does not count: a tab left open behind others for
+// an hour says nothing about whether anyone read it. What that costs is a
+// reader who leaves and comes back - the count is taken the first time the page
+// goes away, so their second visit to it is not added. A band is coarse enough
+// that this matters less than sending several would.
+export function countTimeOnPage(family) {
+    if (suppressed) return;
+
+    let visibleSince = document.visibilityState === 'visible' ? performance.now() : null;
+    let visible = 0;
+    let counted = false;
+
+    const stopped = () => {
+        if (visibleSince !== null) {
+            visible += performance.now() - visibleSince;
+            visibleSince = null;
+        }
+    };
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            visibleSince ??= performance.now();
+            return;
+        }
+
+        stopped();
+        send();
+    });
+
+    // Both, because neither fires everywhere: a tab being closed may only ever
+    // report pagehide, and a phone switching away may only ever report the
+    // other. The count happens once whichever arrives first.
+    window.addEventListener('pagehide', () => { stopped(); send(); });
+
+    function send() {
+        if (counted) return;
+
+        counted = true;
+
+        beacon(`${family}/${timeBand(visible)}`, family);
+    }
+}
+
+// The bands themselves. Coarse on purpose: a path is a name, and the question
+// is whether somebody read the page rather than how many seconds they took.
+export function timeBand(ms) {
+    if (ms < 10000) return 'under-10s';
+    if (ms < 30000) return '10-30s';
+    if (ms < 120000) return '30s-2m';
+    if (ms < 600000) return '2-10m';
+    return 'over-10m';
+}
+
 // Which band a duration falls in. A bucket rather than the number, because a
 // path is a name and thousands of distinct millisecond values would be a
 // histogram nobody can read and a cardinality nobody wants.

@@ -7,7 +7,7 @@ import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import { parseArguments, renderArguments } from './arguments.js'
 import * as files from './files.js'
-import { countEvent, countPageview, band } from './events.js'
+import { countEvent, countPageview, band, countTimeOnPage } from './events.js'
 import { loadIndex, suggestions as suggest, taskFor } from './rosetta-index.js'
 
 // Every event this page sends names what the reader did, never what they wrote.
@@ -357,6 +357,11 @@ count('playground-open', requested ? requested.name.split('/')[0]
 // Which theme the reader is actually shown. It follows the system preference
 // and there is no control for it, so this is the only way to know.
 count('playground-theme', window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+
+// How long the page was actually in front of the reader, counted once as they
+// leave. Nothing else can recover it: every other event says something happened
+// and none says how long nothing did.
+countTimeOnPage('playground-time');
 
 function forgetProvenance() {
     if (!provenance) return;
