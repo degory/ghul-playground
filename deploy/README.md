@@ -439,19 +439,26 @@ source database is untouched; `test/dashboard-queries.mjs` runs every query the
 dashboards make against GoatCounter's own schema.
 
 The snapshot service reports itself unhealthy when the copy is missing or older
-than two intervals. That is worth knowing because the failure it has is quiet:
+than two intervals, and the deploy asks it and Prometheus what they are actually
+running (`check-running-config.sh`). That is worth knowing because the failure it has is quiet:
 the loop goes on running and the container stays up, so without the health check
 the only sign is a dashboard that is emptier than it should be.
 
-**If that volume was created before the image owned its own mount point**, the
-copies fail with `unable to open database "/snapshot/analytics.sqlite3.new"`.
-Docker seeds a new named volume's ownership from the image's mount point, and
-seeds nothing into a volume that already exists - so the fix is to let it be
-created again:
+**If the copies fail** with `unable to open database
+"/snapshot/analytics.sqlite3.new"`, the volume's mount point is owned by root
+rather than by the user the container runs as. Docker seeds a named volume from
+the image's mount point - ownership included - whenever the volume is **empty**,
+not only when it is newly created, so bringing the service up on an image that
+owns that directory is usually enough to fix it by itself.
+
+Where it is not - the volume has a copy in it already, so nothing is re-seeded -
+the volume has to go. `docker volume rm` refuses while any container still
+references it, and stopping a container does not release it, so the containers
+have to be removed rather than stopped:
 
 ```sh
 cd /opt/ghul-playground
-sudo docker compose stop snapshot grafana
+sudo docker compose rm -sf snapshot grafana
 sudo docker volume rm ghul-playground_goatcounter-snapshot
 sudo docker compose up -d snapshot grafana
 ```

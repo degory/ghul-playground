@@ -27,6 +27,14 @@ RUN adduser -D -u 1000 snapshot
 # goatcounter image carries the same line for the same reason.
 RUN install -d -o snapshot -g snapshot /snapshot
 
+# Copied in rather than mounted over. A bind mount of a single *file* pins the
+# inode it was started with, and git does not edit a file in place - it writes a
+# new one and renames - so a container started before a change goes on running
+# the version it started with, however many times the repository changes. It
+# cost us a fix that deployed and did nothing. Carried in the image, a change
+# changes the image, and compose replaces the container.
+COPY snapshot.sh /snapshot.sh
+
 USER snapshot
 
 # A copy that is not being written is the failure this service can have, and it
