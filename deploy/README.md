@@ -68,6 +68,30 @@ covers are listed in `nginx-files.sh`. `host-setup.sh` installs them too, but
 it also does first-time setup, so it is not the thing to run for an nginx
 change.
 
+Both site files use `brotli_static`, which comes from a module package that
+Ubuntu's `nginx` does not pull in. A host built by `host-setup.sh` now gets it,
+but one built before that does not, and nginx rejects an unknown directive
+rather than ignoring it - so install the package **before** applying the files:
+
+```sh
+sudo apt-get install -y libnginx-mod-http-brotli-static
+sudo /opt/ghul-playground/deploy/apply-nginx.sh
+```
+
+Applying first is safe rather than harmful: `nginx -t` fails, `apply-nginx.sh`
+puts the previous files back, and nginx carries on serving what it had. What it
+leaves behind is a `check-nginx.sh` failure on every deploy until the package is
+in and the files are applied, which reads as an unrelated deploy failure.
+
+The point of it is that the publish already writes a `.br` beside every `.gz`
+and nothing was serving them: brotli is about a quarter smaller than gzip across
+the runtime's assemblies, and a client that offers brotli and not gzip was being
+served no compression at all. Confirm it took with
+
+```sh
+curl -sI -H 'Accept-Encoding: br' https://ghul.dev/playground/main.js | grep -i content-encoding
+```
+
 It also serves the documentation site, `ghul.dev` and `www.ghul.dev`, from
 `/var/www/ghul-dev`. Under that site the playground is also served at `/playground/`, from
 its own directory with its services beside it under the same limit zones, and
