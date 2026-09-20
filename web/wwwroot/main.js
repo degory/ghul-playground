@@ -7,8 +7,8 @@ import { setUpFullscreen, setUpHelp } from './chrome.js'
 import { requestedProgram, loadProgram, pathBelowBase } from './collections.js'
 import { parseArguments, renderArguments } from './arguments.js'
 import * as files from './files.js'
-import { countEvent, band } from './events.js'
-import { loadIndex } from './rosetta-index.js'
+import { countEvent, countPageview, band } from './events.js'
+import { loadIndex, suggestions, taskFor } from './rosetta-index.js'
 
 // Every event this page sends names what the reader did, never what they wrote.
 const count = (family, detail) => countEvent(detail ? `${family}/${detail}` : family, family);
@@ -122,9 +122,11 @@ function showTab(panel) {
 // Filled in once the program is known, and emptied when the buffer stops
 // being that program.
 const aboutProgram = document.getElementById('about-program');
+const moreToRun = document.getElementById('more-to-run');
 
 function showAbout() {
     aboutProgram.hidden = outputPane.hidden || !aboutProgram.hasChildNodes();
+    moreToRun.hidden = outputPane.hidden || !moreToRun.querySelector('li');
 }
 
 for (const tab of tabs) {
@@ -314,9 +316,12 @@ const savedSource = (() => {
 // A program named by the page's path, such as .../rosetta-code/100-doors, takes
 // the place of the saved source. Loading it again on reload is what the link
 // promises, so edits to it are not restored over it.
-const requested = requestedProgram(pathBelowBase());
+// Both change when a suggestion is taken: the page opens another task where it
+// stands rather than loading itself again, so what the buffer is has to be able
+// to move with it.
+let requested = requestedProgram(pathBelowBase());
 
-const program = requested
+let program = requested
     ? await loadProgram(requested).catch(e => ({ error: e.message }))
     : null;
 
@@ -360,8 +365,7 @@ function forgetProvenance() {
 
     document.title = currentName ? `${currentName} - ghūl playground` : 'ghūl playground';
 
-    aboutProgram.replaceChildren();
-    showAbout();
+    renderProgram();
 }
 
 // Whether the output pane is showing its own tail, and so whether new output
@@ -501,6 +505,11 @@ const playground = await createPlayground({
     }
 });
 
+// The source as the program gave it, so a swap can tell a reader who has
+// changed something from one who has only read it. Reset by every load, and by
+// opening a file, because each of those is the buffer becoming a new thing.
+let loadedSource = playground.getSource();
+
 // The client already retries on its own, backing off to a minute between
 // attempts. This is for the reader who does not want to wait out the backoff,
 // and it is why the indicator is a button rather than a label.
@@ -558,9 +567,58 @@ async function withTaskIndex() {
 
     taskIndex = await loadIndex();
 
-    if (taskIndex) renderAbout();
+    if (taskIndex) renderProgram();
 
     return taskIndex;
+}
+
+// How far along the showcase and the equally-related tasks the strip is. Moved
+// by every swap, so a reader working through several tasks is offered
+// different ones rather than the same three each time.
+let turn = 0;
+
+// The task and the part a program's name refers to: <collection>/<slug>, or
+// <collection>/<slug>/<NN-part> where a task is solved more than one way. The
+// part's id is the index's own spelling of it.
+function taskAndPart(name) {
+    const [, slug, part] = /^[^/]+\/([^/]+)(?:\/(.+))?$/.exec(name ?? '') ?? [];
+
+    return { slug, id: part ? `${slug}/${part}` : slug };
+}
+
+// A part's heading as it reads mid-sentence, since that is where the line puts
+// it. Only the first letter, and only when the word carries on in lower case,
+// so a heading that begins with a name or an acronym is left as it was.
+function midSentence(heading) {
+    return /^[A-Z][a-z]/.test(heading) ? heading[0].toLowerCase() + heading.slice(1) : heading;
+}
+
+function link(text, href, counted) {
+    const a = Object.assign(document.createElement('a'),
+        { textContent: text, href, target: '_blank', rel: 'noopener' });
+
+    if (counted) a.addEventListener('click', () => count(counted));
+
+    return a;
+}
+
+// A link that opens another program here rather than navigating to it.
+function swapLink(text, name, counted) {
+    const a = Object.assign(document.createElement('a'),
+        { textContent: text, href: new URL(name, document.baseURI).toString() });
+
+    a.addEventListener('click', event => {
+        // A modified click is the reader asking for another tab, which the href
+        // answers by itself.
+        if (event.defaultPrevented || event.metaKey || event.ctrlKey
+            || event.shiftKey || event.altKey || event.button !== 0) return;
+
+        event.preventDefault();
+
+        swapTo(name, { counted });
+    });
+
+    return a;
 }
 
 // The one line under the output saying what this program is and where it came
@@ -569,26 +627,44 @@ async function withTaskIndex() {
 function renderAbout() {
     aboutProgram.replaceChildren();
 
-    if (!program?.source) return;
+    // Keyed on provenance rather than on what was loaded: once the buffer has
+    // been replaced it is no longer that task, and neither the line nor the
+    // strip describes it any more.
+    if (!provenance || !program?.source) return;
 
-    const link = (text, href, counted) => {
-        const a = Object.assign(document.createElement('a'),
-            { textContent: text, href, target: '_blank', rel: 'noopener' });
-
-        if (counted) a.addEventListener('click', () => count(counted));
-
-        return a;
-    };
-
-    const title = program.title ?? requested.name;
+    const title = program.title ?? provenance.name;
 
     // The title carries the link to the task's own page rather than a separate
     // "more about this task" beside it: one destination, named by the thing it
     // describes.
-    aboutProgram.append(requested.page ? link(title, requested.page) : title);
+    aboutProgram.append(provenance.page ? link(title, provenance.page) : title);
 
-    aboutProgram.append(' · a Rosetta Code task solved in ghūl, '
-        + 'a statically typed language for .NET');
+    const { slug, id } = taskAndPart(provenance.name);
+    const parts = taskFor(taskIndex, slug)?.parts ?? [];
+    const at = parts.findIndex(part => part.id === id);
+
+    // A task solved more than one way carries its own navigation, because the
+    // parts are one task shown several ways and a reader who has run one is
+    // the reader most likely to want the next.
+    if (parts.length > 1 && at >= 0) {
+        aboutProgram.append(` · part ${at + 1} of ${parts.length}`);
+
+        const previous = parts[at - 1];
+        const next = parts[at + 1];
+
+        if (previous) {
+            aboutProgram.append(' · ', swapLink(`← previous: ${midSentence(previous.heading ?? 'the part before')}`,
+                `${provenance.name.split('/')[0]}/${previous.id}`, { family: 'rosetta-part', detail: 'previous' }));
+        }
+
+        if (next) {
+            aboutProgram.append(' · ', swapLink(`next: ${midSentence(next.heading ?? 'the part after')} →`,
+                `${provenance.name.split('/')[0]}/${next.id}`, { family: 'rosetta-part', detail: 'next' }));
+        }
+    } else {
+        aboutProgram.append(' · a Rosetta Code task solved in ghūl, '
+            + 'a statically typed language for .NET');
+    }
 
     aboutProgram.append(' · ', link('what is ghūl?', 'https://ghul.dev/', 'rosetta-what-is-ghul'));
 
@@ -597,11 +673,121 @@ function renderAbout() {
     aboutProgram.append(' · ', link(
         taskIndex ? `all ${taskIndex.tasks.length} solutions` : 'all solutions',
         'https://ghul.dev/rosetta', 'rosetta-browse-all'));
+}
 
+// Three other tasks, under the output the reader has just watched appear. The
+// index arrives after the first run, so this is empty until then and the strip
+// stays hidden; an index that never arrives leaves it hidden for good, which is
+// the same page as before the strip existed.
+function renderMoreToRun() {
+    const list = moreToRun.querySelector('ul');
+
+    list.replaceChildren();
+
+    if (!taskIndex || !provenance) return;
+
+    const { slug } = taskAndPart(provenance.name);
+    const collection = provenance.name.split('/')[0];
+
+    suggestions(taskIndex, slug, turn).forEach((task, position) => {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+
+        button.type = 'button';
+        button.title = `Run ${task.title}`;
+
+        button.append(Object.assign(document.createElement('span'),
+            { className: 'title', textContent: task.title }));
+
+        if (task.reason) {
+            button.append(Object.assign(document.createElement('span'),
+                { className: 'why', textContent: task.reason }));
+        }
+
+        // A suggestion opens the task's first part, which is the one a reader
+        // should meet first - the later numbers add to it.
+        const name = `${collection}/${task.parts?.[0]?.id ?? task.slug}`;
+
+        button.addEventListener('click', () => swapTo(name,
+            { counted: { family: 'rosetta-more', detail: `${task.kind}/${position + 1}` } }));
+
+        item.append(button);
+        list.append(item);
+    });
+}
+
+// Both surfaces read the same two things - which program this is, and the index
+// - so they are rendered together and a swap has one call to make.
+function renderProgram() {
+    renderAbout();
+    renderMoreToRun();
     showAbout();
 }
 
-renderAbout();
+// Open another program in this tab: the runtime is already warm, so this is a
+// swap rather than a page load. The URL still becomes the program's own, and
+// pushState rather than replaceState because it genuinely is a navigation -
+// Back returns to the task the reader came from.
+async function swapTo(name, { counted = null, push = true } = {}) {
+    if (playground.getSource() !== loadedSource
+        && !confirm('Open another task? The changes you have made here are discarded.')) return;
+
+    const next = requestedProgram(`/${name}`);
+
+    if (!next) return;
+
+    const loaded = await loadProgram(next).catch(e => ({ error: e.message }));
+
+    // Nothing is swapped when the program will not load: the reader keeps what
+    // they had, and the reason goes where its output would have been.
+    if (!loaded.source) {
+        outputPane.replaceChildren(Object.assign(document.createElement('span'),
+            { className: 'notice', textContent: loaded.error ?? `could not load ${name}` }));
+        showTab(outputPane);
+        return;
+    }
+
+    if (counted) count(counted.family, counted.detail);
+
+    if (push) history.pushState(null, '', new URL(name, document.baseURI).toString());
+
+    requested = next;
+    program = loaded;
+    turn += 1;
+
+    document.title = `${next.name} - ghūl playground`;
+    provenance = next;
+
+    playground.setFiles(loaded.files);
+    playground.setSource(loaded.source);
+    loadedSource = loaded.source;
+
+    renderProgram();
+
+    // A pageview as a page load would have counted, so a reader's journey
+    // through several tasks reads as the pages they would have been.
+    countPageview(new URL(name, document.baseURI).pathname);
+
+    // The same promise a link makes: the reader asked to see this task run.
+    if (!loaded.unsupported) runProgram({ automatic: true });
+    else {
+        outputPane.replaceChildren(Object.assign(document.createElement('span'),
+            { className: 'notice',
+              textContent: `This program does not run in the playground: ${loaded.unsupported}` }));
+        showTab(outputPane);
+    }
+}
+
+// Back and Forward move between the programs the reader has opened here, which
+// is what pushState promised. The entry is already in history, so this re-opens
+// without pushing another.
+window.addEventListener('popstate', () => {
+    const wanted = requestedProgram(pathBelowBase());
+
+    if (wanted && wanted.name !== requested?.name) swapTo(wanted.name, { push: false });
+});
+
+renderProgram();
 
 const isRunning = () => runButton.hasAttribute('data-stop');
 

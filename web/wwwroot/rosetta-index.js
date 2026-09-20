@@ -53,18 +53,38 @@ export function loadIndex(fetchImpl = fetch) {
 // How alike two tasks are: shared tags, with the ones that make somebody stay
 // counted twice. Tags come from the index's own vocabulary, so this compares
 // terms the corpus actually uses rather than words found in a title.
+//
+// The weightiest shared tag comes back with the score, because it is what the
+// strip says about the task: the index gives every tag a one-line description,
+// so a suggestion can be labelled in the corpus's own words rather than in
+// words invented here.
 function relatedness(task, to) {
     const tags = new Set(to.tags ?? []);
 
     let score = 0;
+    let best = null;
+    let bestWeight = 0;
 
     for (const tag of task.tags ?? []) {
         if (!tags.has(tag)) continue;
 
-        score += VISUAL_TAGS.has(tag) || ENGAGING_TAGS.has(tag) ? 2 : 1;
+        const weight = VISUAL_TAGS.has(tag) || ENGAGING_TAGS.has(tag) ? 2 : 1;
+
+        score += weight;
+
+        if (weight > bestWeight) {
+            best = tag;
+            bestWeight = weight;
+        }
     }
 
-    return score;
+    return { score, tag: best };
+}
+
+// The task the index holds for a slug, or null. The page reads a task's parts
+// through this rather than reaching into the index itself.
+export function taskFor(index, slug) {
+    return index?.tasks.find(task => task.slug === slug) ?? null;
 }
 
 // A stable order for equally-related tasks, so the strip does not reshuffle on
@@ -90,14 +110,14 @@ export function suggestions(index, slug, turn = 0) {
     // scored: whoever wrote it has already said which is best.
     const showcase = rotate((index.showcase ?? []).filter(s => s !== slug && bySlug.has(s)), turn)
         .slice(0, 1)
-        .map(s => ({ ...bySlug.get(s), kind: 'showcase' }));
+        .map(s => ({ ...bySlug.get(s), kind: 'showcase', reason: 'worth seeing' }));
 
     const taken = new Set(showcase.map(task => task.slug));
 
     const related = current
         ? runnable
             .filter(task => !taken.has(task.slug))
-            .map(task => ({ task, score: relatedness(task, current) }))
+            .map(task => ({ task, ...relatedness(task, current) }))
             .filter(entry => entry.score > 0)
             .sort((a, b) => b.score - a.score
                 || Number(isVisual(b.task)) - Number(isVisual(a.task))
@@ -108,11 +128,19 @@ export function suggestions(index, slug, turn = 0) {
     // window changes which of the equally-related tasks is offered without
     // demoting a closer one below a distant one.
     const best = related.length ? related[0].score : 0;
-    const top = rotate(related.filter(entry => entry.score === best).map(entry => entry.task), turn);
-    const rest = related.filter(entry => entry.score !== best).map(entry => entry.task);
+    const top = rotate(related.filter(entry => entry.score === best), turn);
+    const rest = related.filter(entry => entry.score !== best);
 
     return [...top, ...rest]
         .slice(0, 2)
-        .map(task => ({ ...task, kind: 'related' }))
+        .map(entry => ({
+            ...entry.task,
+            kind: 'related',
+            // The vocabulary's own description of the tag the two tasks share.
+            // An index without the vocabulary leaves the card unlabelled rather
+            // than labelled with the bare tag, which says less than nothing to
+            // somebody who has not read the corpus.
+            reason: index.tags?.[entry.tag] ?? null
+        }))
         .concat(showcase);
 }

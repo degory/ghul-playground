@@ -52,27 +52,24 @@ function send(event) {
     }
 }
 
-// Count one event. `path` is the whole of what is recorded; `title` is what the
-// dashboard shows beside it and is free text.
-export function countEvent(path, title) {
+// One thing to count, sent now or once the counter has loaded.
+function record(entry) {
     if (suppressed) return;
 
-    const event = { path, title, event: true };
-
     if (window.goatcounter?.count) {
-        send(event);
+        send(entry);
         return;
     }
 
     const script = document.getElementById('goatcounter');
 
     // A page that does not load the counter at all is a page that counts
-    // nothing, so the event is dropped rather than queued. Queueing it would
-    // wait for a load event that can never arrive, which is how a page with no
-    // counter came to look as though it were sending events.
+    // nothing, so what it is given is dropped rather than queued. Queueing it
+    // would wait for a load event that can never arrive, which is how a page
+    // with no counter came to look as though it were sending events.
     if (!script) return;
 
-    queued.push(event);
+    queued.push(entry);
 
     if (listening) return;
 
@@ -84,6 +81,20 @@ export function countEvent(path, title) {
     script.addEventListener('load', () => {
         while (queued.length) send(queued.shift());
     }, { once: true });
+}
+
+// Count one event. `path` is the whole of what is recorded; `title` is what the
+// dashboard shows beside it and is free text.
+export function countEvent(path, title) {
+    record({ path, title, event: true });
+}
+
+// Count a pageview for a path the reader reached without loading a page: the
+// playground opens another program where it stands, so the only record that
+// they saw it is this one. A path that a page load would also have counted, so
+// a journey through several programs reads as the pages it would have been.
+export function countPageview(path) {
+    record({ path });
 }
 
 // Which band a duration falls in. A bucket rather than the number, because a

@@ -29,7 +29,7 @@ const task = (slug, tags, { images = [], playground = true, parts } = {}) => ({
 });
 
 (async () => {
-    const { suggestions, isVisual, isRunnable, loadIndex } = await import(`file://${MODULE}`);
+    const { suggestions, isVisual, isRunnable, loadIndex, taskFor } = await import(`file://${MODULE}`);
 
     // --- what counts as visual, and as runnable ---------------------------
 
@@ -71,6 +71,32 @@ const task = (slug, tags, { images = [], playground = true, parts } = {}) => ({
     check('a task sharing no tag is not offered as related',
         !offered.some(t => t.kind === 'related' && t.slug === 'unrelated'));
     check('the showcase pick comes last', offered[2].kind === 'showcase');
+
+    // --- what each card says ----------------------------------------------
+
+    // The vocabulary's own words for the tag two tasks share, so the strip does
+    // not invent a description of a corpus it cannot read.
+    const vocabulary = { graphics: 'draws a picture', fractal: 'draws or computes a fractal' };
+    const labelled = suggestions({ ...index, tags: vocabulary }, 'current');
+
+    check('a related card is labelled with a shared tag\'s own description',
+        labelled.filter(t => t.kind === 'related')
+            .every(t => Object.values(vocabulary).includes(t.reason)),
+        JSON.stringify(labelled.map(t => t.reason)));
+
+    check('an index with no vocabulary leaves a related card unlabelled',
+        offered.filter(t => t.kind === 'related').every(t => t.reason === null),
+        JSON.stringify(offered.map(t => t.reason)));
+
+    check('the showcase pick says why it is there without needing a tag',
+        offered[2].reason === 'worth seeing', JSON.stringify(offered[2].reason));
+
+    // --- reading a task out of the index ----------------------------------
+
+    check('a task is found by slug', taskFor(index, 'close')?.slug === 'close');
+    check('a slug the index has never heard of is not', taskFor(index, 'nothing') === null);
+    check('and neither is anything in an index that failed to load',
+        taskFor(null, 'close') === null);
 
     // --- rotation ---------------------------------------------------------
 

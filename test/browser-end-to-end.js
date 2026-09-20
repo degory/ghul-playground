@@ -805,6 +805,193 @@ chrome.on('error', e => {
     check('and the File menu brings it up',
         await ev(`document.getElementById('arguments-row').offsetParent !== null`)
         && await ev(`document.getElementById('arguments').value`) === '');
+    // --- more to run ------------------------------------------------------
+
+    // The index is fetched from the collection, which this section is serving,
+    // and nothing answers for it yet - so this is the failed-fetch case: the
+    // strip stays hidden and the line above it is untouched.
+    check('a task index that will not load leaves no strip',
+        await ev(`document.getElementById('more-to-run').offsetParent === null`));
+    check('and leaves the line under the output alone', about?.startsWith('Reads files'));
+
+    // A made-up index, so what the strip offers is decided here rather than by
+    // what the corpus happens to hold today. `cannot-run` is what a task
+    // carrying playground-unsupported looks like from the index: the generator
+    // writes that file's absence as this flag, and the strip reads the flag.
+    const task = (slug, title, tags, parts) => ({
+        slug, title, tags, images: [], playground: true,
+        parts: parts ?? [{ id: slug, heading: null, playground: true, images: [] }]
+    });
+
+    const INDEX = {
+        version: 1,
+        tags: { files: 'reads or writes a file' },
+        showcase: ['show-off'],
+        tasks: [
+            task('reads-files', 'Reads files', ['files']),
+            task('related-one', 'Related one', ['files']),
+            task('related-two', 'Related two', ['files']),
+            { ...task('cannot-run', 'Cannot run', ['files']), playground: false,
+              parts: [{ id: 'cannot-run', heading: null, playground: false, images: [] }] },
+            task('show-off', 'Show off', ['strings']),
+            task('two-parts', 'Two parts', ['files'], [
+                { id: 'two-parts/01-first', heading: 'The first way', playground: true, images: [] },
+                { id: 'two-parts/02-second', heading: 'The second way', playground: true, images: [] }
+            ])
+        ]
+    };
+
+    intercepted.set(`${TASKS}index.json`, JSON.stringify(INDEX));
+
+    const says = (slug, text) => {
+        intercepted.set(`${TASKS}tasks/${slug}/${slug.split('/').at(-1)}.ghul`,
+            `use IO.Std.write_line;\n\nentry() is\n    write_line("${text}");\nsi\n`);
+        intercepted.set(`${TASKS}tasks/${slug.split('/')[0]}/task.json`,
+            JSON.stringify({ task: INDEX.tasks.find(t => t.slug === slug.split('/')[0])?.title ?? slug }));
+    };
+
+    for (const slug of ['related-one', 'related-two', 'show-off', 'cannot-run']) says(slug, slug);
+    says('two-parts/01-first', 'the first way');
+    says('two-parts/02-second', 'the second way');
+
+    // Waits for a program to have run: the pane carries a placeholder from the
+    // moment a run starts, so the text the program printed is the only signal.
+    const ranSaying = async text => {
+        for (let i = 0; i < 180; i++) {
+            if ((await ev(`document.getElementById('output').innerText`) ?? '').includes(text)) return true;
+            await sleep(500);
+        }
+        return false;
+    };
+
+    const cards = () => ev(`JSON.stringify([...document.querySelectorAll('#more-to-run li button')]
+        .map(b => b.innerText.split('\\n')))`);
+
+    await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
+
+    check('a task with an index runs on arrival', await ranSaying('from the notes'));
+
+    // The index is fetched at the first output and not before it, so the strip
+    // arrives a moment after the program's own text does.
+    for (let i = 0; i < 60; i++) {
+        if (await ev(`document.querySelectorAll('#more-to-run li').length > 0`)) break;
+        await sleep(500);
+    }
+
+    const offered = JSON.parse(await cards() ?? '[]');
+
+    check('three tasks are offered once a program has run',
+        offered.length === 3, JSON.stringify(offered));
+    check('a task that cannot run here is not among them',
+        !offered.some(([title]) => title === 'Cannot run'), JSON.stringify(offered));
+    check('the task being run is not among them',
+        !offered.some(([title]) => title === 'Reads files'), JSON.stringify(offered));
+    check('a related card says what the two tasks have in common, in the index\'s own words',
+        offered[0]?.[1] === 'reads or writes a file', JSON.stringify(offered[0]));
+    check('the showcase pick is last and says why it is there',
+        offered[2]?.[0] === 'Show off' && offered[2]?.[1] === 'worth seeing', JSON.stringify(offered[2]));
+
+    // --- taking one -------------------------------------------------------
+
+    const taking = offered[0][0];
+
+    await ev(`document.querySelectorAll('#more-to-run li button')[0].click(); true`);
+
+    check('taking a suggestion swaps the program in and runs it', await ranSaying('related-one'),
+        JSON.stringify(await ev(`document.getElementById('output').innerText`)));
+    check('and the URL becomes that task\'s own',
+        await ev(`location.pathname`) === new URL('rosetta-code/related-one', BASE).pathname,
+        await ev(`location.pathname`));
+    check('and the line under the output names it',
+        (await ev(`document.getElementById('about-program').innerText`) ?? '').startsWith('Related one'),
+        await ev(`document.getElementById('about-program').innerText`));
+    check('and the editor holds its source',
+        (await ev(`monaco.editor.getModels()[0].getValue()`) ?? '').includes('related-one'));
+    check('and the strip no longer offers the task now being run',
+        !JSON.parse(await cards() ?? '[]').some(([title]) => title === taking));
+
+    await ev(`history.back(); true`);
+
+    check('Back returns to the task it was taken from', await ranSaying('from the notes'),
+        JSON.stringify(await ev(`document.getElementById('output').innerText`)));
+    check('and the URL goes back with it',
+        await ev(`location.pathname`) === new URL('rosetta-code/reads-files', BASE).pathname,
+        await ev(`location.pathname`));
+
+    // --- a task solved more than one way ----------------------------------
+
+    await cmd('Page.navigate', { url: new URL('rosetta-code/two-parts/01-first', BASE).toString() });
+
+    check('a part of a multi-part task opens and runs', await ranSaying('the first way'));
+
+    for (let i = 0; i < 60; i++) {
+        if (await ev(`document.querySelectorAll('#more-to-run li').length > 0`)) break;
+        await sleep(500);
+    }
+
+    const line = await ev(`document.getElementById('about-program').innerText`) ?? '';
+
+    check('the line says which part this is', line.includes('part 1 of 2'), JSON.stringify(line));
+    check('and offers the next one by name', line.includes('next: the second way'), JSON.stringify(line));
+    check('and offers no previous one from the first part', !line.includes('previous'), JSON.stringify(line));
+
+    await ev(`[...document.querySelectorAll('#about-program a')]
+        .find(a => a.textContent.startsWith('next:')).click(); true`);
+
+    check('a part link swaps the next part in and runs it', await ranSaying('the second way'),
+        JSON.stringify(await ev(`document.getElementById('output').innerText`)));
+    check('and the URL names that part',
+        await ev(`location.pathname`) === new URL('rosetta-code/two-parts/02-second', BASE).pathname,
+        await ev(`location.pathname`));
+
+    const second = await ev(`document.getElementById('about-program').innerText`) ?? '';
+
+    check('and the line now offers the previous part instead',
+        second.includes('part 2 of 2') && second.includes('previous: the first way')
+        && !second.includes('next:'), JSON.stringify(second));
+
+    // --- what a swap counts ------------------------------------------------
+
+    const swapped = JSON.parse(await ev(`JSON.stringify(window.counted ?? [])`));
+
+    check('taking a part is counted, with a pageview for the task it opened',
+        swapped.includes('rosetta-part/next')
+        && swapped.includes(new URL('rosetta-code/two-parts/02-second', BASE).pathname),
+        JSON.stringify(swapped));
+
+    // --- a phone ----------------------------------------------------------
+
+    // Measured rather than looked at: a picture does not fail CI. The bar is
+    // the one thing that must not wrap, because a second row of it takes the
+    // height from the editor on the screen that has least of it.
+    await cmd('Emulation.setDeviceMetricsOverride',
+        { width: 390, height: 780, deviceScaleFactor: 0, mobile: true });
+    await sleep(1000);
+
+    const narrow = JSON.parse(await ev(`(() => {
+        const bar = document.querySelector('header');
+        const strip = document.getElementById('more-to-run');
+        const buttons = [...document.querySelectorAll('#more-to-run li button')];
+        return JSON.stringify({
+            barHeight: bar.getBoundingClientRect().height,
+            barRow: Math.max(...[...bar.children].map(c => c.getBoundingClientRect().height)),
+            page: document.documentElement.scrollWidth,
+            window: window.innerWidth,
+            stripWidth: strip.getBoundingClientRect().width,
+            widest: Math.max(...buttons.map(b => b.getBoundingClientRect().width)),
+            cards: buttons.length
+        });
+    })()`) ?? '{}');
+
+    check('the top bar stays on one row at 390px',
+        narrow.barHeight <= narrow.barRow + 4, JSON.stringify(narrow));
+    check('and nothing makes the page scroll sideways',
+        narrow.page <= narrow.window + 1, JSON.stringify(narrow));
+    check('the strip fits the window',
+        narrow.stripWidth <= narrow.window + 1 && narrow.widest <= narrow.stripWidth,
+        JSON.stringify(narrow));
+
+    await cmd('Emulation.clearDeviceMetricsOverride');
 
     await cmd('Fetch.disable');
 

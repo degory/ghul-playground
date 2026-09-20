@@ -253,6 +253,78 @@
     #about-program a { color: inherit; }
     .notice { color: var(--warn); }
 
+    /* Three tasks to run next, under the output a reader has just watched
+       appear. Below the input row rather than above it, so the prompt stays
+       next to the output it belongs to and the strip does not move when a
+       program asks for a line. */
+    #more-to-run[hidden] { display: none; }
+
+    #more-to-run {
+      flex: none;
+      padding: 0.5rem 1rem 0.7rem;
+      border-top: 1px solid var(--border);
+    }
+
+    #more-to-run h2 {
+      margin: 0 0 0.4rem;
+      color: var(--fg-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    #more-to-run ul {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    /* Each card takes a third of the row and shrinks with it, down to a width
+       below which the titles stop being readable, at which point they wrap. */
+    #more-to-run li { flex: 1 1 11rem; min-width: 0; }
+
+    #more-to-run button {
+      display: block;
+      width: 100%;
+      height: 100%;
+      padding: 0.4rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: none;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    #more-to-run button:hover, #more-to-run button:focus-visible {
+      border-color: var(--accent);
+    }
+
+    #more-to-run .title {
+      display: block;
+      font-size: 0.8rem;
+      /* One line: a wrapped title makes the three cards different heights,
+         and the whole title is on the card's tooltip anyway. */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #more-to-run .why {
+      display: block;
+      margin-top: 0.15rem;
+      overflow: hidden;
+      color: var(--fg-muted);
+      font-size: 0.7rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     /* At the end of the tab row rather than in the header: next to the output
        a reader who pressed run is already looking at, out of the chrome, and
        above the pane rather than inside it, so a long program's output cannot
@@ -582,6 +654,17 @@
         <input id="stdin" type="text" autocomplete="off" autocapitalize="off"
                spellcheck="false" aria-label="Input for the running program">
       </form>
+
+      <!-- Three other Rosetta Code tasks to run, filled in once a program has
+           run for the first time. A reader who arrived at one task from the
+           wiki has no way to another from here, and going back to the wiki and
+           clicking through is a whole page load for something the page already
+           has the runtime warm for. Last in the pane so that it is genuinely
+           below everything the run produced. -->
+      <div id="more-to-run" hidden>
+        <h2>More to run</h2>
+        <ul></ul>
+      </div>
     </div>
 
     <!-- Over the editor and the pane rather than inside either. A picture
