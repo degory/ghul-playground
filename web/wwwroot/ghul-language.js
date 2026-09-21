@@ -5,6 +5,10 @@
 export const GHUL_LANGUAGE = {
     defaultToken: '',
 
+    // Compiles every rule below with the regular-expression unicode flag,
+    // which the property escapes they use need.
+    unicode: true,
+
     // Split exactly as the VS Code extension's TextMate grammar splits it, so
     // the same word is the same colour whether it is being read on ghul.dev,
     // edited here, or opened in an editor: control flow is one colour and
@@ -37,14 +41,26 @@ export const GHUL_LANGUAGE = {
     constants: ['true', 'false', 'null'],
 
     // A run of operator characters scans as one token in ghūl, so match
-    // greedily rather than character by character.
-    symbols: /[=><!~?:&|+\-*\/^%\\.]+/,
+    // greedily rather than character by character. The characters are the
+    // ASCII set and any non-ASCII character Unicode classes as a symbol, so
+    // × and ∪ are operators; the backtick is the identifier escape
+    // rather than an operator, and is left out.
+    symbols: /(?:[=><!~?:&|+\-*\/^%\\.]|(?=[^\x00-\x7F])\p{S})+/u,
+
+    // A letter of any script starts an identifier, and a letter, a digit, a
+    // combining mark or a connecting punctuation mark continues one. A letter
+    // is never a symbol, so an identifier and an operator never overlap.
+    identifierStart: /[\p{L}\p{Nl}_$]/u,
+    identifierPart: /[\p{L}\p{Nl}\p{Nd}\p{Mn}\p{Mc}\p{Pc}$]/u,
 
     tokenizer: {
         root: [
-            [/[A-Z][A-Z0-9_]*\b/, 'type.identifier'],
+            // A name in upper case throughout is a type by convention. The
+            // trailing look-ahead is what `\b` was doing, spelled so that it
+            // holds for a letter outside the ASCII word characters too.
+            [/\p{Lu}[\p{Lu}\p{Nd}_]*(?!@identifierPart)/u, 'type.identifier'],
 
-            [/[a-zA-Z_$][\w$]*/, {
+            [/@identifierStart@identifierPart*/, {
                 cases: {
                     '@controlKeywords': 'keyword.control',
                     '@keywords': 'keyword',

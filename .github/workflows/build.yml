@@ -129,6 +129,9 @@ jobs:
       - name: Check how a command line is written and read back
         run: node test/arguments.mjs
 
+      - name: Check what the editor reads as a name and as an operator
+        run: node test/language-patterns.mjs
+
       - name: Check what the analytics snapshot keeps and drops
         run: test/snapshot-rules.sh
 
