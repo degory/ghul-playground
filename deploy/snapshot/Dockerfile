@@ -5,7 +5,7 @@
 # image either: this reads the one file on the host that cannot be rebuilt, so
 # the less in here the better.
 
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache sqlite
 
