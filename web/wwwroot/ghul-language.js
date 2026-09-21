@@ -53,8 +53,14 @@ export const GHUL_LANGUAGE = {
     identifierStart: /[\p{L}\p{Nl}_$]/u,
     identifierPart: /[\p{L}\p{Nl}\p{Nd}\p{Mn}\p{Mc}\p{Pc}$]/u,
 
+    // A backtick escapes what follows it, so a name that would read as a
+    // keyword, as a numeric literal or as an operator is read as a name.
+    escapedName: /`(?:@identifierPart+|@symbols)/,
+
     tokenizer: {
         root: [
+            [/@escapedName/, 'identifier'],
+
             // A name in upper case throughout is a type by convention. The
             // trailing look-ahead is what `\b` was doing, spelled so that it
             // holds for a letter outside the ASCII word characters too.
