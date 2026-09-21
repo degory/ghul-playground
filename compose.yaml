@@ -316,7 +316,7 @@ services:
 
   node-exporter:
     <<: *hardening
-    image: prom/node-exporter:v1.9.1
+    image: prom/node-exporter:v1.12.1
 
     command:
       - --path.rootfs=/host
