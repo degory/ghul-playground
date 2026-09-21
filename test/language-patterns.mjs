@@ -40,6 +40,25 @@ for (const text of ['`', 'a', 'é', '1']) {
     check(`${text} is not an operator`, !whole(GHUL_LANGUAGE.symbols, text));
 }
 
+// Monarch expands an `@name` reference to that attribute's source before it
+// compiles a rule, including inside another attribute. Expanded here the same
+// way, so what is checked is the character classes rather than the expansion.
+const expand = pattern => new RegExp(
+    pattern.source.replace(/@(\w+)/g, (_, name) => `(?:${GHUL_LANGUAGE[name].source})`),
+    'u');
+
+const escaped = expand(GHUL_LANGUAGE.escapedName);
+
+// An operator used as a value is escaped the same way a keyword is, so a
+// non-ASCII operator escapes too.
+for (const text of ['`class', '`0', '`+', '`=~', '`caf\u00e9', '`\u00d7']) {
+    check(`${text} is an escaped name`, whole(escaped, text));
+}
+
+for (const text of ['class', '`', '`(', '``']) {
+    check(`${text} is not an escaped name`, !whole(escaped, text));
+}
+
 check('the grammar asks for unicode regular expressions', GHUL_LANGUAGE.unicode === true);
 
 console.log(failures ? `${failures} check(s) failed` : 'all checks passed');
