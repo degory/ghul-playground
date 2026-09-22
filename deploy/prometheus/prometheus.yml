@@ -28,12 +28,12 @@ scrape_configs:
       - targets: ['cadvisor:8080']
 
     metric_relabel_configs:
-      # cAdvisor reports each container under its cgroup path, which for Docker
-      # is `/system.slice/docker-<id>.scope`. Without a name from Docker's own
-      # API the id is what there is, so it is lifted into a label of its own and
-      # shortened to the twelve characters `docker ps` prints.
+      # cAdvisor reports each container under its cgroup path. Each service in
+      # compose.yaml sets cgroup_parent to a slice named after it, so the path
+      # is `/playground-<service>.slice/docker-<id>.scope` and the service name
+      # is read straight out of it: no Docker API is needed for a name.
       - source_labels: [id]
-        regex: '.*docker[-/]([0-9a-f]{12})[0-9a-f]*(\.scope)?'
+        regex: '.*/playground-([a-z-]+)\.slice/docker[-/][0-9a-f]+(\.scope)?'
         target_label: container
         replacement: '$1'
 

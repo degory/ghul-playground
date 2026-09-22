@@ -420,13 +420,15 @@ writer on the only irreplaceable thing on this host.
 cAdvisor runs **without the Docker socket**. The usual recipe mounts it, which
 is root on this machine for anything that gets into that container.
 
-What that costs is the container's *name*. cAdvisor learns names from Docker's
-API, and its Docker factory wants containerd's socket as well, so a read-only
-proxy in front of the Docker socket does not buy them either - both were tried.
-Reading the cgroups directly still gives a series per container, keyed by the
-cgroup path, which carries the container's id; Prometheus lifts the first twelve
-characters out of it into a `container` label, which is what `docker ps` prints,
-so matching one to a service is one command on the host.
+What that would cost is the container's *name*. cAdvisor learns names from
+Docker's API, and its Docker factory wants containerd's socket as well, so a
+read-only proxy in front of the Docker socket does not buy them either - both
+were tried. Reading the cgroups directly gives a series per container keyed by
+the cgroup path, and the name is put into that path instead: every service sets
+`cgroup_parent` to a slice named after itself, so a container's cgroup is
+`/playground-<service>.slice/docker-<id>.scope`, and Prometheus lifts the
+service name out of it into the `container` label. The name is stable across
+deploys, where the id changes with every one.
 
 `--docker_only` is deliberately **not** set. It reports only containers cAdvisor
 identified through Docker, which without those sockets is none: it reported a
