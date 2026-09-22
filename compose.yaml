@@ -39,6 +39,7 @@ networks:
 services:
   compile:
     <<: *hardening
+    cgroup_parent: playground-compile.slice
     build:
       context: .
       dockerfile: compile-service/Dockerfile
@@ -99,6 +100,7 @@ services:
 
   analyse:
     <<: *hardening
+    cgroup_parent: playground-analyse.slice
     build:
       context: .
       dockerfile: analyse-service/Dockerfile
@@ -155,6 +157,7 @@ services:
 
   goatcounter:
     <<: *hardening
+    cgroup_parent: playground-goatcounter.slice
     build:
       context: goatcounter
       dockerfile: Dockerfile
@@ -193,6 +196,7 @@ services:
   # this repository - see deploy/snapshot/snapshot.sh.
   snapshot:
     <<: *hardening
+    cgroup_parent: playground-snapshot.slice
     build:
       context: deploy/snapshot
       dockerfile: Dockerfile
@@ -225,6 +229,7 @@ services:
   # under /stats/insights/ with a login.
   grafana:
     <<: *hardening
+    cgroup_parent: playground-grafana.slice
     build:
       context: deploy/grafana
       dockerfile: Dockerfile
@@ -290,6 +295,7 @@ services:
 
   prometheus:
     <<: *hardening
+    cgroup_parent: playground-prometheus.slice
     build:
       context: deploy/prometheus
       dockerfile: Dockerfile
@@ -316,6 +322,7 @@ services:
 
   node-exporter:
     <<: *hardening
+    cgroup_parent: playground-node-exporter.slice
     image: prom/node-exporter:v1.12.1
 
     command:
@@ -342,6 +349,7 @@ services:
   # per-container processor and memory numbers this is here for.
   cadvisor:
     <<: *hardening
+    cgroup_parent: playground-cadvisor.slice
     image: gcr.io/cadvisor/cadvisor:v0.55.1
 
     command:
