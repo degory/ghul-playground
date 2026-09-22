@@ -313,7 +313,7 @@ jobs:
       # is read from the test suite beside them rather than restated here.
       - uses: actions/checkout@v7
         with:
-          repository: degory/ghul-dev
+          repository: ghul-lang/ghul-dev
           path: ghul-dev
 
       - name: Check the corpus carries its expectations
@@ -454,7 +454,7 @@ jobs:
           version=$(grep -oP '^ARG GHUL_LANGUAGE_SERVER_VERSION=\K.+' analyse-service/Dockerfile)
 
           npm install -g --no-audit --no-fund \
-            "https://github.com/degory/ghul-vsce/releases/download/v${version}/ghul-language-server-${version}.tgz"
+            "https://github.com/ghul-lang/ghul-vsce/releases/download/v${version}/ghul-language-server-${version}.tgz"
 
           server="$(npm prefix -g)/bin/ghul-language-server"
 
