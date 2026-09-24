@@ -263,6 +263,9 @@
        `margin-left: auto` puts it there and leaves the timing beside it. */
     #task-identity[hidden] { display: none; }
 
+    /* As a panel on a page that already says what this is. */
+    html[data-panel] #help-toggle { display: none; }
+
     #task-identity {
       margin: 0 0 0 auto;
       min-width: 0;
@@ -405,7 +408,8 @@
       z-index: 15;
       display: flex;
       flex-direction: column;
-      background: var(--bg);
+      background: color-mix(in srgb, var(--bg) 75%, transparent);
+      backdrop-filter: blur(0.7px);
     }
 
     #images[hidden] { display: none; }
@@ -455,17 +459,14 @@
       min-width: 0;
     }
 
-    /* A light ground whichever theme is in use: an image carries no alpha, so
-       what shows through is nothing, and a plot drawn in dark ink on the white
-       it starts as would be invisible against a dark panel. */
+    /* No ground of its own: the picture is the whole of it, and the code
+       behind the panel showing around it is what says there is a program
+       here. An image carries no alpha, so nothing shows through the picture
+       itself. */
     #images-grid .frame {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 0.5rem;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: #f6f7f9;
       overflow: auto;
     }
 
@@ -486,6 +487,15 @@
       height: auto;
       margin: 0 auto;
     }
+
+    /* Small: half the shelf, so the code around the picture stays readable
+       and the picture reads as something on top of it rather than instead of
+       it. */
+    #images[data-size="small"] #images-grid img {
+      width: min(60%, calc(var(--shelf, 70vh) * 0.5 * var(--aspect, 1.5)));
+    }
+
+    #images[data-size="small"] #images-grid figure { align-items: center; }
 
     /* Actual size: one per row, and the frame scrolls rather than the drawing
        shrinking, which is what a reader looking for a detail asked for. */
