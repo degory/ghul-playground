@@ -53,6 +53,17 @@
       src: url('https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/woff2/FiraCode-VF.woff2') format('woff2');
     }
   </style>
+  <!-- The theme the framing page named in the address, applied before the
+       first paint: the page's own switch is told to this document only once
+       its script runs, and a panel that painted dark and then went light
+       would flicker on every load. -->
+  <script>
+    (function () {
+      var theme = new URLSearchParams(location.search).get('theme');
+
+      if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+    })();
+  </script>
   <link rel="stylesheet" href="chrome.css">
   <link rel="stylesheet" href="vs/editor/editor.main.css">
   <script src="vs/loader.js"></script>
