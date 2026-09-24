@@ -25,6 +25,10 @@ const analyser = document.getElementById('analyser');
 const analyserText = document.getElementById('analyser-text');
 const diagnosticsPane = document.getElementById('diagnostics');
 const outputPane = document.getElementById('output');
+
+// The note a stop leaves for the reload it makes, so the page comes back with
+// the program not running rather than running again.
+const STOPPED_KEY = 'ghul-playground-stopped';
 const problemCount = document.getElementById('problem-count');
 
 const STATUS_TEXT = {
@@ -949,6 +953,11 @@ runButton.addEventListener('click', () => {
     // run that is always uncounted.
     countOutcome('stopped');
 
+    // The page comes back to the same address, and a program named by the
+    // address runs on arrival - which would start again what was just stopped.
+    // The reload is told apart from an arrival by a note left for it.
+    try { sessionStorage.setItem(STOPPED_KEY, '1'); } catch {}
+
     location.reload();
 });
 
@@ -984,8 +993,25 @@ playground.editor.addCommand(
 
 // A link to a program is a request to see it run, so it runs on arrival -
 // unless it cannot run here, which the notice above already says, or a token
-// is wanted and the reader has not given one.
-if (program?.source && !notice && (playground.hasToken() || !(await playground.tokenRequired()))) {
+// is wanted and the reader has not given one, or this is the reload that
+// stopping it made, which is a request to see it not run.
+const stoppedBefore = (() => {
+    try {
+        const stopped = sessionStorage.getItem(STOPPED_KEY) !== null;
+
+        sessionStorage.removeItem(STOPPED_KEY);
+
+        return stopped;
+    } catch {
+        return false;
+    }
+})();
+
+if (stoppedBefore) {
+    outputPane.replaceChildren(Object.assign(document.createElement('span'),
+        { className: 'empty', textContent: 'Stopped. Run the program to start it again.' }));
+    showTab(outputPane);
+} else if (program?.source && !notice && (playground.hasToken() || !(await playground.tokenRequired()))) {
     runProgram({ automatic: true });
 }
 
