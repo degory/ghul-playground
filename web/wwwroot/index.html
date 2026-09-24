@@ -408,8 +408,7 @@
       z-index: 15;
       display: flex;
       flex-direction: column;
-      background: color-mix(in srgb, var(--bg) 82%, transparent);
-      backdrop-filter: blur(2px);
+      background: color-mix(in srgb, var(--bg) 78%, transparent);
     }
 
     #images[hidden] { display: none; }
@@ -494,6 +493,8 @@
     #images[data-size="small"] #images-grid img {
       width: min(60%, calc(var(--shelf, 70vh) * 0.5 * var(--aspect, 1.5)));
     }
+
+    #images[data-size="small"] #images-grid figure { align-items: center; }
 
     /* Actual size: one per row, and the frame scrolls rather than the drawing
        shrinking, which is what a reader looking for a detail asked for. */
