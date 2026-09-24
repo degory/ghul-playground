@@ -3,8 +3,10 @@
    so the two cannot drift apart. */
 
 /* Light is the default and dark follows the reader's system setting, the
-   same way ghul.dev does. The editor theme is switched to match in each page's script:
-   chrome and editor have to move together or the page looks broken. */
+   same way ghul.dev does - unless the page framing this one says otherwise,
+   through data-theme, so that the panel follows the site's own switch. The
+   editor theme is switched to match in each page's script: chrome and editor
+   have to move together or the page looks broken. */
 :root {
   color-scheme: light dark;
 
@@ -21,8 +23,13 @@
   --mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* The dark values, under the system setting unless overridden, and under the
+   override. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1e1e1e;
     --bg-raised: #252526;
     --fg: #e6edf3;
@@ -34,6 +41,19 @@
     --bad: #f85149;
     --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #1e1e1e;
+  --bg-raised: #252526;
+  --fg: #e6edf3;
+  --fg-muted: #9198a1;
+  --border: #3c3c3c;
+  --accent: #4daafc;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
 
 * { box-sizing: border-box; }

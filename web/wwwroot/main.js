@@ -344,6 +344,13 @@ document.addEventListener('keydown', event => {
 
 const darkMode = window.matchMedia('(prefers-color-scheme: dark)');
 
+// The system setting, unless the page framing this one has said which theme
+// it is showing - it has a switch of its own, and a panel that ignored it
+// would sit dark in a light page.
+const isDark = () => document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === 'dark'
+    : darkMode.matches;
+
 // The editor's content survives the tab: saved on edit, restored on load.
 // Storage can be unavailable (private windows, blocked site data), in which
 // case the page behaves as it always did and starts from the default source.
@@ -436,7 +443,7 @@ const initialSource = program?.source ?? savedSource;
 
 const playground = await createPlayground({
     container: document.getElementById('editor'),
-    theme: darkMode.matches ? 'vs-dark' : 'vs',
+    theme: isDark() ? 'vs-dark' : 'vs',
     ...(initialSource ? { source: initialSource } : {}),
     files: program?.files ?? [],
 
@@ -571,8 +578,20 @@ playground.editor.onDidFocusEditorText(() => playground.wakeAnalyser());
 playground.editor.onDidChangeCursorPosition(() => playground.wakeAnalyser());
 
 // Chrome and editor have to move together, or one of them looks broken.
-darkMode.addEventListener('change', event =>
-    playground.setTheme(event.matches ? 'vs-dark' : 'vs'));
+darkMode.addEventListener('change', () => playground.setTheme(isDark() ? 'vs-dark' : 'vs'));
+
+// The framing page's theme, asked for once this page can hear the answer and
+// sent again whenever its switch moves.
+if (panel) {
+    window.addEventListener('message', event => {
+        if (event.origin !== location.origin || event.data?.ghul !== 'theme') return;
+
+        document.documentElement.dataset.theme = event.data.dark ? 'dark' : 'light';
+        playground.setTheme(isDark() ? 'vs-dark' : 'vs');
+    });
+
+    window.parent.postMessage({ ghul: 'theme?' }, location.origin);
+}
 
 status.textContent = 'compiler';
 compiler.dataset.state = 'ready';
