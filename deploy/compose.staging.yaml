@@ -1,0 +1,66 @@
+# The deployed arrangement, on a development box, behind nginx.
+#
+# An overlay on the root compose.yaml rather than a file of its own: the compile
+# and analyse services staging runs are the ones production runs, built the same
+# way from the same definitions, and only what is genuinely about the host
+# differs. What this adds is the reverse proxy, which on the real host is not a
+# container at all, so that a preview is reached at one origin serving exactly
+# what ghul.dev serves.
+#
+#   STAGING_ROOT=... docker compose -f compose.yaml -f deploy/compose.staging.yaml up -d compile analyse nginx
+#
+# scripts/staging.sh in the workspace drives it; nothing here is used by the
+# deployment.
+
+services:
+  compile:
+    environment:
+      # Staging is one origin and it is the only one that may drive the
+      # services. Unset would mean any, which is the local-development posture
+      # and too loose once this is reachable through a tunnel.
+      ALLOWED_ORIGINS: "${STAGING_ORIGIN:-http://localhost:8080}"
+
+  analyse:
+    environment:
+      ALLOWED_ORIGINS: "${STAGING_ORIGIN:-http://localhost:8080}"
+
+  nginx:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.staging-nginx
+    image: ghul-staging-nginx
+    restart: unless-stopped
+
+    depends_on:
+      - compile
+      - analyse
+
+    ports:
+      # Loopback only. The tunnel is the way in, and there is no TLS here
+      # because the tunnel is the encryption.
+      - "127.0.0.1:${STAGING_PORT:-8080}:80"
+
+    volumes:
+      # What the site's deploy and the playground's deploy each put on the host,
+      # put here by scripts/staging.sh instead. Read-only: nginx serves them and
+      # nothing in the container writes them.
+      - "${STAGING_ROOT:?STAGING_ROOT must name the staging root}/site:/srv/site:ro"
+      - "${STAGING_ROOT}/playground:/srv/playground:ro"
+
+      # Derived from deploy/nginx/ghul.dev.conf by deploy/staging-nginx.sh, so
+      # there is one configuration and staging cannot drift from production.
+      - "${STAGING_ROOT}/nginx/default.conf:/etc/nginx/http.d/default.conf:ro"
+
+      # The zones and maps the site configuration refers to, which live in the
+      # http context and so cannot be inside it.
+      - "./deploy/nginx/playground-limits.conf:/etc/nginx/http.d/00-playground-limits.conf:ro"
+
+      # `geo` includes this by a literal path. Empty here: the exclusion list
+      # describes whoever runs the real site, and staging counts nothing.
+      - "${STAGING_ROOT}/nginx/analytics-exclude.conf:/etc/nginx/analytics-exclude.conf:ro"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

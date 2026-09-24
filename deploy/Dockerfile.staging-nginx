@@ -1,0 +1,23 @@
+# nginx with the one module the deployed configuration needs.
+#
+# The host installs libnginx-mod-http-brotli-static, so `brotli_static` is an
+# ordinary directive there and an unknown one in a stock image. Staging serves
+# the deployed configuration unaltered, so it needs the module rather than an
+# edit that would make it a different configuration - and a client offering
+# brotli and not gzip is otherwise served the uncompressed file, which is most of
+# what that directive is there to prevent.
+#
+# Both come from Alpine's own packages rather than the official nginx image plus
+# a module, because a module is built against one nginx version and refuses to
+# load into another: taken from the same repository they match by construction.
+FROM alpine:3.21
+
+RUN apk add --no-cache nginx nginx-mod-http-brotli
+
+# Alpine's nginx reads /etc/nginx/http.d; the module package drops its
+# load_module line in /etc/nginx/modules, which that nginx.conf already includes.
+RUN mkdir -p /etc/nginx/http.d && rm -f /etc/nginx/http.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
