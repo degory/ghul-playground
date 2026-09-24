@@ -119,6 +119,14 @@ function showTab(panel) {
     showTaskLabels();
 }
 
+// The page as a panel inside another: ghul.dev frames it on a task's own page,
+// where that page already says which task this is and offers the others. The
+// links that would say the same thing again, and the help that describes the
+// playground as a site, are left out; the playground itself is unchanged.
+const panel = new URLSearchParams(location.search).has('panel');
+
+if (panel) document.documentElement.dataset.panel = '';
+
 // Filled in once the program is known, and emptied when the buffer stops
 // being that program.
 const taskIdentity = document.getElementById('task-identity');
@@ -271,16 +279,31 @@ function showImages(list) {
 imagesToggle.addEventListener('click', () => { imagesPane.hidden = !imagesPane.hidden; });
 document.getElementById('images-close').addEventListener('click', () => { imagesPane.hidden = true; });
 
-// Fit is the useful default and actual size is the one a reader asks for when
-// a detail matters, so the button says which it would switch to.
-imagesSize.addEventListener('click', () => {
-    const actual = imagesPane.dataset.size === 'actual';
+// Three sizes, stepped through in turn, and the button says which comes next.
+// Fit is the useful default; actual size is the one a reader asks for when a
+// detail matters; small leaves the code showing around the picture, which is
+// where a panel starts so that a reader who arrived for the picture can see
+// there is a program behind it.
+const IMAGE_SIZES = [
+    { size: 'small', label: 'Small', title: 'Show the images small, with the code around them' },
+    { size: 'fit', label: 'Fit', title: 'Scale the images to fit' },
+    { size: 'actual', label: 'Actual size', title: 'Show the images at their own size' },
+];
 
-    imagesPane.dataset.size = actual ? 'fit' : 'actual';
-    imagesSize.textContent = actual ? 'Fit' : 'Actual size';
-    imagesSize.title = actual
-        ? 'Show the images at their own size'
-        : 'Scale the images to fit';
+function showImagesAt(size) {
+    const next = IMAGE_SIZES[(IMAGE_SIZES.findIndex(s => s.size === size) + 1) % IMAGE_SIZES.length];
+
+    imagesPane.dataset.size = size;
+    imagesSize.textContent = next.label;
+    imagesSize.title = next.title;
+}
+
+showImagesAt(panel ? 'small' : 'fit');
+
+imagesSize.addEventListener('click', () => {
+    const at = IMAGE_SIZES.findIndex(s => s.size === imagesPane.dataset.size);
+
+    showImagesAt(IMAGE_SIZES[(at + 1) % IMAGE_SIZES.length].size);
 });
 
 // --- full screen ----------------------------------------------------------
@@ -640,7 +663,7 @@ function renderIdentity() {
 
     // Keyed on provenance rather than on what was loaded: once the buffer has
     // been replaced it is no longer that task, and nothing here describes it.
-    if (!provenance || !program?.source) return;
+    if (panel || !provenance || !program?.source) return;
 
     const title = program.title ?? provenance.name;
 
@@ -687,7 +710,7 @@ function renderMoreToRun() {
     suggestions.replaceChildren();
     moreLinks.replaceChildren();
 
-    if (!taskIndex || !provenance) return;
+    if (panel || !taskIndex || !provenance) return;
 
     const { slug } = taskAndPart(provenance.name);
     const collection = provenance.name.split('/')[0];
