@@ -177,7 +177,7 @@ const imagesGrid = document.getElementById('images-grid');
 const imagesTitle = document.getElementById('images-title');
 const imagesToggle = document.getElementById('images-toggle');
 const imagesCount = document.getElementById('images-count');
-const imagesSize = document.getElementById('images-size');
+const imagesSizes = [...document.querySelectorAll('#images-sizes button')];
 
 const DOWNLOAD_ICON =
     '<svg viewBox="0 0 16 16" aria-hidden="true">' +
@@ -279,32 +279,42 @@ function showImages(list) {
 imagesToggle.addEventListener('click', () => { imagesPane.hidden = !imagesPane.hidden; });
 document.getElementById('images-close').addEventListener('click', () => { imagesPane.hidden = true; });
 
-// Three sizes, stepped through in turn, and the button says which comes next.
-// Fit is the useful default; actual size is the one a reader asks for when a
-// detail matters; small leaves the code showing around the picture, which is
-// where a panel starts so that a reader who arrived for the picture can see
-// there is a program behind it.
-const IMAGE_SIZES = [
-    { size: 'small', label: 'Small', title: 'Show the images small, with the code around them' },
-    { size: 'fit', label: 'Fit', title: 'Scale the images to fit' },
-    { size: 'actual', label: 'Actual size', title: 'Show the images at their own size' },
-];
-
+// Three sizes. Fit is the useful default; actual size is the one a reader asks
+// for when a detail matters; small leaves the code showing around the picture,
+// which is where a panel starts so that a reader who arrived for the picture
+// can see there is a program behind it.
 function showImagesAt(size) {
-    const next = IMAGE_SIZES[(IMAGE_SIZES.findIndex(s => s.size === size) + 1) % IMAGE_SIZES.length];
-
     imagesPane.dataset.size = size;
-    imagesSize.textContent = next.label;
-    imagesSize.title = next.title;
+
+    for (const button of imagesSizes) {
+        button.setAttribute('aria-pressed', String(button.dataset.size === size));
+    }
 }
 
 showImagesAt(panel ? 'small' : 'fit');
 
-imagesSize.addEventListener('click', () => {
-    const at = IMAGE_SIZES.findIndex(s => s.size === imagesPane.dataset.size);
+for (const button of imagesSizes) {
+    button.addEventListener('click', () => showImagesAt(button.dataset.size));
+}
 
-    showImagesAt(IMAGE_SIZES[(at + 1) % IMAGE_SIZES.length].size);
+// The pictures are all there is to look at, so a click on the space around
+// them - not on a picture, its caption or the bar - is a click to be done
+// with them, as Escape is.
+imagesGrid.addEventListener('click', event => {
+    if (event.target.closest('figure')) return;
+
+    imagesPane.hidden = true;
 });
+
+// Framed on a page, the keyboard is the page's until the reader clicks into
+// this document, so the page passes Escape on.
+if (panel) {
+    window.addEventListener('message', event => {
+        if (event.origin !== location.origin || event.data?.ghul !== 'escape') return;
+
+        dismissTopmost();
+    });
+}
 
 // --- full screen ----------------------------------------------------------
 
@@ -319,13 +329,15 @@ const help = setUpHelp(
     document.getElementById('help-close'),
     () => count('playground-action', 'help'));
 
-document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-
-    // Innermost first: the about panel sits over the images, which sit over
-    // the editor, and Escape should dismiss one layer rather than all of them.
+// Innermost first: the about panel sits over the images, which sit over the
+// editor, and Escape should dismiss one layer rather than all of them.
+function dismissTopmost() {
     if (help.open) help.close();
     else if (!imagesPane.hidden) imagesPane.hidden = true;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') dismissTopmost();
 });
 
 // --- the editor -----------------------------------------------------------

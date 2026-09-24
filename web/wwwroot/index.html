@@ -408,8 +408,7 @@
       z-index: 15;
       display: flex;
       flex-direction: column;
-      background: color-mix(in srgb, var(--bg) 75%, transparent);
-      backdrop-filter: blur(0.7px);
+      background: color-mix(in srgb, var(--bg) 55%, transparent);
     }
 
     #images[hidden] { display: none; }
@@ -428,10 +427,25 @@
 
     #images-bar button { height: 1.6rem; padding: 0 0.5rem; color: var(--fg-muted); font-size: 0.8125rem; }
 
-    #images-size {
-      border-color: var(--border);
+    /* One control with three states, the current one marked, so the bar says
+       which size the pictures are at rather than which they would go to. */
+    #images-sizes { display: flex; gap: 0; }
+    #images-sizes button {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      border: 1px solid var(--border);
+      border-radius: 0;
       background: var(--bg);
-      min-width: 5.5rem;
+    }
+    #images-sizes button:first-child { border-radius: 5px 0 0 5px; }
+    #images-sizes button:last-child { border-radius: 0 5px 5px 0; }
+    #images-sizes button + button { margin-left: -1px; }
+    #images-sizes button[aria-pressed="true"] {
+      color: var(--fg);
+      background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+      border-color: var(--accent);
+      position: relative;
     }
     #images-bar button svg { width: 14px; height: 14px; fill: currentColor; display: block; }
 
@@ -693,7 +707,20 @@
     <section id="images" hidden aria-label="Images this program drew">
       <div id="images-bar">
         <strong id="images-title">Images</strong>
-        <button id="images-size" title="Show the images at their own size">Fit</button>
+        <div id="images-sizes" role="group" aria-label="Image size">
+          <button data-size="small" title="Small, with the code around the pictures" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12v12H2V2zm1.5 1.5v9h9v-9h-9zM6 6h4v4H6V6z" /></svg>
+            Small
+          </button>
+          <button data-size="fit" title="Scale the pictures to fit" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v1.5H4.1l3 3-1.1 1.1-3-3V7.5H2V2zm7 0h5v5h-1.5V4.6l-3 3-1.1-1.1 3-3H9V2zM2 9h1.5v2.9l3-3 1.1 1.1-3 3H7.5V14H2V9zm10.5 0H14v5H9v-1.5h2.9l-3-3 1.1-1.1 3 3V9z" /></svg>
+            Fit
+          </button>
+          <button data-size="actual" title="At their own size" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12v12H2V2zm1.5 1.5v9h9v-9h-9zM5 6h1.5v4H5V6zm4.5 0H11v4H9.5V6zM7.5 6.5h1v1h-1v-1zm0 2h1v1h-1v-1z" /></svg>
+            1:1
+          </button>
+        </div>
         <span class="spacer"></span>
         <button id="images-close" title="Close (Esc)" aria-label="Close">
           <svg viewBox="0 0 16 16" aria-hidden="true">
