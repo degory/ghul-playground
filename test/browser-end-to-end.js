@@ -620,7 +620,7 @@ chrome.on('error', e => {
     // is served by the test rather than fetched, so this checks the playground
     // and not what the repository holds today. One file is reached through a
     // path outside the task's own directory, as a shared one would be.
-    const TASKS = 'https://raw.githubusercontent.com/degory/ghul-rosetta-code/main/';
+    const TASKS = 'https://raw.githubusercontent.com/ghul-lang/ghul-rosetta-code/main/';
     const reader = [
         'use IO.Std.write_line;', '', 'entry() is',
         '    for line in IO.File.read_all_lines("words.txt") do',
