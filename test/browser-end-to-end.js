@@ -621,6 +621,7 @@ chrome.on('error', e => {
     // and not what the repository holds today. One file is reached through a
     // path outside the task's own directory, as a shared one would be.
     const TASKS = 'https://raw.githubusercontent.com/ghul-lang/ghul-rosetta-code/main/';
+    const INDEX_URL = 'https://raw.githubusercontent.com/ghul-lang/ghul-rosetta-code/index/index.json';
     const reader = [
         'use IO.Std.write_line;', '', 'entry() is',
         '    for line in IO.File.read_all_lines("words.txt") do',
@@ -649,7 +650,9 @@ chrome.on('error', e => {
     await cmd('Network.enable');
     await cmd('Network.setCacheDisabled', { cacheDisabled: true });
 
-    await cmd('Fetch.enable', { patterns: [{ urlPattern: `${TASKS}*` }, { urlPattern: COUNTER }] });
+    await cmd('Fetch.enable', { patterns: [
+        { urlPattern: `${TASKS}*` }, { urlPattern: INDEX_URL }, { urlPattern: COUNTER }
+    ] });
     await cmd('Page.navigate', { url: new URL('rosetta-code/reads-files', BASE).toString() });
 
     let ready = false;
@@ -841,7 +844,7 @@ chrome.on('error', e => {
         ]
     };
 
-    intercepted.set(`${TASKS}index.json`, JSON.stringify(INDEX));
+    intercepted.set(INDEX_URL, JSON.stringify(INDEX));
 
     const says = (slug, text) => {
         intercepted.set(`${TASKS}tasks/${slug}/${slug.split('/').at(-1)}.ghul`,
