@@ -1,0 +1,140 @@
+name: Code review
+
+# A pull request that only moves version pins, raised by this repository's
+# own agent, its dependency bot or its maintainer, is approved here and set
+# to merge once CI passes; scripts/version-bump-only.sh is the whole of that
+# test, and it is read from the base commit so the change it judges cannot
+# rewrite it. Every other pull request gets the model review, whose brief is
+# .github/claude-review.md. A review can also be dispatched manually for one
+# pull request, from its head branch so the review reads that branch's tree.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+    branches: [ main ]
+
+  workflow_dispatch:
+    inputs:
+      pull-request-number:
+        description: "Number of the pull request to review. Dispatch from the pull request's head branch, so the review reads that branch's tree. The run ignores the content-fingerprint and dependency-bot short-circuits and reviews the PR in full."
+        required: true
+        type: string
+
+jobs:
+  scope:
+    name: Decide whether the change is a version bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      bump_only: ${{ steps.scope.outputs.bump_only }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        fetch-depth: 0
+
+    - name: Test the diff
+      id: scope
+      env:
+        AUTHOR: ${{ github.event.pull_request.user.login }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        set -eu
+
+        case "$AUTHOR" in
+            ghul-coder\[bot\]|renovate\[bot\]|degory) ;;
+            *)
+                echo "raised by $AUTHOR, not eligible"
+                echo "bump_only=false" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+        esac
+
+        git fetch -q origin "$HEAD_SHA"
+
+        if scripts/version-bump-only.sh "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA" ; then
+            echo "bump_only=true" >> "$GITHUB_OUTPUT"
+        else
+            echo "bump_only=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: actions/create-github-app-token@v2
+      id: app-token
+      with:
+        app-id: ${{ vars.GHUL_REVIEWER_APP_ID }}
+        private-key: ${{ secrets.GHUL_REVIEWER_PRIVATE_KEY }}
+
+    # Approve as the reviewer App, whose approval counts towards branch
+    # protection, and merge once the required checks pass.
+    - name: Approve and enable auto-merge
+      if: steps.scope.outputs.bump_only == 'true'
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        MERGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -eu
+
+        gh pr review "$PR" --repo "$REPO" --approve \
+            --body 'Version pins only: checked by scripts/version-bump-only.sh, so the model was not run. CI decides whether the new versions work.'
+
+        GH_TOKEN="$MERGE_TOKEN" gh pr merge "$PR" --repo "$REPO" --auto --squash
+
+    # Stale approvals are not dismissed on this repository, so a pull request
+    # that stops being version-only after a push would otherwise keep the
+    # approval above.
+    - name: Withdraw an earlier version-bump approval
+      if: steps.scope.outputs.bump_only != 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -eu
+
+        gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+            --jq '.[] | select(.state == "APPROVED" and (.body | startswith("Version pins only:"))) | .id' |
+        while read -r id ; do
+            gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
+                -f message='No longer version pins only.' -f event=DISMISS > /dev/null
+        done
+
+  code_review:
+    name: Code review
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.bump_only != 'true' && (github.event_name == 'workflow_dispatch' || ((github.event.action != 'edited' || github.event.changes.body != null) && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository)) }}
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: claude-review-${{ github.event.pull_request.number || inputs.pull-request-number }}
+      cancel-in-progress: true
+    uses: ghul-lang/ghul-code-review/.github/workflows/review.yml@v11
+    with:
+      pull-request-number: ${{ inputs.pull-request-number }}
+      runner: ubuntu-latest
+      provider: ${{ vars.CODE_REVIEW_PROVIDER }}
+      idle-timeout-seconds: ${{ fromJSON(vars.CLAUDE_REVIEW_IDLE_TIMEOUT_SECONDS || '180') }}
+      max-attempts: ${{ fromJSON(vars.CLAUDE_REVIEW_MAX_ATTEMPTS || '1') }}
+      gh-app-id: ${{ vars.GHUL_REVIEWER_APP_ID }}
+      ghul-reference: true
+      require-description-section: false
+      dependency-fast-path: false
+      maintainer-review: true
+      prompt: |
+        Review pull request #${{ inputs.pull-request-number || github.event.pull_request.number }} on ${{ github.repository }}.
+
+        You run in parallel with CI. Whether the services build and the examples compile and run is gated by CI before merge - that's not your job. Trust the diff as written.
+
+        Read these files first, in order:
+        1. .github/claude-review.md - what this repo is, and which changes need the maintainer
+        2. GHUL.md - ghūl language reference, consult as needed while reading the diff
+    secrets:
+      claude-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh-app-private-key: ${{ secrets.GHUL_REVIEWER_PRIVATE_KEY }}
