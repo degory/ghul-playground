@@ -1,17 +1,16 @@
 // The Rosetta Code task index, and what to suggest running next.
 //
 // The index is ghul-rosetta-code's own `index.json`, generated from the tasks
-// and checked in that repository's CI, so it cannot drift from what is there to
-// run. It is fetched once, lazily, from the same place the sources come from,
-// and a fetch that fails leaves the page exactly as it was: the strip is an
+// on each push to its main and published on a branch holding nothing else, so
+// it cannot drift from what is there to run. It is fetched once, lazily, and a
+// fetch that fails leaves the page exactly as it was: the strip is an
 // offer, and an offer that cannot be made is not an error.
 //
 // Nothing here touches the document. What to suggest is a decision about data,
 // and keeping it separate is what lets it be tested without a browser.
 
-import { ROSETTA_CODE_ROOT } from './collections.js'
-
-const INDEX_URL = `${ROSETTA_CODE_ROOT}index.json`;
+const INDEX_URL =
+    'https://raw.githubusercontent.com/ghul-lang/ghul-rosetta-code/index/index.json';
 
 // Tasks whose point is a picture. Derived rather than stored, so there is one
 // fewer field to fall out of step with the tasks: a task that produces images,

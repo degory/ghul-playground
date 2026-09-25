@@ -141,7 +141,7 @@ The reference assemblies user code can name are listed in
 ## opening a program by path
 
 `/rosetta-code/<slug>` opens a solution from
-[ghul-rosetta-code](https://github.com/degory/ghul-rosetta-code) in the editor,
+[ghul-rosetta-code](https://github.com/ghul-lang/ghul-rosetta-code) in the editor,
 and `/rosetta-code/<slug>/<NN-part>` opens one part of a task solved more than
 one way. The page fetches the source from `raw.githubusercontent.com` in the
 reader's browser, so nothing about the solutions is built into the site. The
