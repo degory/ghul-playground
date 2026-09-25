@@ -191,7 +191,7 @@ chrome.on('error', e => {
     // Diagnostics as you type: break the program and wait for a marker.
     const broken = [
         'use IO.Std.write_line;', '', 'entry() is',
-        '    let squares = [1, 2, 3] | .map(n => n * n) | .collect_list();',
+        '    let squares = [1, 2, 3] | .map(n => n * n) | .collect_mutable();',
         '    write_line("{squares.no_such_member}");', 'si', ''
     ].join('\n');
 
@@ -221,7 +221,7 @@ chrome.on('error', e => {
     // Completion.
     await ev(`(() => {
         const editor = monaco.editor.getEditors()[0];
-        editor.getModel().setValue('use IO.Std.write_line;\\n\\nentry() is\\n    let xs = [1, 2, 3] | .collect_list();\\n    xs.\\nsi\\n');
+        editor.getModel().setValue('use IO.Std.write_line;\\n\\nentry() is\\n    let xs = [1, 2, 3] | .collect_mutable();\\n    xs.\\nsi\\n');
         editor.setPosition({ lineNumber: 5, column: 8 });
         return true;
     })()`);
