@@ -1,10 +1,10 @@
 name: Code review
 
 # A pull request that only moves version pins, raised by this repository's
-# own agent, its dependency bot or its maintainer, is approved here and set
-# to merge once CI passes; scripts/version-bump-only.sh is the whole of that
-# test, and it is read from the base commit so the change it judges cannot
-# rewrite it. Every other pull request gets the model review, whose brief is
+# own agent, its dependency bot or its maintainer, is approved here without
+# running the model; scripts/version-bump-only.sh is the whole of that test,
+# and it is read from the base commit so the change it judges cannot rewrite
+# it. Every other pull request gets the model review, whose brief is
 # .github/claude-review.md. A review can also be dispatched manually for one
 # pull request, from its head branch so the review reads that branch's tree.
 on:
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
     outputs:
       bump_only: ${{ steps.scope.outputs.bump_only }}
@@ -70,12 +70,14 @@ jobs:
         private-key: ${{ secrets.GHUL_REVIEWER_PRIVATE_KEY }}
 
     # Approve as the reviewer App, whose approval counts towards branch
-    # protection, and merge once the required checks pass.
-    - name: Approve and enable auto-merge
+    # protection. Auto-merge is armed by whoever raised the pull request, not
+    # here: a merge armed with this workflow's token is attributed to it, and
+    # GitHub starts no workflow run for a push that token causes, so the
+    # deploy after the merge would never run.
+    - name: Approve
       if: steps.scope.outputs.bump_only == 'true'
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        MERGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
       run: |
@@ -83,8 +85,6 @@ jobs:
 
         gh pr review "$PR" --repo "$REPO" --approve \
             --body 'Version pins only: checked by scripts/version-bump-only.sh, so the model was not run. CI decides whether the new versions work.'
-
-        GH_TOKEN="$MERGE_TOKEN" gh pr merge "$PR" --repo "$REPO" --auto --squash
 
     # Stale approvals are not dismissed on this repository, so a pull request
     # that stops being version-only after a push would otherwise keep the
